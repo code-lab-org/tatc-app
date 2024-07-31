@@ -17,15 +17,15 @@
 
 # -- Project information -----------------------------------------------------
 
-project = "TAT-C"
+project = "TAT-C Application"
 copyright = "2024, Stevens Institute of Technology"
 author = "Stevens Institute of Technology"
 
 # The full version, including alpha/beta/rc tags
 
-import tatc
+import tatc_app
 
-release = tatc.__version__
+release = tatc_app.__version__
 
 
 # -- General configuration ---------------------------------------------------
@@ -34,6 +34,7 @@ release = tatc.__version__
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
+    "myst_nb",
     "sphinx.ext.autodoc",
     "sphinx.ext.doctest",
     "sphinx.ext.intersphinx",
@@ -44,9 +45,7 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.githubpages",
     "sphinx.ext.napoleon",
-    "nbsphinx",
     "sphinxcontrib.autodoc_pydantic",
-    "myst_parser",
 ]
 
 napoleon_google_docstring = True
@@ -64,9 +63,6 @@ autodoc_pydantic_model_show_json = True
 autodoc_pydantic_model_show_config = False
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
-    "shapely": ("https://shapely.readthedocs.io/en/stable/", None),
-    "geopandas": ("https://geopandas.org/en/stable/", None),
-    "pandas": ("https://pandas.pydata.org/docs/", None),
 }
 
 # Add any paths that contain templates here, relative to this directory.

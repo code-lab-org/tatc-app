@@ -3,9 +3,9 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
-from ..main import app
-from ..utils.users import current_active_user
-from ..utils.schemas import UserRead
+from tatc_app.main import app
+from tatc_app.utils.users import current_active_user
+from tatc_app.utils.schemas import UserRead
 
 
 class TatcTestCase(unittest.TestCase):

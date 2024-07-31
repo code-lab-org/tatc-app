@@ -120,7 +120,7 @@ Specify the connection strings for both in the `.env` file as described above.
 Next, install the additional web application dependencies by installing tatc
 with the optional `app` dependency flag from the [TAT-C repository](https://github.com/code-lab-org/tatc):
 ```shell
-pip install -e .[app]
+pip install -e .
 ```
 
 To start the TAT-C server application, run the command:
@@ -139,3 +139,34 @@ that Celery does not currently support concurrency on Windows. Try using the
 ```shell
 celery -A tatc_app.worker worker --loglevel=INFO --pool=solo
 ```
+
+## Development Tools
+
+Development tools are applicable when working with the source code.
+
+### Documentation
+
+Generate documentation from the `docs` directory using the command:
+```shell
+make html
+```
+
+### Code Style
+
+This project uses the black code style, applied from the project root:
+```shell
+black .
+```
+
+## Contact
+
+Paul T. Grogan <paul.grogan@asu.edu>
+
+## Acknowledgements
+
+This project was supported in part by the National Aeronautics and Space
+Administration (NASA) Earth Science Division (ESD) Earth Science Technology
+Office (ESTO) Advanced Information Systems Technology (AIST) program under
+grant numbers: NNX17AE06G, 80NSSC17K0586, 80NSSC20K1118, 80NSSC21K1515, 
+80NSSC22K1705 and 80NSSC24K0575 and NASA Jet Propulsion Laboratory 
+contracts: 1074657, 1689594, 1686623, 1705655.
