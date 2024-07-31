@@ -8,7 +8,7 @@ from tatc.analysis import collect_orbit_track
 from tatc.schemas import Satellite, TwoLineElements, Instrument
 
 from .base import TatcTestCase
-from ..tracking.schemas import OrbitTrackAnalysisRequest
+from tatc_app.tracking.schemas import OrbitTrackAnalysisRequest
 
 
 class AnalyzeOrbitTrackTestCase(TatcTestCase):

@@ -15,8 +15,8 @@ from tatc.generation import generate_equally_spaced_points, generate_equally_spa
 from tatc.schemas import Point, WalkerConstellation, TwoLineElements, Instrument
 
 from .base import TatcTestCase
-from ..coverage.schemas import CoverageAnalysisRequest
-from ..generation.schemas import PointGenerator, CellGenerator
+from tatc_app.coverage.schemas import CoverageAnalysisRequest
+from tatc_app.generation.schemas import PointGenerator, CellGenerator
 
 
 class CoverageAnalysisTestCase(TatcTestCase):

@@ -22,8 +22,8 @@ from tatc.schemas import (
 )
 
 from .base import TatcTestCase
-from ..latency.schemas import LatencyAnalysisRequest
-from ..generation.schemas import PointGenerator, CellGenerator
+from tatc_app.latency.schemas import LatencyAnalysisRequest
+from tatc_app.generation.schemas import PointGenerator, CellGenerator
 
 
 class LatencyAnalysisTestCase(TatcTestCase):

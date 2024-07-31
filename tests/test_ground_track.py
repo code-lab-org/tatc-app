@@ -8,7 +8,7 @@ from tatc.analysis import collect_ground_track
 from tatc.schemas import Satellite, TwoLineElements, Instrument
 
 from .base import TatcTestCase
-from ..tracking.schemas import GroundTrackAnalysisRequest
+from tatc_app.tracking.schemas import GroundTrackAnalysisRequest
 
 
 class AnalyzeGroundTrackTestCase(TatcTestCase):
