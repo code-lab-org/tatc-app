@@ -8,7 +8,7 @@ from tatc.analysis import collect_observations, aggregate_observations
 from tatc.schemas import Point, Satellite, TwoLineElements, Instrument
 
 from .base import TatcTestCase
-from ..overflight.schemas import OverflightAnalysisRequest
+from tatc_app.overflight.schemas import OverflightAnalysisRequest
 
 
 class OverflightAnalysisTestCase(TatcTestCase):

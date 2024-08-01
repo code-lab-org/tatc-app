@@ -1,0 +1,62 @@
+[build-system]
+requires = [
+    "setuptools >= 57.0.0",
+    "wheel"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tatc-app"
+description = "TAT-C Application"
+authors = [
+    {name = "Paul T. Grogan", email = "paul.grogan@asu.edu"}
+]
+readme = "README.md"
+requires-python = ">=3.9, <3.11"
+license = {text = "BSD License"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Development Status :: 4 - Beta"
+]
+dependencies = [
+    "aiofiles",
+    "aiohttp",
+    "aiosqlite",
+    "celery[librabbitmq,redis]",
+    "fastapi >= 0.110.0",
+    "fastapi-users[sqlalchemy]",
+    "geojson-pydantic",
+    "msgpack-asgi",
+    "python-dotenv",
+    "tatc >= 3.2.1",
+    "tzlocal",
+    "uvicorn[standard]"
+]
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/code-lab-org/tatc-app"
+Issues = "https://github.com/code-lab-org/tatc-app/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.optional-dependencies]
+dev = [
+    "black >= 24.2",
+    "httpx",
+    "pylint",
+    "pylint-pydantic",
+    "pytest"
+]
+docs = [
+    "autodoc_pydantic >= 2",
+    "docutils",
+    "myst-nb",
+    "sphinx >= 7",
+    "sphinx-rtd-theme"
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "tatc_app.__version__"}

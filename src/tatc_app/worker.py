@@ -9,7 +9,6 @@ import os
 import ssl
 
 from celery import Celery
-from skyfield.api import load
 from dotenv import load_dotenv
 
 # Load environment variables from the .env file
@@ -69,6 +68,3 @@ app = Celery(
 )
 
 app.config_from_object("tatc_app.celeryconfig")
-
-# Pre-load planetary ephemerides on start-up (~15 MB download)
-load("de421.bsp")

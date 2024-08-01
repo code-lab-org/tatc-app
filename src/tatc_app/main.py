@@ -14,11 +14,11 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from msgpack_asgi import MessagePackMiddleware
-import tatc
 
-from .utils.db import create_db_and_tables
-from .utils.schemas import UserCreate, UserRead, UserUpdate
-from .utils.users import (
+from tatc_app import __version__
+from tatc_app.utils.db import create_db_and_tables
+from tatc_app.utils.schemas import UserCreate, UserRead, UserUpdate
+from tatc_app.utils.users import (
     cookie_backend,
     jwt_backend,
     current_active_user,
@@ -26,14 +26,14 @@ from .utils.users import (
     create_user,
     fastapi_users,
 )
-from .celery.router import router as celery_router
-from .celestrak.router import router as celestrak_router
-from .cesium.router import get_cesium_router
-from .generation.router import router as generation_router
-from .overflight.router import router as overflight_router
-from .tracking.router import router as tracking_router
-from .coverage.router import router as coverage_router
-from .latency.router import router as latency_router
+from tatc_app.celery.router import router as celery_router
+from tatc_app.celestrak.router import router as celestrak_router
+from tatc_app.cesium.router import get_cesium_router
+from tatc_app.generation.router import router as generation_router
+from tatc_app.overflight.router import router as overflight_router
+from tatc_app.tracking.router import router as tracking_router
+from tatc_app.coverage.router import router as coverage_router
+from tatc_app.latency.router import router as latency_router
 
 # Load environment variables from the .env file
 load_dotenv()
@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Tradespace Analysis Tool for Constellations (TAT-C)",
     description="Modeling tool for pre-Phase A architecture analysis for Earth science space missions.",
-    version=tatc.__version__,
+    version=__version__,
     lifespan=lifespan,
 )
 # Add MessagePack middleware to allow application/msgpack responses
@@ -131,4 +131,4 @@ app.include_router(
 )
 
 # Mount a static directory to the root (/) route for any other requests
-app.mount("/", StaticFiles(directory="static", html=True), name="frontend")
+app.mount("/", StaticFiles(directory="src/static", html=True), name="frontend")
