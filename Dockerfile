@@ -13,7 +13,7 @@ RUN python -m pip install .
 
 FROM tatc_runtime AS tatc_server
 
-WORKDIR /var/tatc-app/src
+WORKDIR /var/tatc-app
 ENV TATC_BROKER=amqp://guest:guest@broker:5672//
 ENV TATC_BACKEND=redis://backend:6379/
 
@@ -24,7 +24,7 @@ CMD ["uvicorn", "tatc_app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 FROM tatc_runtime AS tatc_worker
 
-WORKDIR /var/tatc-app/src
+WORKDIR /var/tatc-app
 
 ENV TATC_BROKER=amqp://guest:guest@broker:5672//
 ENV TATC_BACKEND=redis://backend:6379/
