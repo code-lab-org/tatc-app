@@ -10,8 +10,7 @@ import json
 
 import geopandas as gpd
 
-from tatc.schemas.point import Point, GroundStation
-from tatc.schemas.satellite import Satellite
+from tatc.schemas import Point, GroundStation, Satellite
 from tatc.analysis.latency import (
     collect_downlinks,
     compute_latencies,

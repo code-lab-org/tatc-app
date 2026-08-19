@@ -29,7 +29,7 @@ dependencies = [
     "geojson-pydantic",
     "msgpack-asgi",
     "python-dotenv",
-    "tatc >= 3.2.1",
+    "tatc >= 3.5.0",
     "tzlocal",
     "uvicorn[standard]"
 ]

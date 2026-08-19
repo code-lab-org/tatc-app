@@ -8,10 +8,10 @@ Task specifications for generation endpoints.
 import geopandas as gpd
 from shapely.geometry import shape
 from tatc.generation.points import (
-    generate_equally_spaced_points,
-    generate_fibonacci_lattice_points,
+    generate_points_uniform_spacing,
+    generate_points_fibonacci_lattice,
 )
-from tatc.generation.cells import generate_equally_spaced_cells
+from tatc.generation.cells import generate_cells_uniform_spacing
 
 from .schemas import KnownShape
 from ..worker import app
@@ -66,7 +66,7 @@ def generate_equally_spaced_points_task(
     Returns:
         str: GeoJSON serialized points.
     """
-    return generate_equally_spaced_points(
+    return generate_points_uniform_spacing(
         distance,
         elevation,
         (
@@ -96,7 +96,7 @@ def generate_fibonacci_lattice_points_task(
     Returns:
         str: GeoJSON serialized points.
     """
-    return generate_fibonacci_lattice_points(
+    return generate_points_fibonacci_lattice(
         distance,
         elevation,
         (
@@ -127,7 +127,7 @@ def generate_equally_spaced_cells_task(
     Returns:
         str: GeoJSON serialized cells.
     """
-    return generate_equally_spaced_cells(
+    return generate_cells_uniform_spacing(
         distance,
         elevation,
         (

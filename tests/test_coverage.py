@@ -11,8 +11,8 @@ from tatc.analysis import (
     reduce_observations,
     grid_observations,
 )
-from tatc.generation import generate_equally_spaced_points, generate_equally_spaced_cells
-from tatc.schemas import Point, WalkerConstellation, TwoLineElements, Instrument
+from tatc.generation import generate_points_uniform_spacing, generate_cells_uniform_spacing
+from tatc.schemas import Point, WalkerConstellation, GeneralPerturbationsOrbit, Instrument
 
 from .base import TatcTestCase
 from tatc_app.coverage.schemas import CoverageAnalysisRequest
@@ -30,8 +30,8 @@ class CoverageAnalysisTestCase(TatcTestCase):
             distance=5000e3,
         )
         instrument = Instrument(name="Test", field_of_regard=180.0)
-        orbit = TwoLineElements(
-            tle=[
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            [
                 "1 25544U 98067A   22171.11255782  .00008307  00000+0  15444-3 0  9992",
                 "2 25544  51.6448 322.0970 0003980 282.3738 231.6559 15.49798078345636",
             ]
@@ -74,7 +74,7 @@ class CoverageAnalysisTestCase(TatcTestCase):
                             point, satellite.generate_members(), start, end
                         )
                     )
-                    for point in generate_equally_spaced_points(5000e3).apply(
+                    for point in generate_points_uniform_spacing(5000e3).apply(
                         lambda r: Point(
                             id=r.point_id, latitude=r.geometry.y, longitude=r.geometry.x
                         ),
@@ -95,7 +95,7 @@ class CoverageAnalysisTestCase(TatcTestCase):
         gdf_cells["revisit"] = gdf_cells["revisit"].astype("timedelta64[ns]")
         gdf_cells["access"] = gdf_cells["access"].astype("timedelta64[ns]")
         tatc_results_cells = grid_observations(
-            tatc_results_points, generate_equally_spaced_cells(5000e3)
+            tatc_results_points, generate_cells_uniform_spacing(5000e3)
         )
         tatc_results_cells = tatc_results_cells.reindex(
             columns=sorted(tatc_results_cells.columns)

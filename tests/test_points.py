@@ -3,8 +3,8 @@ import json
 import geopandas as gpd
 
 from tatc.generation import (
-    generate_equally_spaced_points,
-    generate_fibonacci_lattice_points,
+    generate_points_uniform_spacing,
+    generate_points_fibonacci_lattice,
 )
 
 from .base import TatcTestCase
@@ -21,7 +21,7 @@ class GeneratePointsTestCase(TatcTestCase):
             json.loads(response.content), crs="EPSG:4326"
         )
         gdf = gdf.reindex(columns=sorted(gdf.columns))
-        tatc_results = generate_equally_spaced_points(5000e3)
+        tatc_results = generate_points_uniform_spacing(5000e3)
         tatc_results = tatc_results.reindex(columns=sorted(tatc_results.columns))
         print(tatc_results.columns)
         self.assertTrue(gdf.equals(tatc_results))
@@ -36,7 +36,7 @@ class GeneratePointsTestCase(TatcTestCase):
             json.loads(response.content), crs="EPSG:4326"
         )
         gdf = gdf.reindex(columns=sorted(gdf.columns))
-        tatc_results = generate_fibonacci_lattice_points(5000e3)
+        tatc_results = generate_points_fibonacci_lattice(5000e3)
         tatc_results = tatc_results.reindex(columns=sorted(tatc_results.columns))
         #TODO perform more comprehensive verification
         self.assertEqual(len(gdf), len(tatc_results))

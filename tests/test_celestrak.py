@@ -1,5 +1,5 @@
 import warnings
-from tatc.schemas import TwoLineElements
+from tatc.schemas import GeneralPerturbationsOrbit
 
 from .base import TatcTestCase
 
@@ -36,7 +36,7 @@ class CelestrakTestCase(TatcTestCase):
         response = self.client.get("/celestrak/tle?name=zarya")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.text.splitlines()), 3)
-        TwoLineElements(tle=response.text.splitlines()[1:3])
+        GeneralPerturbationsOrbit.from_tle(response.text.splitlines()[1:3])
 
     def test_get_tle_empty_response(self):
         # ignore warning for unclosed socket

@@ -129,11 +129,8 @@ async def enqueue_ground_track_analysis(request: GroundTrackAnalysisRequest):
                 [time.isoformat() for time in times],
                 request.elevation,
                 request.model_dump().get("mask", None),
-                request.crs,
             )
-            for times in np.array_split(
-                times, max(1, len(times) // (100 if request.crs == "EPSG:4087" else 20))
-            )
+            for times in np.array_split(times, max(1, len(times) // 100))
             for satellite in request.satellite.generate_members()
         ),
         merge_feature_collections_task.s(),

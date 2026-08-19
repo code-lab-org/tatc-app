@@ -10,9 +10,7 @@ from datetime import datetime
 import json
 
 import geopandas as gpd
-from tatc.schemas.instrument import Instrument
-from tatc.schemas.point import Point
-from tatc.schemas.satellite import Satellite
+from tatc.schemas import Instrument, Point, Satellite
 from tatc.analysis.coverage import collect_observations, aggregate_observations
 
 from ..worker import app
@@ -37,12 +35,17 @@ def collect_observations_task(
         FeatureCollection: GeoJSON serialized observations.
     """
     # call analysis function
+    sat = Satellite.model_validate_json(satellite)
+    if instrument is not None:
+        sat = sat.model_copy(
+            update={"instruments": [Instrument.model_validate_json(instrument)]}
+        )
     results = collect_observations(
         Point.model_validate_json(point),
-        Satellite.model_validate_json(satellite),
-        Instrument.model_validate_json(instrument),
+        sat,
         datetime.fromisoformat(start),
         datetime.fromisoformat(end),
+        0,
         omit_solar,
     )
     # serialize constituent data

@@ -10,8 +10,7 @@ import json
 
 import geopandas as gpd
 
-from tatc.schemas.point import Point
-from tatc.schemas.satellite import Satellite
+from tatc.schemas import Point, Satellite
 from tatc.analysis.coverage import (
     collect_multi_observations,
     aggregate_observations,
