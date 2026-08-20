@@ -14,6 +14,7 @@ from geojson_pydantic import FeatureCollection
 
 from ..celery.schemas import CeleryTask
 from ..generation.utils import generate_points
+from ..satellites import generate_members
 from ..utils.tasks import merge_feature_collections_task
 from ..worker import app as celery_app
 from .schemas import OverflightAnalysisRequest
@@ -48,7 +49,7 @@ async def enqueue_overflight_analysis(request: OverflightAnalysisRequest):
                 request.omit_solar,
             )
             for point in generate_points(request.points)  # FIXME
-            for satellite in request.satellite.generate_members()
+            for satellite in generate_members(request.satellite)
         ),
         merge_feature_collections_task.s(),
         aggregate_observations_task.s(),

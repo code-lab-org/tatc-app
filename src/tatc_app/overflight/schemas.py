@@ -10,15 +10,10 @@ from typing import List, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
-from tatc.schemas import (
-    Instrument,
-    Point,
-    Satellite,
-    TrainConstellation,
-    WalkerConstellation,
-)
+from tatc.schemas import Instrument, Point
 
 from ..generation.schemas import PointGenerator
+from ..satellites import SpaceSystemInput
 
 
 class OverflightAnalysisRequest(BaseModel):
@@ -32,7 +27,7 @@ class OverflightAnalysisRequest(BaseModel):
     points: Union[List[Point], PointGenerator] = Field(
         ..., description="Points from which to collect observations."
     )
-    satellite: Union[Satellite, TrainConstellation, WalkerConstellation] = Field(
+    satellite: SpaceSystemInput = Field(
         ..., description="Satellite from which to observe."
     )
     instrument: Union[int, Instrument] = Field(

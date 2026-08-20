@@ -12,9 +12,10 @@ from geojson_pydantic import Polygon
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 from shapely.geometry import box, mapping
-from tatc.schemas import Instrument, Satellite, TrainConstellation, WalkerConstellation
+from tatc.schemas import Instrument
 
 from ..generation.schemas import TimeGenerator
+from ..satellites import SpaceSystemInput
 
 
 class OrbitTrackAnalysisRequest(BaseModel):
@@ -25,7 +26,7 @@ class OrbitTrackAnalysisRequest(BaseModel):
     model_config = ConfigDict(
         from_attributes=True, populate_by_name=True, alias_generator=to_camel
     )
-    satellite: Union[Satellite, TrainConstellation, WalkerConstellation] = Field(
+    satellite: SpaceSystemInput = Field(
         ..., description="Satellite from which to observe."
     )
     instrument: Optional[Union[int, Instrument]] = Field(

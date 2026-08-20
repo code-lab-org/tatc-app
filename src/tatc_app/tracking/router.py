@@ -16,6 +16,7 @@ from geojson_pydantic import FeatureCollection
 
 from ..celery.schemas import CeleryTask
 from ..generation.schemas import TimeGenerator
+from ..satellites import generate_members
 from ..utils.tasks import merge_feature_collections_task
 from ..worker import app as celery_app
 from .schemas import GroundTrackAnalysisRequest, OrbitTrackAnalysisRequest
@@ -59,7 +60,7 @@ async def enqueue_orbit_track_analysis(request: OrbitTrackAnalysisRequest):
                 request.model_dump().get("mask", None),
             )
             for times in np.array_split(times, max(1, len(times) // 100))
-            for satellite in request.satellite.generate_members()
+            for satellite in generate_members(request.satellite)
         ),
         merge_feature_collections_task.s(),
     )()
@@ -130,7 +131,7 @@ async def enqueue_ground_track_analysis(request: GroundTrackAnalysisRequest):
                 request.model_dump().get("mask", None),
             )
             for times in np.array_split(times, max(1, len(times) // 100))
-            for satellite in request.satellite.generate_members()
+            for satellite in generate_members(request.satellite)
         ),
         merge_feature_collections_task.s(),
     )()

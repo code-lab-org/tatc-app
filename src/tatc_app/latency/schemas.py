@@ -10,19 +10,14 @@ from typing import List, Union
 from geojson_pydantic import FeatureCollection
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
-from tatc.schemas import (
-    GroundStation,
-    Point,
-    Satellite,
-    TrainConstellation,
-    WalkerConstellation,
-)
+from tatc.schemas import GroundStation, Point
 
 from ..generation.schemas import (
     Cell,
     CellGenerator,
     PointGenerator,
 )
+from ..satellites import SpaceSystemInput
 
 
 class LatencyAnalysisRequest(BaseModel):
@@ -42,7 +37,7 @@ class LatencyAnalysisRequest(BaseModel):
     stations: List[GroundStation] = Field(
         ..., description="Stations to which observations can be downlinked"
     )
-    satellites: List[Union[Satellite, TrainConstellation, WalkerConstellation]] = Field(
+    satellites: List[SpaceSystemInput] = Field(
         ..., description="Satellite from which to observe."
     )
     start: datetime = Field(

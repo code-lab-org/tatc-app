@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 
 from ..celery.schemas import CeleryTask
 from ..generation.utils import generate_cells, generate_points
+from ..satellites import generate_members
 from ..utils.tasks import merge_feature_collections_task
 from ..worker import app as celery_app
 from .schemas import CoverageAnalysisRequest, CoverageAnalysisResult
@@ -38,7 +39,7 @@ async def enqueue_coverage_analysis(request: CoverageAnalysisRequest):
                 [
                     satellite.model_dump_json()
                     for constellation in request.satellites
-                    for satellite in constellation.generate_members()
+                    for satellite in generate_members(constellation)
                 ],
                 request.start.isoformat(),
                 request.end.isoformat(),
