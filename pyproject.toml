@@ -42,6 +42,9 @@ Issues = "https://github.com/code-lab-org/tatc-app/issues"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+tatc_app = ["resources/*.zip"]
+
 [project.optional-dependencies]
 dev = [
     "black >= 24.2",
