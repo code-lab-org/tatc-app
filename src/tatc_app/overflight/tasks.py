@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Task specifications for overflight analysis endpoints.
 
@@ -6,12 +5,12 @@ Task specifications for overflight analysis endpoints.
 """
 
 
-from datetime import datetime
 import json
+from datetime import datetime
 
 import geopandas as gpd
+from tatc.analysis.coverage import aggregate_observations, collect_observations
 from tatc.schemas import Instrument, Point, Satellite
-from tatc.analysis.coverage import collect_observations, aggregate_observations
 
 from ..worker import app
 

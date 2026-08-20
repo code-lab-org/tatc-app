@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Task specifications for tracking analysis endpoints.
 
@@ -9,8 +8,8 @@ Task specifications for tracking analysis endpoints.
 from datetime import datetime
 
 from shapely.geometry import shape
-from tatc.analysis.track import collect_orbit_track, collect_ground_track
-from tatc.schemas import Satellite, Instrument
+from tatc.analysis.track import collect_ground_track, collect_orbit_track
+from tatc.schemas import Instrument, Satellite
 
 from ..worker import app
 

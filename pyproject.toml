@@ -49,6 +49,7 @@ tatc_app = ["resources/*.zip"]
 dev = [
     "black >= 24.2",
     "httpx",
+    "isort",
     "pylint",
     "pylint-pydantic",
     "pytest"
@@ -63,3 +64,6 @@ docs = [
 
 [tool.setuptools.dynamic]
 version = {attr = "tatc_app.__version__"}
+
+[tool.isort]
+profile = "black"

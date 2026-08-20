@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Task specifications for generation endpoints.
 
@@ -11,14 +10,14 @@ from importlib import resources
 
 import geopandas as gpd
 from shapely.geometry import shape
-from tatc.generation.points import (
-    generate_points_uniform_spacing,
-    generate_points_fibonacci_lattice,
-)
 from tatc.generation.cells import generate_cells_uniform_spacing
+from tatc.generation.points import (
+    generate_points_fibonacci_lattice,
+    generate_points_uniform_spacing,
+)
 
-from .schemas import KnownShape
 from ..worker import app
+from .schemas import KnownShape
 
 
 @lru_cache(maxsize=None)

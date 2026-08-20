@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Router specifications for cesium endpoints.
 

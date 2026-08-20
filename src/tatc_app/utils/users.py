@@ -1,14 +1,13 @@
-# -*- coding: utf-8 -*-
 """
 Configuration for FastAPI Users authentication/authorization system.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import contextlib
 import os
 import uuid
 from typing import Optional
-import contextlib
 
 from fastapi import Depends, Request
 from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin
@@ -23,7 +22,6 @@ from fastapi_users.exceptions import UserAlreadyExists
 
 from .db import User, get_async_session, get_user_db
 from .schemas import UserCreate
-
 
 SECRET = os.getenv("TATC_SECRET", "change me")
 LOGIN_LIFETIME = int(os.getenv("TATC_LOGIN_LIFETIME_SECONDS", 7200))

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Schema specifications for coverage analysis endpoints.
 
@@ -13,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 from tatc.schemas import Point, Satellite, TrainConstellation, WalkerConstellation
 
-from ..generation.schemas import PointGenerator, Cell, CellGenerator
+from ..generation.schemas import Cell, CellGenerator, PointGenerator
 
 
 class CoverageAnalysisRequest(BaseModel):

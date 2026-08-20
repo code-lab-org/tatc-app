@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Schema specifications for tracking analysis endpoints.
 
@@ -13,7 +12,7 @@ from geojson_pydantic import Polygon
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 from shapely.geometry import box, mapping
-from tatc.schemas import Satellite, TrainConstellation, WalkerConstellation, Instrument
+from tatc.schemas import Instrument, Satellite, TrainConstellation, WalkerConstellation
 
 from ..generation.schemas import TimeGenerator
 

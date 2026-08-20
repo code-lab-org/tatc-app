@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Router specifications for tracking analysis endpoints.
 
@@ -8,19 +7,19 @@ Router specifications for tracking analysis endpoints.
 from datetime import timezone
 from uuid import UUID
 
+import numpy as np
+import pandas as pd
 from celery import chain, group
 from celery.result import GroupResult
 from fastapi import APIRouter, HTTPException
 from geojson_pydantic import FeatureCollection
-import numpy as np
-import pandas as pd
 
-from .schemas import OrbitTrackAnalysisRequest, GroundTrackAnalysisRequest
-from .tasks import collect_orbit_track_task, collect_ground_track_task
-from ..generation.schemas import TimeGenerator
 from ..celery.schemas import CeleryTask
+from ..generation.schemas import TimeGenerator
 from ..utils.tasks import merge_feature_collections_task
 from ..worker import app as celery_app
+from .schemas import GroundTrackAnalysisRequest, OrbitTrackAnalysisRequest
+from .tasks import collect_ground_track_task, collect_orbit_track_task
 
 router = APIRouter()
 

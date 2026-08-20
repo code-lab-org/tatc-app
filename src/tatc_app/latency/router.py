@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Router specifications for latency analysis endpoints.
 
@@ -11,16 +10,16 @@ from celery import chain, group
 from celery.result import GroupResult
 from fastapi import APIRouter, HTTPException
 
+from ..celery.schemas import CeleryTask
+from ..generation.utils import generate_cells, generate_points
+from ..utils.tasks import merge_feature_collections_task
 from ..worker import app as celery_app
+from .schemas import LatencyAnalysisRequest, LatencyAnalysisResult
 from .tasks import (
     collect_downlinks_task,
-    run_latency_analysis_task,
     grid_latency_analysis_task,
+    run_latency_analysis_task,
 )
-from ..celery.schemas import CeleryTask
-from ..utils.tasks import merge_feature_collections_task
-from .schemas import LatencyAnalysisRequest, LatencyAnalysisResult
-from ..generation.utils import generate_points, generate_cells
 
 router = APIRouter()
 

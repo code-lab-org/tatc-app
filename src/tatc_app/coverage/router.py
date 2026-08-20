@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Router specifications for coverage analysis endpoints.
 
@@ -7,16 +6,16 @@ Router specifications for coverage analysis endpoints.
 
 from uuid import UUID
 
-from celery import group, chain
+from celery import chain, group
 from celery.result import GroupResult
 from fastapi import APIRouter, HTTPException
 
-from .schemas import CoverageAnalysisRequest, CoverageAnalysisResult
-from .tasks import run_coverage_analysis_task, grid_coverage_analysis_task
-from ..generation.utils import generate_points, generate_cells
 from ..celery.schemas import CeleryTask
+from ..generation.utils import generate_cells, generate_points
 from ..utils.tasks import merge_feature_collections_task
 from ..worker import app as celery_app
+from .schemas import CoverageAnalysisRequest, CoverageAnalysisResult
+from .tasks import grid_coverage_analysis_task, run_coverage_analysis_task
 
 router = APIRouter()
 

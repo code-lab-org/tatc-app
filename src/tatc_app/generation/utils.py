@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Utility functions for generation endpoints.
 
@@ -6,22 +5,22 @@ Utility functions for generation endpoints.
 """
 
 import json
-from typing import Union, List
+from typing import List, Union
 
 import geopandas as gpd
 from tatc.schemas import Point
 
 from .schemas import (
-    PointGenerator,
-    PointGeneratorMethod,
     Cell,
     CellGenerator,
     CellGeneratorMethod,
+    PointGenerator,
+    PointGeneratorMethod,
 )
 from .tasks import (
+    generate_equally_spaced_cells_task,
     generate_equally_spaced_points_task,
     generate_fibonacci_lattice_points_task,
-    generate_equally_spaced_cells_task,
 )
 
 

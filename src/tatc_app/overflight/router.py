@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Router specifications for overflight analysis endpoints.
 
@@ -13,12 +12,12 @@ from celery.result import GroupResult
 from fastapi import APIRouter, HTTPException
 from geojson_pydantic import FeatureCollection
 
-from .schemas import OverflightAnalysisRequest
-from .tasks import collect_observations_task, aggregate_observations_task
-from ..generation.utils import generate_points
 from ..celery.schemas import CeleryTask
+from ..generation.utils import generate_points
 from ..utils.tasks import merge_feature_collections_task
 from ..worker import app as celery_app
+from .schemas import OverflightAnalysisRequest
+from .tasks import aggregate_observations_task, collect_observations_task
 
 router = APIRouter()
 

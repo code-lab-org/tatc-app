@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Schema specifications for latency analysis endpoints.
 
@@ -11,7 +10,6 @@ from typing import List, Union
 from geojson_pydantic import FeatureCollection
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
-
 from tatc.schemas import (
     GroundStation,
     Point,
@@ -19,10 +17,11 @@ from tatc.schemas import (
     TrainConstellation,
     WalkerConstellation,
 )
+
 from ..generation.schemas import (
-    PointGenerator,
     Cell,
     CellGenerator,
+    PointGenerator,
 )
 
 

@@ -1,12 +1,11 @@
-# -*- coding: utf-8 -*-
 """
 Task specifications for general utilities.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from typing import Union
 from itertools import chain
+from typing import Union
 
 from geojson_pydantic import FeatureCollection
 
