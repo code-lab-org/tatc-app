@@ -1,3 +1,8 @@
+// mean Earth radius (meters), matching tatc.constants.EARTH_MEAN_RADIUS;
+// used to convert a user-facing altitude into a Keplerian orbit's
+// semimajor_axis (semimajor_axis = EARTH_MEAN_RADIUS + altitude)
+const EARTH_MEAN_RADIUS = 6371008.771415059;
+
 $(document).ready(function() {
   // bind event handler to change observer frame
   $("#display-observer").change(function() {
@@ -42,7 +47,7 @@ $(document).ready(function() {
       return {
         type: "circular",
         epoch: $("#orbit-circular-epoch").datetimepicker('viewDate').toISOString(),
-        altitude: $("#orbit-circular-altitude").val()*1000,
+        mean_altitude: $("#orbit-circular-altitude").val()*1000,
         inclination: $("#orbit-circular-inclination").val(),
         right_ascension_ascending_node: $("#orbit-circular-raan").val(),
         true_anomaly: $("#orbit-circular-ta").val()
@@ -53,14 +58,14 @@ $(document).ready(function() {
         epoch: $("#orbit-sso-epoch").datetimepicker('viewDate').toISOString(),
         equator_crossing_time: $("#orbit-sso-ect").datetimepicker('viewDate').format("HH:mm"),
         equator_crossing_ascending: $("#orbit-sso-direction").val()=="asc",
-        altitude: $("#orbit-sso-altitude").val()*1000,
+        mean_altitude: $("#orbit-sso-altitude").val()*1000,
         true_anomaly: $("#orbit-sso-ta").val()
       }
     } else if($("#satellite-orbit").val()=="keplerian") {
       return {
         type: "keplerian",
         epoch: $("#orbit-keplerian-epoch").datetimepicker('viewDate').toISOString(),
-        altitude: $("#orbit-keplerian-altitude").val()*1000,
+        semimajor_axis: $("#orbit-keplerian-altitude").val()*1000 + EARTH_MEAN_RADIUS,
         inclination: $("#orbit-keplerian-inclination").val(),
         eccentricity: $("#orbit-keplerian-eccentricity").val(),
         perigee_argument: $("#orbit-keplerian-pa").val(),
@@ -137,7 +142,7 @@ $(document).ready(function() {
         var listener = $("#orbit-circular-epoch").off("change.datetimepicker");
         $("#orbit-circular-epoch").datetimepicker('date', satellite.orbit.epoch);
         $("#orbit-circular-epoch").on("change.datetimepicker", listener);
-        $("#orbit-circular-altitude").val(satellite.orbit.altitude/1000);
+        $("#orbit-circular-altitude").val(satellite.orbit.mean_altitude/1000);
         $("#orbit-circular-inclination").val(satellite.orbit.inclination);
         $("#orbit-circular-raan").val(satellite.orbit.right_ascension_ascending_node);
         $("#orbit-circular-ta").val(satellite.orbit.true_anomaly);
@@ -147,13 +152,13 @@ $(document).ready(function() {
         $("#orbit-sso-epoch").on("change.datetimepicker", listener);
         $("#orbit-sso-ect").datetimepicker('date', satellite.orbit.equator_crossing_time);
         $("#orbit-sso-direction").val(satellite.orbit.equator_crossing_ascending?"asc":"desc");
-        $("#orbit-sso-altitude").val(satellite.orbit.altitude/1000);
+        $("#orbit-sso-altitude").val(satellite.orbit.mean_altitude/1000);
         $("#orbit-sso-ta").val(satellite.orbit.true_anomaly);
       } else if(satellite.orbit.type == "keplerian") {
         var listener = $("#orbit-keplerian-epoch").off("change.datetimepicker");
         $("#orbit-keplerian-epoch").datetimepicker('date', satellite.orbit.epoch);
         $("#orbit-keplerian-epoch").on("change.datetimepicker", listener);
-        $("#orbit-keplerian-altitude").val(satellite.orbit.altitude/1000);
+        $("#orbit-keplerian-altitude").val((satellite.orbit.semimajor_axis - EARTH_MEAN_RADIUS)/1000);
         $("#orbit-keplerian-inclination").val(satellite.orbit.inclination);
         $("#orbit-keplerian-eccentricity").val(satellite.orbit.eccentricity);
         $("#orbit-keplerian-pa").val(satellite.orbit.perigee_argument);
@@ -419,7 +424,7 @@ $(document).ready(function() {
       name: "New Satellite",
       orbit: {
         type: "circular",
-        altitude: 400000,
+        mean_altitude: 400000,
         inclination: 0,
         true_anomaly: 0,
         right_ascension_ascending_node: 0,
@@ -688,7 +693,7 @@ $(document).ready(function() {
   });
   $(".orbit-circular-group").change(function() {
     var satellite = $("#satellites option:selected").data("satellite");
-    satellite.orbit.altitude = +$("#orbit-circular-altitude").val()*1000;
+    satellite.orbit.mean_altitude = +$("#orbit-circular-altitude").val()*1000;
     satellite.orbit.inclination = +$("#orbit-circular-inclination").val();
     satellite.orbit.right_ascension_ascending_node = +$("#orbit-circular-raan").val();
     satellite.orbit.true_anomaly = +$("#orbit-circular-ta").val();
@@ -707,7 +712,7 @@ $(document).ready(function() {
   $(".orbit-sso-group").change(function() {
     var satellite = $("#satellites option:selected").data("satellite");
     satellite.orbit.equator_crossing_ascending = $("#orbit-sso-direction").val()=="asc";
-    satellite.orbit.altitude = +$("#orbit-sso-altitude").val()*1000;
+    satellite.orbit.mean_altitude = +$("#orbit-sso-altitude").val()*1000;
     satellite.orbit.true_anomaly = +$("#orbit-sso-ta").val();
     $("#orbit-data").prop("disabled", true);
   });
@@ -718,7 +723,7 @@ $(document).ready(function() {
   });
   $(".orbit-keplerian-group").change(function() {
     var satellite = $("#satellites option:selected").data("satellite");
-    satellite.orbit.altitude = +$("#orbit-keplerian-altitude").val()*1000;
+    satellite.orbit.semimajor_axis = +$("#orbit-keplerian-altitude").val()*1000 + EARTH_MEAN_RADIUS;
     satellite.orbit.inclination = +$("#orbit-keplerian-inclination").val();
     satellite.orbit.eccentricity = +$("#orbit-keplerian-eccentricity").val();
     satellite.orbit.perigee_argument = +$("#orbit-keplerian-pa").val();
