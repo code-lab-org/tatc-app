@@ -1,7 +1,7 @@
 # This block defines the TAT-C runtime container using the appropriate
 # base Python environment.
 
-FROM python:3.10 AS tatc_runtime
+FROM python:3.11 AS tatc_runtime
 
 WORKDIR /var/tatc-app
 COPY pyproject.toml pyproject.toml
