@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException
 from geojson_pydantic import FeatureCollection
 
 from ..celery.schemas import CeleryTask
+from ..celery.utils import log_task_failure
 from ..generation.utils import generate_points
 from ..satellites import generate_members
 from ..utils.tasks import merge_feature_collections_task
@@ -89,11 +90,6 @@ async def retrieve_overflight_anlaysis(task_id: UUID):
     try:
         results = task.get()
     except Exception as exc:
-        logger.error(
-            "Overflight analysis task %s failed: %s\n%s",
-            task_id,
-            exc,
-            task.traceback,
-        )
+        log_task_failure(logger, "Overflight analysis", str(task_id), task)
         raise HTTPException(status_code=500, detail=f"Task failed: {exc}") from exc
     return FeatureCollection.model_validate_json(results)

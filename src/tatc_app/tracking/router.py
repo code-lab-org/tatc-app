@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException
 from geojson_pydantic import FeatureCollection
 
 from ..celery.schemas import CeleryTask
+from ..celery.utils import log_task_failure
 from ..generation.schemas import TimeGenerator
 from ..satellites import generate_members
 from ..utils.tasks import merge_feature_collections_task
@@ -98,12 +99,7 @@ async def retrieve_orbit_track_analysis(task_id: UUID):
     try:
         results = task.get()
     except Exception as exc:
-        logger.error(
-            "Orbit track analysis task %s failed: %s\n%s",
-            task_id,
-            exc,
-            task.traceback,
-        )
+        log_task_failure(logger, "Orbit track analysis", str(task_id), task)
         raise HTTPException(status_code=500, detail=f"Task failed: {exc}") from exc
     return FeatureCollection.model_validate_json(results)
 
@@ -178,11 +174,6 @@ async def retrieve_ground_track_progress(task_id: UUID):
     try:
         results = task.get()
     except Exception as exc:
-        logger.error(
-            "Ground track analysis task %s failed: %s\n%s",
-            task_id,
-            exc,
-            task.traceback,
-        )
+        log_task_failure(logger, "Ground track analysis", str(task_id), task)
         raise HTTPException(status_code=500, detail=f"Task failed: {exc}") from exc
     return FeatureCollection.model_validate_json(results)

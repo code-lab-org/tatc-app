@@ -12,6 +12,7 @@ from celery.result import GroupResult
 from fastapi import APIRouter, HTTPException
 
 from ..celery.schemas import CeleryTask
+from ..celery.utils import log_task_failure
 from ..generation.utils import generate_cells, generate_points
 from ..satellites import generate_members
 from ..utils.tasks import merge_feature_collections_task
@@ -89,11 +90,6 @@ async def retrieve_coverage_analysis(task_id: UUID):
     try:
         result = task.get()
     except Exception as exc:
-        logger.error(
-            "Coverage analysis task %s failed: %s\n%s",
-            task_id,
-            exc,
-            task.traceback,
-        )
+        log_task_failure(logger, "Coverage analysis", str(task_id), task)
         raise HTTPException(status_code=500, detail=f"Task failed: {exc}") from exc
     return CoverageAnalysisResult.model_validate_json(result)
