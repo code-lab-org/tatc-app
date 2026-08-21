@@ -4,6 +4,7 @@ Router specifications for latency analysis endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import logging
 from uuid import UUID
 
 from celery import chain, group
@@ -21,6 +22,8 @@ from .tasks import (
     grid_latency_analysis_task,
     run_latency_analysis_task,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -98,4 +101,14 @@ async def retrieve_latency_analysis(task_id: UUID):
         raise HTTPException(status_code=404, detail="Task not found.")
     if not task.ready():
         raise HTTPException(status_code=409, detail="Results not ready.")
-    return LatencyAnalysisResult.model_validate_json(task.get())
+    try:
+        result = task.get()
+    except Exception as exc:
+        logger.error(
+            "Latency analysis task %s failed: %s\n%s",
+            task_id,
+            exc,
+            task.traceback,
+        )
+        raise HTTPException(status_code=500, detail=f"Task failed: {exc}") from exc
+    return LatencyAnalysisResult.model_validate_json(result)

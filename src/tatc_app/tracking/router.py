@@ -4,6 +4,7 @@ Router specifications for tracking analysis endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import logging
 from datetime import timezone
 from uuid import UUID
 
@@ -21,6 +22,8 @@ from ..utils.tasks import merge_feature_collections_task
 from ..worker import app as celery_app
 from .schemas import GroundTrackAnalysisRequest, OrbitTrackAnalysisRequest
 from .tasks import collect_ground_track_task, collect_orbit_track_task
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -92,7 +95,16 @@ async def retrieve_orbit_track_analysis(task_id: UUID):
         raise HTTPException(status_code=404, detail="Task not found.")
     if not task.ready():
         raise HTTPException(status_code=409, detail="Results not ready.")
-    results = task.get()
+    try:
+        results = task.get()
+    except Exception as exc:
+        logger.error(
+            "Orbit track analysis task %s failed: %s\n%s",
+            task_id,
+            exc,
+            task.traceback,
+        )
+        raise HTTPException(status_code=500, detail=f"Task failed: {exc}") from exc
     return FeatureCollection.model_validate_json(results)
 
 
@@ -163,5 +175,14 @@ async def retrieve_ground_track_progress(task_id: UUID):
         raise HTTPException(status_code=404, detail="Task not found.")
     if not task.ready():
         raise HTTPException(status_code=409, detail="Results not ready.")
-    results = task.get()
+    try:
+        results = task.get()
+    except Exception as exc:
+        logger.error(
+            "Ground track analysis task %s failed: %s\n%s",
+            task_id,
+            exc,
+            task.traceback,
+        )
+        raise HTTPException(status_code=500, detail=f"Task failed: {exc}") from exc
     return FeatureCollection.model_validate_json(results)

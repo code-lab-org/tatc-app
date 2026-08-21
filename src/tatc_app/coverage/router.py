@@ -4,6 +4,7 @@ Router specifications for coverage analysis endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import logging
 from uuid import UUID
 
 from celery import chain, group
@@ -17,6 +18,8 @@ from ..utils.tasks import merge_feature_collections_task
 from ..worker import app as celery_app
 from .schemas import CoverageAnalysisRequest, CoverageAnalysisResult
 from .tasks import grid_coverage_analysis_task, run_coverage_analysis_task
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -83,4 +86,14 @@ async def retrieve_coverage_analysis(task_id: UUID):
         raise HTTPException(status_code=404, detail="Task not found.")
     if not task.ready():
         raise HTTPException(status_code=409, detail="Results not ready.")
-    return CoverageAnalysisResult.model_validate_json(task.get())
+    try:
+        result = task.get()
+    except Exception as exc:
+        logger.error(
+            "Coverage analysis task %s failed: %s\n%s",
+            task_id,
+            exc,
+            task.traceback,
+        )
+        raise HTTPException(status_code=500, detail=f"Task failed: {exc}") from exc
+    return CoverageAnalysisResult.model_validate_json(result)

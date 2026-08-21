@@ -4,7 +4,7 @@ Router specifications for overflight analysis endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-
+import logging
 from uuid import UUID
 
 from celery import chain, group
@@ -19,6 +19,8 @@ from ..utils.tasks import merge_feature_collections_task
 from ..worker import app as celery_app
 from .schemas import OverflightAnalysisRequest
 from .tasks import aggregate_observations_task, collect_observations_task
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -84,5 +86,14 @@ async def retrieve_overflight_anlaysis(task_id: UUID):
         raise HTTPException(status_code=404, detail="Task not found.")
     if not task.ready():
         raise HTTPException(status_code=409, detail="Results not ready.")
-    results = task.get()
+    try:
+        results = task.get()
+    except Exception as exc:
+        logger.error(
+            "Overflight analysis task %s failed: %s\n%s",
+            task_id,
+            exc,
+            task.traceback,
+        )
+        raise HTTPException(status_code=500, detail=f"Task failed: {exc}") from exc
     return FeatureCollection.model_validate_json(results)
