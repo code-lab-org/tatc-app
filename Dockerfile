@@ -3,6 +3,11 @@
 
 FROM python:3.11 AS tatc_runtime
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /var/tatc-app
 COPY pyproject.toml pyproject.toml
 COPY src src
