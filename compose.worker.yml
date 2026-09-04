@@ -1,0 +1,11 @@
+services:
+  worker:
+    build:
+      context: .
+      target: tatc_worker
+    container_name: tatc-worker
+    restart: unless-stopped
+    environment:
+      TATC_BROKER: amqps://${BROKER_USER}:${BROKER_PASSWORD}@${TATC_DOMAIN}:5671//
+      TATC_BACKEND: rediss://${BACKEND_USER}:${BACKEND_PASSWORD}@${TATC_DOMAIN}:6380/
+
