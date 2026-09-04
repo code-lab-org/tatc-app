@@ -42,7 +42,10 @@ services:
       TATC_ADMIN_EMAIL: ${TATC_ADMIN_EMAIL}
       TATC_ADMIN_PASSWORD: ${TATC_ADMIN_PASSWORD}
       TATC_CESIUM_TOKEN: ${TATC_CESIUM_TOKEN}
-    expose: 
+      TATC_DATABASE_URL: sqlite+aiosqlite:///data/data.db
+    volumes:
+      - tatc-data:/var/tatc-app/data
+    expose:
       - "8000"
     labels:
       - traefik.enable=true
@@ -114,3 +117,5 @@ volumes:
     name: tatc-rabbitmq-data
   redis-data:
     name: tatc-redis-data
+  tatc-data:
+    name: tatc-data

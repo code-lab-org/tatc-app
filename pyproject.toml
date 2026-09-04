@@ -23,7 +23,7 @@ dependencies = [
     "aiofiles",
     "aiohttp",
     "aiosqlite",
-    "celery[librabbitmq,redis]",
+    "celery[redis]",
     "fastapi >= 0.110.0",
     "fastapi-users[sqlalchemy]",
     "geojson-pydantic",
