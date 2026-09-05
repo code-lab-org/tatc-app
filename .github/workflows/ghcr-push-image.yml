@@ -1,0 +1,55 @@
+name: Build and push GHCR images
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  SERVER_IMAGE: ghcr.io/code-lab-org/tatc-server
+  WORKER_IMAGE: ghcr.io/code-lab-org/tatc-worker
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: tatc_server
+          push: true
+          tags: |
+            ${{ env.SERVER_IMAGE }}:${{ github.sha }}
+            ${{ env.SERVER_IMAGE }}:latest
+          cache-from: type=gha,scope=tatc-server
+          cache-to: type=gha,mode=max,scope=tatc-server
+
+      - name: Build and push the worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: tatc_worker
+          push: true
+          tags: |
+            ${{ env.WORKER_IMAGE }}:${{ github.sha }}
+            ${{ env.WORKER_IMAGE }}:latest
+          cache-from: type=gha,scope=tatc-worker
+          cache-to: type=gha,mode=max,scope=tatc-worker

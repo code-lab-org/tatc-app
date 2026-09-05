@@ -29,9 +29,7 @@ services:
     labels:
       - traefik.enable=false
   server:
-    build: 
-      context: .
-      target: tatc_server
+    image: ghcr.io/code-lab-org/tatc-server:${TATC_SERVER_IMAGE_TAG:-latest}
     container_name: tatc-server
     restart: unless-stopped
     environment:
@@ -58,9 +56,7 @@ services:
       worker:
         condition: service_started
   worker:
-    build: 
-      context: .
-      target: tatc_worker
+    image: ghcr.io/code-lab-org/tatc-worker:${TATC_WORKER_IMAGE_TAG:-latest}
     container_name: tatc-worker
     restart: unless-stopped
     environment:

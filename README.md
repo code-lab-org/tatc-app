@@ -230,6 +230,13 @@ the GUI/API, broker, and backend. It requires:
  * `TATC_CESIUM_TOKEN`: Cesium access token (see
    [Cesium Access Token and Assets](#cesium-access-token-and-assets) above)
 
+`compose.server.yml` and `compose.worker.yml` pull the `tatc-server` and
+`tatc-worker` images from GHCR rather than building them locally. Set
+`TATC_SERVER_IMAGE_TAG` / `TATC_WORKER_IMAGE_TAG` to a commit SHA (as pushed by the
+[Build and push GHCR images](.github/workflows/ghcr-push-image.yml)
+workflow on merge to `main`) to pin the deployed version; both default to
+`latest` if unset.
+
 The server's user-account database is stored in the `tatc-data` Docker
 volume; `compose.server.yml` sets `TATC_DATABASE_URL` to place it there
 automatically, so it persists across restarts without further configuration.
