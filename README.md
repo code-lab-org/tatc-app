@@ -231,11 +231,13 @@ the GUI/API, broker, and backend. It requires:
    [Cesium Access Token and Assets](#cesium-access-token-and-assets) above)
 
 `compose.server.yml` and `compose.worker.yml` pull the `tatc-server` and
-`tatc-worker` images from GHCR rather than building them locally. Set
-`TATC_SERVER_IMAGE_TAG` / `TATC_WORKER_IMAGE_TAG` to a commit SHA (as pushed by the
-[Build and push GHCR images](.github/workflows/ghcr-push-image.yml)
-workflow on merge to `main`) to pin the deployed version; both default to
-`latest` if unset.
+`tatc-worker` images from GHCR (built and pushed by
+[Build and push GHCR images](.github/workflows/ghcr-push-image.yml) on every
+merge to `main`) rather than building them locally. Leave
+`TATC_SERVER_IMAGE_TAG` / `TATC_WORKER_IMAGE_TAG` unset (or `latest`) so
+[Auto-deploy](#auto-deploy) picks up new images automatically, or pin them in
+`.env` to a specific commit SHA for a reproducible, rollback-able deploy that
+auto-deploy will then keep redeploying rather than moving off of.
 
 The server's user-account database is stored in the `tatc-data` Docker
 volume; `compose.server.yml` sets `TATC_DATABASE_URL` to place it there
@@ -275,6 +277,54 @@ Replace `username` and `password` with the actual `BACKEND_USER` and
 `BACKEND_PASSWORD` values before deploying. Treat `redis.acl` as a secret
 once populated with real credentials — avoid committing a version containing
 production passwords to version control.
+
+### Auto-deploy
+
+`.github/workflows/deploy.yml` redeploys the server host over SSH:
+- on every push to `main` (picks up compose/config changes), and
+- after `ghcr-push-image.yml` finishes pushing new images (picks up
+  server/worker code changes, after the images are actually available in
+  GHCR rather than racing them).
+
+Both triggers run the same thing: `config/deploy/deploy.sh` on the instance,
+which does `git merge --ff-only` then `docker compose -f
+compose.server.yml pull && ... up -d`. It fails loudly rather than
+overwriting anything if the checkout has diverged from `main`.
+
+Because GitHub-hosted runners don't have a small, stable IP range, this means
+opening inbound port 22 on the instance broadly rather than allowlisting
+GitHub. To keep that safe, the deploy key is restricted with a forced
+command so it can never be used for anything but running that one script,
+even though the workflow only ever asks it to:
+
+1. On the EC2 instance, in the deploy user's `~/.ssh/authorized_keys`
+   (that user needs passwordless `docker`/`docker compose` access and a
+   checkout of this repo with `.env` already in place):
+
+   ```
+   command="/path/to/repo/config/deploy/deploy.sh",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAA...
+   ```
+
+2. Generate a dedicated deploy keypair (don't reuse a personal key) and add
+   the public half as shown above:
+
+   ```bash
+   ssh-keygen -t ed25519 -f deploy_key -N "" -C "tatc-app-deploy"
+   ```
+
+3. Capture the instance's host key from a trusted channel (e.g. the EC2
+   console's system log, or a `ssh-keyscan` run over a connection you already
+   trust) - don't just accept whatever a first connection presents, since
+   that defeats host verification entirely:
+
+   ```bash
+   ssh-keyscan -H <host> > known_hosts
+   ```
+
+4. In the repo's GitHub Actions settings, add:
+   - Repository variables: `DEPLOY_SSH_HOST`, `DEPLOY_SSH_USER`
+   - Repository secrets: `DEPLOY_SSH_KEY` (private half of `deploy_key`),
+     `DEPLOY_SSH_KNOWN_HOSTS` (contents of `known_hosts`)
 
 ## License
 
