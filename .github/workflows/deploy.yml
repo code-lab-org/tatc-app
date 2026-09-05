@@ -1,0 +1,45 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_run:
+    workflows: ["Build and push GHCR images"]
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+
+# Serialize deploys so two SSH sessions never race `docker compose up -d`
+# against each other. A push to main fires both triggers above (once
+# immediately, once again after the image finishes building) - queueing
+# rather than cancelling means the second run still lands on the
+# freshly-pushed image even if the first one raced ahead of it.
+concurrency:
+  group: deploy-ec2
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up deploy key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Trust deploy host key
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      # The deploy user's authorized_keys pins this key to a forced command
+      # (config/deploy/deploy.sh on the instance), so the command given here
+      # is ignored - whatever SSH runs is whatever that forced command is.
+      - name: Redeploy
+        run: ssh -o StrictHostKeyChecking=yes "${{ vars.DEPLOY_SSH_USER }}@${{ vars.DEPLOY_SSH_HOST }}" true
