@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Schema specifications for tracking analysis endpoints.
 
@@ -13,10 +12,10 @@ from geojson_pydantic import Polygon
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 from shapely.geometry import box, mapping
-from tatc.schemas.satellite import Satellite, TrainConstellation, WalkerConstellation
-from tatc.schemas.instrument import Instrument
+from tatc.schemas import Instrument
 
 from ..generation.schemas import TimeGenerator
+from ..satellites import SpaceSystemInput
 
 
 class OrbitTrackAnalysisRequest(BaseModel):
@@ -27,7 +26,7 @@ class OrbitTrackAnalysisRequest(BaseModel):
     model_config = ConfigDict(
         from_attributes=True, populate_by_name=True, alias_generator=to_camel
     )
-    satellite: Union[Satellite, TrainConstellation, WalkerConstellation] = Field(
+    satellite: SpaceSystemInput = Field(
         ..., description="Satellite from which to observe."
     )
     instrument: Optional[Union[int, Instrument]] = Field(
@@ -75,9 +74,3 @@ class GroundTrackAnalysisRequest(OrbitTrackAnalysisRequest):
     """
     User request to perform ground track analysis.
     """
-
-    # TODO add validator for crs
-    crs: str = Field(
-        "EPSG:4087",
-        description="Coordinate reference system for which to compute ground track. (Note: `utm` uses Universal Transverse Mercator (UTM) zones).",
-    )

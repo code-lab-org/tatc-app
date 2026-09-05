@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Schema specifications for coverage analysis endpoints.
 
@@ -11,9 +10,10 @@ from typing import List, Union
 from geojson_pydantic import FeatureCollection
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
-from tatc.schemas import Point, Satellite, TrainConstellation, WalkerConstellation
+from tatc.schemas import Point
 
-from ..generation.schemas import PointGenerator, Cell, CellGenerator
+from ..generation.schemas import Cell, CellGenerator, PointGenerator
+from ..satellites import SpaceSystemInput
 
 
 class CoverageAnalysisRequest(BaseModel):
@@ -24,7 +24,7 @@ class CoverageAnalysisRequest(BaseModel):
     model_config = ConfigDict(
         from_attributes=True, populate_by_name=True, alias_generator=to_camel
     )
-    satellites: List[Union[Satellite, TrainConstellation, WalkerConstellation]] = Field(
+    satellites: List[SpaceSystemInput] = Field(
         ..., description="Satellites from which to observe."
     )
     start: datetime = Field(

@@ -1,0 +1,9 @@
+services:
+  worker:
+    image: ghcr.io/code-lab-org/tatc-worker:${TATC_WORKER_IMAGE_TAG:-latest}
+    container_name: tatc-worker
+    restart: unless-stopped
+    environment:
+      TATC_BROKER: amqps://${BROKER_USER}:${BROKER_PASSWORD}@${TATC_DOMAIN}:5671//
+      TATC_BACKEND: rediss://${BACKEND_USER}:${BACKEND_PASSWORD}@${TATC_DOMAIN}:6380/
+

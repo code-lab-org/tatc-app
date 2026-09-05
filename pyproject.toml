@@ -12,7 +12,7 @@ authors = [
     {name = "Paul T. Grogan", email = "paul.grogan@asu.edu"}
 ]
 readme = "README.md"
-requires-python = ">=3.9, <3.11"
+requires-python = ">=3.11"
 license = {text = "BSD License"}
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -23,13 +23,13 @@ dependencies = [
     "aiofiles",
     "aiohttp",
     "aiosqlite",
-    "celery[librabbitmq,redis]",
+    "celery[redis]",
     "fastapi >= 0.110.0",
     "fastapi-users[sqlalchemy]",
     "geojson-pydantic",
     "msgpack-asgi",
     "python-dotenv",
-    "tatc >= 3.2.1",
+    "tatc >= 3.5.0",
     "tzlocal",
     "uvicorn[standard]"
 ]
@@ -42,10 +42,14 @@ Issues = "https://github.com/code-lab-org/tatc-app/issues"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+tatc_app = ["resources/*.zip"]
+
 [project.optional-dependencies]
 dev = [
     "black >= 24.2",
     "httpx",
+    "isort",
     "pylint",
     "pylint-pydantic",
     "pytest"
@@ -60,3 +64,6 @@ docs = [
 
 [tool.setuptools.dynamic]
 version = {attr = "tatc_app.__version__"}
+
+[tool.isort]
+profile = "black"

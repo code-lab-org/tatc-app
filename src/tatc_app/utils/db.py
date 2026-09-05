@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Database objects for FastAPI Users authentication/authorization.
 

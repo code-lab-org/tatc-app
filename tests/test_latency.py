@@ -12,12 +12,12 @@ from tatc.analysis import (
     reduce_latencies,
     grid_latencies,
 )
-from tatc.generation import generate_equally_spaced_points, generate_equally_spaced_cells
+from tatc.generation import generate_points_uniform_spacing, generate_cells_uniform_spacing
 from tatc.schemas import (
     Point,
     GroundStation,
     WalkerConstellation,
-    TwoLineElements,
+    GeneralPerturbationsOrbit,
     Instrument,
 )
 
@@ -37,8 +37,8 @@ class LatencyAnalysisTestCase(TatcTestCase):
             distance=5000e3,
         )
         instrument = Instrument(name="Test", field_of_regard=180.0)
-        orbit = TwoLineElements(
-            tle=[
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            [
                 "1 25544U 98067A   22171.11255782  .00008307  00000+0  15444-3 0  9992",
                 "2 25544  51.6448 322.0970 0003980 282.3738 231.6559 15.49798078345636",
             ]
@@ -93,8 +93,8 @@ class LatencyAnalysisTestCase(TatcTestCase):
         )
         tatc_results_observations = pd.concat(
             [
-                collect_observations(point, sat, instrument, start, end)
-                for point in generate_equally_spaced_points(5000e3).apply(
+                collect_observations(point, sat, start, end)
+                for point in generate_points_uniform_spacing(5000e3).apply(
                     lambda r: Point(
                         id=r.point_id,
                         latitude=r.geometry.y,
@@ -119,7 +119,7 @@ class LatencyAnalysisTestCase(TatcTestCase):
         gdf_cells = gdf_cells.reindex(columns=sorted(gdf_cells.columns))
         gdf_cells["latency"] = gdf_cells["latency"].astype("timedelta64[ns]")
         tatc_results_cells = grid_latencies(
-            tatc_results_points, generate_equally_spaced_cells(5000e3)
+            tatc_results_points, generate_cells_uniform_spacing(5000e3)
         )
         tatc_results_cells = tatc_results_cells.reindex(
             columns=sorted(tatc_results_cells.columns)

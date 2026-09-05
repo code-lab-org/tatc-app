@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Schema specifications for generation endpoints.
 
@@ -11,7 +10,7 @@ from enum import Enum
 from typing import Annotated, Optional, Union
 
 from geojson_pydantic import Polygon
-from pydantic import BaseModel, ConfigDict, Field, model_validator, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from pydantic.alias_generators import to_camel
 from shapely.geometry import box, mapping
 

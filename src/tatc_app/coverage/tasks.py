@@ -1,26 +1,23 @@
-# -*- coding: utf-8 -*-
 """
 Task specifications for coverage analysis endpoints.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from datetime import datetime
 import json
+from datetime import datetime
 
 import geopandas as gpd
-
-from tatc.schemas.point import Point
-from tatc.schemas.satellite import Satellite
 from tatc.analysis.coverage import (
-    collect_multi_observations,
     aggregate_observations,
-    reduce_observations,
+    collect_multi_observations,
     grid_observations,
+    reduce_observations,
 )
+from tatc.schemas import Point, Satellite
 
-from .schemas import CoverageAnalysisResult
 from ..worker import app
+from .schemas import CoverageAnalysisResult
 
 
 @app.task

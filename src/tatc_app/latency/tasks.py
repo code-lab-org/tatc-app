@@ -1,27 +1,24 @@
-# -*- coding: utf-8 -*-
 """
 Task specifications for latency analysis endpoints.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from datetime import datetime
 import json
+from datetime import datetime
 
 import geopandas as gpd
-
-from tatc.schemas.point import Point, GroundStation
-from tatc.schemas.satellite import Satellite
+from tatc.analysis.coverage import collect_multi_observations
 from tatc.analysis.latency import (
     collect_downlinks,
     compute_latencies,
-    reduce_latencies,
     grid_latencies,
+    reduce_latencies,
 )
-from tatc.analysis.coverage import collect_multi_observations
+from tatc.schemas import GroundStation, Point, Satellite
 
-from .schemas import LatencyAnalysisResult
 from ..worker import app
+from .schemas import LatencyAnalysisResult
 
 
 @app.task

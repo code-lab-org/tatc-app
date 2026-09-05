@@ -2,7 +2,7 @@ import json
 
 import geopandas as gpd
 
-from tatc.generation import generate_equally_spaced_cells
+from tatc.generation import generate_cells_uniform_spacing
 
 from .base import TatcTestCase
 
@@ -18,6 +18,6 @@ class GenerateCellsTestCase(TatcTestCase):
             json.loads(response.content), crs="EPSG:4326"
         )
         gdf = gdf.reindex(columns=sorted(gdf.columns))
-        tatc_results = generate_equally_spaced_cells(5000e3)
+        tatc_results = generate_cells_uniform_spacing(5000e3)
         tatc_results = tatc_results.reindex(columns=sorted(tatc_results.columns))
         self.assertTrue(gdf.equals(tatc_results))

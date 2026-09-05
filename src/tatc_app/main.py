@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 TAT-C application configuration.
 
@@ -7,33 +6,33 @@ TAT-C application configuration.
 
 
 import os
-
 from contextlib import asynccontextmanager
+
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends
+from fastapi import Depends, FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from msgpack_asgi import MessagePackMiddleware
 
 from tatc_app import __version__
+from tatc_app.celery.router import router as celery_router
+from tatc_app.celestrak.router import router as celestrak_router
+from tatc_app.cesium.router import get_cesium_router
+from tatc_app.coverage.router import router as coverage_router
+from tatc_app.generation.router import router as generation_router
+from tatc_app.latency.router import router as latency_router
+from tatc_app.overflight.router import router as overflight_router
+from tatc_app.tracking.router import router as tracking_router
 from tatc_app.utils.db import create_db_and_tables
 from tatc_app.utils.schemas import UserCreate, UserRead, UserUpdate
 from tatc_app.utils.users import (
     cookie_backend,
-    jwt_backend,
+    create_user,
     current_active_user,
     current_superuser,
-    create_user,
     fastapi_users,
+    jwt_backend,
 )
-from tatc_app.celery.router import router as celery_router
-from tatc_app.celestrak.router import router as celestrak_router
-from tatc_app.cesium.router import get_cesium_router
-from tatc_app.generation.router import router as generation_router
-from tatc_app.overflight.router import router as overflight_router
-from tatc_app.tracking.router import router as tracking_router
-from tatc_app.coverage.router import router as coverage_router
-from tatc_app.latency.router import router as latency_router
 
 # Load environment variables from the .env file
 load_dotenv()

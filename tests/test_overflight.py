@@ -5,7 +5,7 @@ import time
 import geopandas as gpd
 
 from tatc.analysis import collect_observations, aggregate_observations
-from tatc.schemas import Point, Satellite, TwoLineElements, Instrument
+from tatc.schemas import Point, Satellite, GeneralPerturbationsOrbit, Instrument
 
 from .base import TatcTestCase
 from tatc_app.overflight.schemas import OverflightAnalysisRequest
@@ -15,8 +15,8 @@ class OverflightAnalysisTestCase(TatcTestCase):
     def test_analyze_overflight(self):
         point = Point(id=0, latitude=0, longitude=0)
         instrument = Instrument(name="Test", field_of_regard=180.0)
-        orbit = TwoLineElements(
-            tle=[
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            [
                 "1 25544U 98067A   22171.11255782  .00008307  00000+0  15444-3 0  9992",
                 "2 25544  51.6448 322.0970 0003980 282.3738 231.6559 15.49798078345636",
             ]
@@ -49,7 +49,7 @@ class OverflightAnalysisTestCase(TatcTestCase):
         gdf["revisit"] = gdf["revisit"].astype("timedelta64[ns]")
         gdf["access"] = gdf["access"].astype("timedelta64[ns]")
         tatc_results = aggregate_observations(
-            collect_observations(point, satellite, instrument, start, end)
+            collect_observations(point, satellite, start, end)
         )
         tatc_results = tatc_results.reindex(columns=sorted(tatc_results.columns))
         self.assertTrue(gdf.equals(tatc_results))

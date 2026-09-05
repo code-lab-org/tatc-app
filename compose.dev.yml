@@ -13,6 +13,9 @@ services:
       TATC_BROKER: amqp://guest:guest@broker:5672//
       TATC_BACKEND: redis://backend:6379/
       TATC_CESIUM_TOKEN: ${TATC_CESIUM_TOKEN}
+      TATC_DATABASE_URL: sqlite+aiosqlite:///data/data.db
+    volumes:
+      - tatc-data:/var/tatc-app/data
   worker:
     build:
       context: .
@@ -25,9 +28,13 @@ services:
       TATC_BACKEND: redis://backend:6379/
   broker:
     image: rabbitmq:3
-    ports: 
+    ports:
       - "5672:5672"
+    volumes:
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
   backend:
     image: redis:6
-    ports: 
+    ports:
       - "6379:6379"
+volumes:
+  tatc-data:

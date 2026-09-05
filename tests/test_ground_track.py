@@ -5,7 +5,7 @@ import time
 import geopandas as gpd
 
 from tatc.analysis import collect_ground_track
-from tatc.schemas import Satellite, TwoLineElements, Instrument
+from tatc.schemas import Satellite, GeneralPerturbationsOrbit, Instrument
 
 from .base import TatcTestCase
 from tatc_app.tracking.schemas import GroundTrackAnalysisRequest
@@ -14,8 +14,8 @@ from tatc_app.tracking.schemas import GroundTrackAnalysisRequest
 class AnalyzeGroundTrackTestCase(TatcTestCase):
     def test_analyze_ground_track(self):
         instrument = Instrument(name="Test", field_of_regard=180.0)
-        orbit = TwoLineElements(
-            tle=[
+        orbit = GeneralPerturbationsOrbit.from_tle(
+            [
                 "1 25544U 98067A   22171.11255782  .00008307  00000+0  15444-3 0  9992",
                 "2 25544  51.6448 322.0970 0003980 282.3738 231.6559 15.49798078345636",
             ]
@@ -43,7 +43,7 @@ class AnalyzeGroundTrackTestCase(TatcTestCase):
         )
         gdf = gdf.reindex(columns=sorted(gdf.columns))
         gdf["time"] = gdf["time"].astype("datetime64[ns, utc]")
-        tatc_results = collect_ground_track(satellite, instrument, times)
+        tatc_results = collect_ground_track(satellite, times)
         tatc_results = tatc_results.reindex(columns=sorted(tatc_results.columns))
         #TODO perform more comprehensive verification
         self.assertEqual(len(gdf), len(tatc_results))

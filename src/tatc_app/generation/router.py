@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Router specifications for generation endpoints.
 
@@ -11,15 +10,15 @@ from fastapi import APIRouter
 from geojson_pydantic import FeatureCollection
 
 from .schemas import (
-    PointGenerator,
-    PointGeneratorMethod,
     CellGenerator,
     CellGeneratorMethod,
+    PointGenerator,
+    PointGeneratorMethod,
 )
 from .tasks import (
+    generate_equally_spaced_cells_task,
     generate_equally_spaced_points_task,
     generate_fibonacci_lattice_points_task,
-    generate_equally_spaced_cells_task,
 )
 
 router = APIRouter()

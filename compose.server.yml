@@ -1,0 +1,117 @@
+services:
+  traefik:
+    image: traefik:v3
+    container_name: tatc-reverse-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "5671:5671"
+      - "6380:6380"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    command:
+      - --log.level=INFO
+      - --providers.docker=true
+      - --providers.docker.exposedByDefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entryPoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.amqps.address=:5671
+      - --entrypoints.rediss.address=:6380
+      - --entrypoints.websecure.asDefault=true 
+      - --entrypoints.websecure.http.tls.certresolver=le
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      # - --certificatesresolvers.le.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+    labels:
+      - traefik.enable=false
+  server:
+    image: ghcr.io/code-lab-org/tatc-server:${TATC_SERVER_IMAGE_TAG:-latest}
+    container_name: tatc-server
+    restart: unless-stopped
+    environment:
+      TATC_BROKER: amqp://${BROKER_USER}:${BROKER_PASSWORD}@broker:5672//
+      TATC_BACKEND: redis://${BACKEND_USER}:${BACKEND_PASSWORD}@backend:6379/
+      TATC_LOGIN_LIFETIME_SECONDS: 7200
+      TATC_SECRET: ${TATC_SECRET}
+      TATC_ADMIN_EMAIL: ${TATC_ADMIN_EMAIL}
+      TATC_ADMIN_PASSWORD: ${TATC_ADMIN_PASSWORD}
+      TATC_CESIUM_TOKEN: ${TATC_CESIUM_TOKEN}
+      TATC_DATABASE_URL: sqlite+aiosqlite:///data/data.db
+    volumes:
+      - tatc-data:/var/tatc-app/data
+    expose:
+      - "8000"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.server.rule=Host(`${TATC_DOMAIN}`)
+      - traefik.http.routers.server.entrypoints=websecure
+      - traefik.http.routers.server.tls=true
+      - traefik.http.routers.server.tls.certresolver=le
+      - traefik.http.services.server.loadbalancer.server.port=8000
+    depends_on:
+      worker:
+        condition: service_started
+  worker:
+    image: ghcr.io/code-lab-org/tatc-worker:${TATC_WORKER_IMAGE_TAG:-latest}
+    container_name: tatc-worker
+    restart: unless-stopped
+    environment:
+      TATC_BROKER: amqp://${BROKER_USER}:${BROKER_PASSWORD}@broker:5672//
+      TATC_BACKEND: redis://${BACKEND_USER}:${BACKEND_PASSWORD}@backend:6379/
+    depends_on:
+      broker:
+        condition: service_started
+      backend:
+        condition: service_started
+  broker:
+    image: rabbitmq:4
+    container_name: tatc-broker
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${BROKER_USER}
+      RABBITMQ_DEFAULT_PASS: ${BROKER_PASSWORD}
+    volumes:
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - rabbitmq-data:/var/lib/rabbitmq
+    expose:
+      - "5672"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.tcp.routers.broker.rule=HostSNI(`${TATC_DOMAIN}`)"
+      - "traefik.tcp.routers.broker.entrypoints=amqps"
+      - "traefik.tcp.routers.broker.tls=true"
+      - "traefik.tcp.routers.broker.tls.certresolver=le"
+      - "traefik.tcp.services.broker.loadbalancer.server.port=5672"
+  backend:
+    image: redis:7
+    container_name: tatc-backend
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --aclfile
+      - /etc/redis/users.acl
+    volumes:
+      - ./redis.acl:/etc/redis/users.acl:ro
+      - redis-data:/data
+    expose:
+      - "6379"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.tcp.routers.backend.rule=HostSNI(`${TATC_DOMAIN}`)"
+      - "traefik.tcp.routers.backend.entrypoints=rediss"
+      - "traefik.tcp.routers.backend.tls=true"
+      - "traefik.tcp.routers.backend.tls.certresolver=le"
+      - "traefik.tcp.services.backend.loadbalancer.server.port=6379"
+volumes:
+  letsencrypt:
+    name: letsencrypt
+  rabbitmq-data:
+    name: tatc-rabbitmq-data
+  redis-data:
+    name: tatc-redis-data
+  tatc-data:
+    name: tatc-data

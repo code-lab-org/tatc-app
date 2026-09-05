@@ -1,20 +1,36 @@
-# -*- coding: utf-8 -*-
 """
 Task specifications for generation endpoints.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import io
+from functools import lru_cache
+from importlib import resources
+
 import geopandas as gpd
 from shapely.geometry import shape
+from tatc.generation.cells import generate_cells_uniform_spacing
 from tatc.generation.points import (
-    generate_equally_spaced_points,
-    generate_fibonacci_lattice_points,
+    generate_points_fibonacci_lattice,
+    generate_points_uniform_spacing,
 )
-from tatc.generation.cells import generate_equally_spaced_cells
 
-from .schemas import KnownShape
 from ..worker import app
+from .schemas import KnownShape
+
+
+@lru_cache(maxsize=None)
+def _load_resource(filename: str) -> gpd.GeoDataFrame:
+    """
+    Loads a zipped shapefile bundled in the `tatc_app` package's `resources`
+    directory (declared as package data in `pyproject.toml`), independent of
+    the process's current working directory. Cached since parsing a bundled
+    shapefile takes tens of milliseconds and its contents never change
+    within a process's lifetime.
+    """
+    data = (resources.files("tatc_app") / "resources" / filename).read_bytes()
+    return gpd.read_file(io.BytesIO(data))
 
 
 def load_country_mask(iso_3166_1_alpha3: str):
@@ -27,8 +43,16 @@ def load_country_mask(iso_3166_1_alpha3: str):
     Returns:
         Union[Polygon, MultiPolygon]: the country's border geometry
     """
-    world = gpd.read_file(gpd.datasets.get_path("naturalearth_lowres"))
-    return world.query(f'iso_a3 == "{iso_3166_1_alpha3}"').to_crs("EPSG:4326").geometry
+    # `geopandas.datasets` (and its bundled `naturalearth_lowres` sample) was
+    # removed in geopandas 1.0, so this dataset (Natural Earth 110m admin-0
+    # countries) is instead bundled directly with the application.
+    world = _load_resource("ne_110m_admin_0_countries.zip")
+    # `ISO_A3_EH` (rather than `ISO_A3`) is used because several countries
+    # (e.g. France, Norway) have a placeholder `-99` in `ISO_A3` due to a
+    # long-standing Natural Earth data issue.
+    return (
+        world.query(f'ISO_A3_EH == "{iso_3166_1_alpha3}"').to_crs("EPSG:4326").geometry
+    )
 
 
 def load_known_shape(shape: KnownShape):
@@ -42,7 +66,7 @@ def load_known_shape(shape: KnownShape):
         Union[Polygon, MultiPolygon]: the known shape's geometry
     """
     if shape == KnownShape.conus:
-        usa = gpd.read_file("resources/cb_2020_us_state_20m.zip")
+        usa = _load_resource("cb_2020_us_state_20m.zip")
         return (
             usa[(usa.STUSPS != "AK") & (usa.STUSPS != "HI") & (usa.STUSPS != "PR")]
             .dissolve()
@@ -66,7 +90,7 @@ def generate_equally_spaced_points_task(
     Returns:
         str: GeoJSON serialized points.
     """
-    return generate_equally_spaced_points(
+    return generate_points_uniform_spacing(
         distance,
         elevation,
         (
@@ -96,7 +120,7 @@ def generate_fibonacci_lattice_points_task(
     Returns:
         str: GeoJSON serialized points.
     """
-    return generate_fibonacci_lattice_points(
+    return generate_points_fibonacci_lattice(
         distance,
         elevation,
         (
@@ -127,7 +151,7 @@ def generate_equally_spaced_cells_task(
     Returns:
         str: GeoJSON serialized cells.
     """
-    return generate_equally_spaced_cells(
+    return generate_cells_uniform_spacing(
         distance,
         elevation,
         (

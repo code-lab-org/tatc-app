@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Task specifications for tracking analysis endpoints.
 
@@ -9,8 +8,8 @@ Task specifications for tracking analysis endpoints.
 from datetime import datetime
 
 from shapely.geometry import shape
-from tatc.analysis.track import collect_orbit_track, collect_ground_track
-from tatc import schemas
+from tatc.analysis.track import collect_ground_track, collect_orbit_track
+from tatc.schemas import Instrument, Satellite
 
 from ..worker import app
 
@@ -32,10 +31,15 @@ def collect_orbit_track_task(
     Returns:
         str: GeoJSON serialized orbit track.
     """
+    sat = Satellite.model_validate_json(satellite)
+    if instrument is not None:
+        sat = sat.model_copy(
+            update={"instruments": [Instrument.model_validate_json(instrument)]}
+        )
     results = collect_orbit_track(
-        schemas.satellite.Satellite.model_validate_json(satellite),
-        schemas.instrument.Instrument.model_validate_json(instrument),
+        sat,
         [datetime.fromisoformat(time) for time in times],
+        0,
         elevation,
         shape(mask) if mask is not None else None,
     )
@@ -46,7 +50,7 @@ def collect_orbit_track_task(
 
 @app.task
 def collect_ground_track_task(
-    satellite: str, instrument: str, times: list, elevation: float, mask: str, crs: str
+    satellite: str, instrument: str, times: list, elevation: float, mask: str
 ) -> str:
     """
     Task to collect ground track.
@@ -57,18 +61,21 @@ def collect_ground_track_task(
         times (list): List of ISO 8601 serialized times for which to compute orbit track.
         elevation (float): Elevation (meters) above datum in the WGS 84 coordinate system.
         mask (str): Optional GeoJSON serialized mask to constrain points.
-        crs (str): Coordinate reference system (CRS) in which to project ground track.
 
     Returns:
         str: GeoJSON serialized ground track.
     """
+    sat = Satellite.model_validate_json(satellite)
+    if instrument is not None:
+        sat = sat.model_copy(
+            update={"instruments": [Instrument.model_validate_json(instrument)]}
+        )
     results = collect_ground_track(
-        schemas.satellite.Satellite.model_validate_json(satellite),
-        schemas.instrument.Instrument.parse_raw(instrument),
+        sat,
         [datetime.fromisoformat(time) for time in times],
+        0,
         elevation,
         shape(mask) if mask is not None else None,
-        crs,
     )
     # serialize Timestamp
     results["time"] = results["time"].apply(lambda t: t.isoformat())

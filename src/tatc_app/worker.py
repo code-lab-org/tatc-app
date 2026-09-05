@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 TAT-C worker configuration.
 
@@ -16,37 +15,49 @@ load_dotenv()
 
 # parse the broker connection
 broker_string = os.getenv("TATC_BROKER", "amqp://localhost:5672//")
-if "amqps://" in broker_string:
-    broker_ssl_option = os.getenv("TATC_BROKER_SSL_CERT_REQS", "NONE")
+if broker_string.startswith("amqps://"):
+    broker_ssl_option = os.getenv(
+        "TATC_BROKER_SSL_CERT_REQS",
+        "REQUIRED",
+    ).upper()
     broker_ssl_config = {
-        "keyfile": os.getenv("TATC_BROKER_SSL_KEYFILE", None),
-        "certfile": os.getenv("TATC_BROKER_SSL_CERTFILE", None),
-        "ca_certs": os.getenv("TATC_BROKER_SSL_CA_CERTS", None),
-        "cert_reqs": (
-            ssl.CERT_REQUIRED
-            if broker_ssl_option == "REQUIRED"
-            else ssl.CERT_OPTIONAL if broker_ssl_option == "OPTIONAL" else ssl.CERT_NONE
-        ),
+        "server_hostname": None,
+        "cert_reqs": {
+            "REQUIRED": ssl.CERT_REQUIRED,
+            "OPTIONAL": ssl.CERT_OPTIONAL,
+            "NONE": ssl.CERT_NONE,
+        }[broker_ssl_option],
     }
+    # Optional custom CA/client certificates
+    if value := os.getenv("TATC_BROKER_SSL_KEYFILE"):
+        broker_ssl_config["keyfile"] = value
+    if value := os.getenv("TATC_BROKER_SSL_CERTFILE"):
+        broker_ssl_config["certfile"] = value
+    if value := os.getenv("TATC_BROKER_SSL_CA_CERTS"):
+        broker_ssl_config["ca_certs"] = value
 else:
     broker_ssl_config = False
 
 # parse the backend connection
 backend_string = os.getenv("TATC_BACKEND", "redis://localhost:6379/")
-if "rediss://" in backend_string:
-    backend_ssl_option = os.getenv("TATC_BACKEND_SSL_CERT_REQS", "NONE")
+if backend_string.startswith("rediss://"):
+    backend_ssl_option = os.getenv(
+        "TATC_BACKEND_SSL_CERT_REQS",
+        "REQUIRED",
+    ).upper()
     backend_ssl_config = {
-        "ssl_keyfile": os.getenv("TATC_BACKEND_SSL_KEYFILE", None),
-        "ssl_certfile": os.getenv("TATC_BACKEND_SSL_CERTFILE", None),
-        "ssl_ca_certs": os.getenv("TATC_BACKEND_SSL_CA_CERTS", None),
-        "ssl_cert_reqs": (
-            ssl.CERT_REQUIRED
-            if backend_ssl_option == "REQUIRED"
-            else (
-                ssl.CERT_OPTIONAL if backend_ssl_option == "OPTIONAL" else ssl.CERT_NONE
-            )
-        ),
+        "ssl_cert_reqs": {
+            "REQUIRED": ssl.CERT_REQUIRED,
+            "OPTIONAL": ssl.CERT_OPTIONAL,
+            "NONE": ssl.CERT_NONE,
+        }[backend_ssl_option],
     }
+    if value := os.getenv("TATC_BACKEND_SSL_KEYFILE"):
+        backend_ssl_config["ssl_keyfile"] = value
+    if value := os.getenv("TATC_BACKEND_SSL_CERTFILE"):
+        backend_ssl_config["ssl_certfile"] = value
+    if value := os.getenv("TATC_BACKEND_SSL_CA_CERTS"):
+        backend_ssl_config["ssl_ca_certs"] = value
 else:
     backend_ssl_config = False
 
@@ -68,3 +79,8 @@ app = Celery(
 )
 
 app.config_from_object("tatc_app.celeryconfig")
+
+app.conf.update(
+    broker_use_ssl=broker_ssl_config,
+    redis_backend_use_ssl=backend_ssl_config,
+)

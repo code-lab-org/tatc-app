@@ -1,26 +1,30 @@
-# -*- coding: utf-8 -*-
 """
 Router specifications for tracking analysis endpoints.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import logging
 from datetime import timezone
 from uuid import UUID
 
+import numpy as np
+import pandas as pd
 from celery import chain, group
 from celery.result import GroupResult
 from fastapi import APIRouter, HTTPException
 from geojson_pydantic import FeatureCollection
-import numpy as np
-import pandas as pd
 
-from .schemas import OrbitTrackAnalysisRequest, GroundTrackAnalysisRequest
-from .tasks import collect_orbit_track_task, collect_ground_track_task
-from ..generation.schemas import TimeGenerator
 from ..celery.schemas import CeleryTask
+from ..celery.utils import log_task_failure
+from ..generation.schemas import TimeGenerator
+from ..satellites import generate_members
 from ..utils.tasks import merge_feature_collections_task
 from ..worker import app as celery_app
+from .schemas import GroundTrackAnalysisRequest, OrbitTrackAnalysisRequest
+from .tasks import collect_ground_track_task, collect_orbit_track_task
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -60,7 +64,7 @@ async def enqueue_orbit_track_analysis(request: OrbitTrackAnalysisRequest):
                 request.model_dump().get("mask", None),
             )
             for times in np.array_split(times, max(1, len(times) // 100))
-            for satellite in request.satellite.generate_members()
+            for satellite in generate_members(request.satellite)
         ),
         merge_feature_collections_task.s(),
     )()
@@ -92,7 +96,11 @@ async def retrieve_orbit_track_analysis(task_id: UUID):
         raise HTTPException(status_code=404, detail="Task not found.")
     if not task.ready():
         raise HTTPException(status_code=409, detail="Results not ready.")
-    results = task.get()
+    try:
+        results = task.get()
+    except Exception as exc:
+        log_task_failure(logger, "Orbit track analysis", str(task_id), task)
+        raise HTTPException(status_code=500, detail=f"Task failed: {exc}") from exc
     return FeatureCollection.model_validate_json(results)
 
 
@@ -129,12 +137,9 @@ async def enqueue_ground_track_analysis(request: GroundTrackAnalysisRequest):
                 [time.isoformat() for time in times],
                 request.elevation,
                 request.model_dump().get("mask", None),
-                request.crs,
             )
-            for times in np.array_split(
-                times, max(1, len(times) // (100 if request.crs == "EPSG:4087" else 20))
-            )
-            for satellite in request.satellite.generate_members()
+            for times in np.array_split(times, max(1, len(times) // 100))
+            for satellite in generate_members(request.satellite)
         ),
         merge_feature_collections_task.s(),
     )()
@@ -166,5 +171,9 @@ async def retrieve_ground_track_progress(task_id: UUID):
         raise HTTPException(status_code=404, detail="Task not found.")
     if not task.ready():
         raise HTTPException(status_code=409, detail="Results not ready.")
-    results = task.get()
+    try:
+        results = task.get()
+    except Exception as exc:
+        log_task_failure(logger, "Ground track analysis", str(task_id), task)
+        raise HTTPException(status_code=500, detail=f"Task failed: {exc}") from exc
     return FeatureCollection.model_validate_json(results)

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Router specifications for celestrak endpoints.
 
@@ -6,10 +5,9 @@ Router specifications for celestrak endpoints.
 """
 
 
+import aiohttp
 from fastapi import APIRouter
 from fastapi.responses import PlainTextResponse
-import aiohttp
-
 
 router = APIRouter()
 

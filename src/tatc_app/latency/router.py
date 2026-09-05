@@ -1,26 +1,30 @@
-# -*- coding: utf-8 -*-
 """
 Router specifications for latency analysis endpoints.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import logging
 from uuid import UUID
 
 from celery import chain, group
 from celery.result import GroupResult
 from fastapi import APIRouter, HTTPException
 
+from ..celery.schemas import CeleryTask
+from ..celery.utils import log_task_failure
+from ..generation.utils import generate_cells, generate_points
+from ..satellites import generate_members
+from ..utils.tasks import merge_feature_collections_task
 from ..worker import app as celery_app
+from .schemas import LatencyAnalysisRequest, LatencyAnalysisResult
 from .tasks import (
     collect_downlinks_task,
-    run_latency_analysis_task,
     grid_latency_analysis_task,
+    run_latency_analysis_task,
 )
-from ..celery.schemas import CeleryTask
-from ..utils.tasks import merge_feature_collections_task
-from .schemas import LatencyAnalysisRequest, LatencyAnalysisResult
-from ..generation.utils import generate_points, generate_cells
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -45,7 +49,7 @@ async def enqueue_latency_analysis(request: LatencyAnalysisRequest):
                 request.end.isoformat(),
             )
             for constellation in request.satellites
-            for satellite in constellation.generate_members()
+            for satellite in generate_members(constellation)
         ),
         merge_feature_collections_task.s(),
         group(
@@ -54,7 +58,7 @@ async def enqueue_latency_analysis(request: LatencyAnalysisRequest):
                 [
                     satellite.model_dump_json()
                     for constellation in request.satellites
-                    for satellite in constellation.generate_members()
+                    for satellite in generate_members(constellation)
                 ],
                 request.start.isoformat(),
                 request.end.isoformat(),
@@ -98,4 +102,9 @@ async def retrieve_latency_analysis(task_id: UUID):
         raise HTTPException(status_code=404, detail="Task not found.")
     if not task.ready():
         raise HTTPException(status_code=409, detail="Results not ready.")
-    return LatencyAnalysisResult.model_validate_json(task.get())
+    try:
+        result = task.get()
+    except Exception as exc:
+        log_task_failure(logger, "Latency analysis", str(task_id), task)
+        raise HTTPException(status_code=500, detail=f"Task failed: {exc}") from exc
+    return LatencyAnalysisResult.model_validate_json(result)

@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
 """
 Router specifications for overflight analysis endpoints.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-
+import logging
 from uuid import UUID
 
 from celery import chain, group
@@ -13,12 +12,16 @@ from celery.result import GroupResult
 from fastapi import APIRouter, HTTPException
 from geojson_pydantic import FeatureCollection
 
-from .schemas import OverflightAnalysisRequest
-from .tasks import collect_observations_task, aggregate_observations_task
-from ..generation.utils import generate_points
 from ..celery.schemas import CeleryTask
+from ..celery.utils import log_task_failure
+from ..generation.utils import generate_points
+from ..satellites import generate_members
 from ..utils.tasks import merge_feature_collections_task
 from ..worker import app as celery_app
+from .schemas import OverflightAnalysisRequest
+from .tasks import aggregate_observations_task, collect_observations_task
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -49,7 +52,7 @@ async def enqueue_overflight_analysis(request: OverflightAnalysisRequest):
                 request.omit_solar,
             )
             for point in generate_points(request.points)  # FIXME
-            for satellite in request.satellite.generate_members()
+            for satellite in generate_members(request.satellite)
         ),
         merge_feature_collections_task.s(),
         aggregate_observations_task.s(),
@@ -84,5 +87,9 @@ async def retrieve_overflight_anlaysis(task_id: UUID):
         raise HTTPException(status_code=404, detail="Task not found.")
     if not task.ready():
         raise HTTPException(status_code=409, detail="Results not ready.")
-    results = task.get()
+    try:
+        results = task.get()
+    except Exception as exc:
+        log_task_failure(logger, "Overflight analysis", str(task_id), task)
+        raise HTTPException(status_code=500, detail=f"Task failed: {exc}") from exc
     return FeatureCollection.model_validate_json(results)
