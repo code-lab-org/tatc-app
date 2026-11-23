@@ -55,12 +55,19 @@ TATC_CESIUM_TOKEN=your alphanumeric access token here
 ### Environment Variables
 
 The web application references the following environment variables. Unless
-installing via the "Docker Compose" method, you must set `TATC_BROKER` and
-`TATC_BACKEND` to identify the protocol, credentials (if required), domain
-name/URL, and port number of the broker and backend components.
+installing via the "Docker Compose" method, set `TATC_BROKER` and
+`TATC_BACKEND` if the broker and backend do not run at their defaults, to
+identify the protocol, credentials (if required), domain name/URL, and port
+number of the broker and backend components.
 
- * `TATC_BROKER`: broker connection string (default: `amqp://guest:guest@broker:5672//`, assuming a local broker)
- * `TATC_BACKEND`: backend connection string (default: `redis://backend:6379/`, assuming a local backend)
+ * `TATC_BROKER`: broker connection string (default: `amqp://localhost:5672//`
+   when running with Python, assuming a broker on the same machine;
+   `amqp://guest:guest@broker:5672//` in the Docker images, assuming a
+   container named `broker`)
+ * `TATC_BACKEND`: backend connection string (default: `redis://localhost:6379/`
+   when running with Python, assuming a backend on the same machine;
+   `redis://backend:6379/` in the Docker images, assuming a container named
+   `backend`)
  * `TATC_AUTH`: authentication mode (default: `oidc`): `oidc` requires users to
    sign in with an OpenID Connect provider such as Dex (see
    [Authentication](#authentication)); `none` disables authentication for
@@ -149,7 +156,8 @@ The worker will connect to the broker and wait for new tasks to process.
 
 To use Python directly for the server and worker, the broker and backend
 components must already be running (e.g., see Manual Docker Containers above).
-Specify the connection strings for both in the `.env` file as described above.
+If they do not run on the same machine at their default ports, specify the
+connection strings for both in the `.env` file as described above.
 
 This requires Python 3.11 or later. Install the web application and its
 dependencies, including [TAT-C](https://github.com/code-lab-org/tatc), from
