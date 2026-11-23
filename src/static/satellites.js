@@ -392,20 +392,49 @@ function commitSatelliteDialog() {
 
 // --- CelesTrak ---
 
+// The server searches a catalog it downloads from CelesTrak at most once
+// every two hours (per CelesTrak's usage policy), so queries are not
+// forwarded to CelesTrak. Objects with catalog numbers beyond the range of
+// two line elements (Alpha-5, up to 339999) have general perturbations orbits.
+let celestrakQuery = 0;
+
+function celestrakElementsText(orbit) {
+  if (orbit.type == "tle") {
+    return orbit.tle.join("\n");
+  }
+  return JSON.stringify(orbit.elements, null, 2);
+}
+
 function queryCelestrak() {
   const query = _.trim($("#celestrak-name").val());
-  if (query.length < 3) {
+  const queryId = ++celestrakQuery;
+  $("#celestrak-objects").empty();
+  $("#celestrak-tle").val("").attr("rows", 2);
+  $("#celestrak-tle-ok").prop("disabled", true);
+  if (query.length < 3 && !/^\d+$/.test(query)) {
+    $("#celestrak-status").text("");
     return;
   }
-  $("#celestrak-objects").empty();
-  $("#celestrak-tle").val("");
-  $("#celestrak-tle-ok").prop("disabled", true);
-  $.get("/celestrak/tle", { name: query }).done(function(response) {
-    const lines = _.filter(_.map(response.split(/\r?\n/), _.trimEnd), function(l) { return l.length; });
-    for (let i = 0; i + 2 < lines.length; i += 3) {
-      $("#celestrak-objects").append(
-        $("<option>").text(_.trim(lines[i])).data("name", _.trim(lines[i])).data("tle", [lines[i + 1], lines[i + 2]])
-      );
+  $("#celestrak-status").text("Searching...");
+  $.get("/celestrak/search", { query: query }).done(function(response) {
+    if (queryId != celestrakQuery) {
+      return;
+    }
+    _.forEach(response.objects, function(object) {
+      const label = object.name + " (" + object.norad_cat_id + (object.object_id ? ", " + object.object_id : "") + ")";
+      $("#celestrak-objects").append($("<option>").text(label).data("object", object));
+    });
+    let status = response.total == response.objects.length
+      ? response.total + (response.total == 1 ? " object" : " objects") + " found"
+      : "Showing " + response.objects.length + " of " + response.total + " objects found";
+    if (response.downloaded) {
+      status += " in the CelesTrak " + response.group + " group, downloaded "
+        + response.downloaded.substring(0, 16).replace("T", " ") + " UTC (refreshed at most every 2 hours)";
+    }
+    $("#celestrak-status").text(status + ".");
+  }).fail(function(xhr) {
+    if (queryId == celestrakQuery) {
+      $("#celestrak-status").text((xhr.responseJSON && xhr.responseJSON.detail) || "CelesTrak search failed.");
     }
   });
 }
@@ -527,15 +556,17 @@ $(document).ready(function() {
   $("#celestrak-name").on("input", _.debounce(queryCelestrak, 400));
   $("#celestrak-objects").on("change", function() {
     const option = $(this).find("option:selected");
-    $("#celestrak-tle").val(option.length ? option.data("tle").join("\n") : "");
+    const orbit = option.length ? option.data("object").orbit : null;
+    $("#celestrak-tle").val(orbit ? celestrakElementsText(orbit) : "").attr("rows", orbit && orbit.type != "tle" ? 8 : 2);
     $("#celestrak-tle-ok").prop("disabled", !option.length);
   });
   $("#celestrak-tle-ok").click(function() {
     const option = $("#celestrak-objects option:selected");
     if (option.length) {
-      editing.system.orbit = { type: "tle", tle: option.data("tle") };
+      const object = option.data("object");
+      editing.system.orbit = _.cloneDeep(object.orbit);
       if (/^New Satellite/.test(editing.system.name)) {
-        editing.system.name = option.data("name");
+        editing.system.name = object.name;
         $("#satellite-name").val(editing.system.name);
       }
       renderOrbitForm();

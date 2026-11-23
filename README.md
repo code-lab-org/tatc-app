@@ -80,6 +80,12 @@ number of the broker and backend components.
  * `TATC_LOGIN_LIFETIME_SECONDS`: time until reauthentication required (default: `7200` seconds)
  * `TATC_SECRET`: secret used to sign session cookies (required for `oidc`)
  * `TATC_CESIUM_TOKEN`: Cesium access token
+ * `TATC_CELESTRAK_GROUP`: CelesTrak group searched for orbital elements
+   (default: `active`); the server downloads it at most once every two hours,
+   per [CelesTrak's usage policy](https://celestrak.org/NORAD/documentation/gp-data-formats.php)
+ * `TATC_CELESTRAK_CACHE_DIR`: directory in which the CelesTrak group is cached
+   so restarts do not download it again (default: `tatc-app` in the system's
+   temporary directory)
 
 ## Development
 

@@ -507,24 +507,25 @@
     <div class="modal-dialog modal-lg" role="document">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title">Query CelesTrak TLE</h5>
+          <h5 class="modal-title">Query CelesTrak</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
             <span aria-hidden="true">&times;</span>
           </button>
         </div>
         <div class="modal-body">
           <div class="form-group row">
-            <label for="celestrak-name" class="col-2 col-form-label">Name</label>
-            <div class="col-10"><input class="form-control" type="text" id="celestrak-name" placeholder="At least 3 characters, e.g., LANDSAT"></div>
+            <label for="celestrak-name" class="col-2 col-form-label">Search</label>
+            <div class="col-10"><input class="form-control" type="text" id="celestrak-name" placeholder="Name (at least 3 characters), catalog number, or international designator"></div>
           </div>
           <div class="form-group row">
             <label for="celestrak-objects" class="col-2 col-form-label">Object</label>
             <div class="col-10"><select class="form-control" id="celestrak-objects" size="5"></select></div>
           </div>
           <div class="form-group row">
-            <label for="celestrak-tle" class="col-2 col-form-label">TLE</label>
+            <label for="celestrak-tle" class="col-2 col-form-label">Elements</label>
             <div class="col-10"><textarea class="form-control mono" id="celestrak-tle" rows="2" disabled></textarea></div>
           </div>
+          <p class="small text-muted mb-0" id="celestrak-status"></p>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
