@@ -3,10 +3,12 @@ from datetime import datetime, timedelta, timezone
 
 import geopandas as gpd
 import pandas as pd
-from shapely.geometry import MultiPolygon, box
+import shapely
+from shapely.geometry import MultiPolygon, Polygon, box
 
 from tatc_app.czml import (
     assign_colors,
+    display_polygons,
     document_packet,
     instrument_color,
     link_packets,
@@ -218,6 +220,75 @@ class CzmlTestCase(unittest.TestCase):
             first["polygon"]["material"]["solidColor"]["color"]["rgba"],
             rgba("#4e79a7", 70),
         )
+
+    def test_display_polygons(self):
+        # polygons away from the poles are drawn as is, with rhumb lines
+        ((polygon, arc_type),) = display_polygons([box(0, 0, 10, 10)])
+        self.assertTrue(polygon.equals(box(0, 0, 10, 10)))
+        self.assertEqual(arc_type, "RHUMB")
+        # TAT-C splits a geometry that covers a pole at the antimeridian, with
+        # edges along the pole (which Cesium cannot draw): the parts are
+        # re-formed as one polygon around the pole, drawn with geodesics
+        # (with vertices every few degrees, as TAT-C's footprints have)
+        for parts in (
+            [box(-180, -90, 0, -80), box(0, -90, 180, -80)],
+            # one ring with a spike out to the pole and back
+            [Polygon([(-180, -90), (-180, -80), (180, -80), (180, -90)])],
+        ):
+            parts = [shapely.segmentize(part, 5) for part in parts]
+            ((polygon, arc_type),) = display_polygons(parts)
+            self.assertEqual(arc_type, "GEODESIC")
+            latitudes = [y for _, y in polygon.exterior.coords]
+            self.assertAlmostEqual(max(latitudes), -80, places=1)
+            self.assertAlmostEqual(min(latitudes), -80, places=1)
+            # the cap spans all longitudes, without a seam
+            longitudes = sorted(x for x, _ in polygon.exterior.coords)
+            self.assertLess(max(b - a for a, b in zip(longitudes, longitudes[1:])), 20)
+        # parts at the north pole, and another part elsewhere
+        drawn = display_polygons([box(170, 80, 180, 90), box(0, 0, 1, 1)])
+        self.assertEqual([arc_type for _, arc_type in drawn], ["RHUMB", "GEODESIC"])
+
+    def test_polygons_at_poles(self):
+        # a cap around the south pole, as TAT-C splits it (with a spike out
+        # to the pole and back along the antimeridian)
+        cap = shapely.segmentize(
+            Polygon([(-180, -90), (-180, -80), (180, -80), (180, -90)]), 5
+        )
+        polar = [[v for x, y in cap.exterior.coords[:-1] for v in (x, y)]]
+        square = [[0, 0, 1, 0, 1, 1, 0, 1]]
+        tracks = OrbitTracks(
+            epoch=EPOCH,
+            tracks=[
+                MemberTrack(
+                    name="s1",
+                    positions=[0, 0, -85, 800e3, 60, 0, -80, 800e3],
+                    instruments=[
+                        InstrumentTrack(
+                            name="a",
+                            swath_widths=[0, 2000e3, 60, 2000e3],
+                            footprints=[(0, [polar]), (60, [square])],
+                        )
+                    ],
+                )
+            ],
+        )
+        packet = next(p for p in satellite_packets(tracks) if p["id"] == "fp/s1/0/0")
+        # the arc type changes with the samples
+        self.assertEqual(
+            [a["arcType"] for a in packet["polygon"]["arcType"]],
+            ["GEODESIC", "RHUMB"],
+        )
+        latitudes = packet["polygon"]["positions"][0]["cartographicDegrees"][1::3]
+        self.assertGreater(min(latitudes), -80.1)
+        swaths = gpd.GeoDataFrame(
+            {"satellite": ["s1"], "start": [EPOCH], "end": [EPOCH]},
+            geometry=[box(170, 80, 180, 90)],
+            crs="EPSG:4326",
+        )
+        (swath,) = swath_packets(swaths, EPOCH + timedelta(hours=1), tolerance=0)
+        self.assertEqual(swath["polygon"]["arcType"], "GEODESIC")
+        latitudes = swath["polygon"]["positions"]["cartographicDegrees"][1::3]
+        self.assertAlmostEqual(min(latitudes), 80, places=1)
 
     def test_links(self):
         timeline = Timeline(

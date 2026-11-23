@@ -14,15 +14,28 @@ See https://github.com/AnalyticalGraphicsInc/czml-writer/wiki/CZML-Guide
 """
 
 import colorsys
+import functools
 import math
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import geopandas as gpd
+import numpy as np
+import shapely
+from pyproj import Transformer
 from shapely.geometry import MultiPolygon, Polygon
+from shapely.geometry.base import BaseGeometry
+from shapely.ops import unary_union
 from tatc.constants import EARTH_MEAN_RADIUS, EARTH_MU
 
 from .utils.timeline import MemberTrack, OrbitTracks, Timeline
+
+# tolerance (degrees) to find polygon vertices at a pole
+POLE_TOLERANCE = 1e-6
+# tolerances (meters) to close seams between, and to simplify, the parts of
+# polygons re-formed around a pole (see `display_polygons`)
+POLAR_SEAM_TOLERANCE = 10
+POLAR_SIMPLIFY_TOLERANCE = 1000
 
 # categorical colors (Tableau 10) assigned to satellites without a color
 PALETTE = [
@@ -269,6 +282,93 @@ def _footprint_packets(
     return packets
 
 
+def _ring_degrees(coordinates: Iterable[Sequence[float]]) -> List[float]:
+    """
+    Converts ring coordinates (longitude, latitude in degrees; not closed)
+    to CZML cartographic degrees on the surface.
+    """
+    return [v for x, y, *_ in coordinates for v in (x, y, 0)]
+
+
+def _touches_pole(polygon: Polygon, sign: int) -> bool:
+    """
+    Checks whether a polygon has a vertex at the north (`sign` 1) or south
+    (`sign` -1) pole.
+    """
+    return any(sign * y >= 90 - POLE_TOLERANCE for _, y, *_ in polygon.exterior.coords)
+
+
+@functools.cache
+def _polar_transformers(sign: int) -> Tuple[Transformer, Transformer]:
+    """
+    Gets the transformers to and from an azimuthal equidistant projection
+    centered on the north (`sign` 1) or south (`sign` -1) pole.
+    """
+    crs = f"+proj=aeqd +lat_0={90 * sign} +lon_0=0 +datum=WGS84 +units=m"
+    return (
+        Transformer.from_crs("EPSG:4326", crs, always_xy=True),
+        Transformer.from_crs(crs, "EPSG:4326", always_xy=True),
+    )
+
+
+def _reproject(geometry: BaseGeometry, transformer: Transformer) -> BaseGeometry:
+    return shapely.transform(
+        geometry,
+        lambda c: np.column_stack(transformer.transform(c[:, 0], c[:, 1])),
+    )
+
+
+def display_polygons(polygons: Sequence[Polygon]) -> List[Tuple[Polygon, str]]:
+    """
+    Prepares polygons in longitude/latitude (as TAT-C's footprints and
+    swaths) to draw in Cesium, with the arc type of their edges.
+
+    Polygons are drawn with rhumb lines (`RHUMB`), which follow their
+    longitude/latitude edges, except those that touch a pole. TAT-C splits
+    a geometry that covers a pole at the antimeridian, with edges along the
+    pole (or, as one ring, with a zero-width spike out to the pole and back),
+    which Cesium cannot draw: rhumb lines to a pole are undefined, and such
+    rings do not triangulate. Polygons that touch a pole are merged in an
+    azimuthal equidistant projection centered on the pole, where the
+    antimeridian and the pole are not edges, simplified (removing slivers
+    Cesium cannot triangulate), and re-formed as polygons around the pole,
+    drawn with geodesics (`GEODESIC`).
+
+    Args:
+        polygons (Sequence[shapely.geometry.Polygon]): The polygons (parts
+            of one geometry).
+
+    Returns:
+        List[Tuple[shapely.geometry.Polygon, str]]: The polygons to draw and
+            the arc type of their edges.
+    """
+    results = []
+    polar: Dict[int, List[Polygon]] = {1: [], -1: []}
+    for polygon in polygons:
+        if polygon.is_empty:
+            continue
+        if _touches_pole(polygon, 1):
+            polar[1].append(polygon)
+        elif _touches_pole(polygon, -1):
+            polar[-1].append(polygon)
+        else:
+            results.append((polygon, "RHUMB"))
+    for sign, parts in polar.items():
+        if not parts:
+            continue
+        to_polar, from_polar = _polar_transformers(sign)
+        merged = (
+            unary_union([shapely.make_valid(_reproject(p, to_polar)) for p in parts])
+            .buffer(POLAR_SEAM_TOLERANCE)
+            .buffer(-POLAR_SEAM_TOLERANCE)
+            .simplify(POLAR_SIMPLIFY_TOLERANCE)
+        )
+        for geometry in getattr(merged, "geoms", [merged]):
+            if isinstance(geometry, Polygon) and not geometry.is_empty:
+                results.append((_reproject(geometry, from_polar), "GEODESIC"))
+    return results
+
+
 def _merge_intervals(spans: Sequence[Tuple[float, float]]) -> List[Tuple[float, float]]:
     """
     Merges sorted spans (seconds) that touch or overlap.
@@ -302,6 +402,19 @@ def _footprint_polygon_packets(  # pylint: disable=too-many-arguments,too-many-l
     times = [t for t, _ in footprints]
     if not any(polygons for _, polygons in footprints):
         return []
+    # polygons (and arc types) to draw at each sample
+    drawn = [
+        display_polygons(
+            [
+                Polygon(
+                    list(zip(rings[0][0::2], rings[0][1::2])),
+                    [list(zip(ring[0::2], ring[1::2])) for ring in rings[1:]],
+                )
+                for rings in polygons
+            ]
+        )
+        for _, polygons in footprints
+    ]
     # each sample spans from the midpoints with its neighbors
     bounds = (
         [times[0]] + [(a + b) / 2 for a, b in zip(times[:-1], times[1:])] + [times[-1]]
@@ -320,40 +433,43 @@ def _footprint_polygon_packets(  # pylint: disable=too-many-arguments,too-many-l
             "availability": interval(start, end),
         }
     ]
-    parts = max(len(polygons) for _, polygons in footprints)
+    parts = max(len(polygons) for polygons in drawn)
     for j in range(parts):
         samples = [
-            (bounds[k], bounds[k + 1], polygons[j])
-            for k, (_, polygons) in enumerate(footprints)
+            (bounds[k], bounds[k + 1], *polygons[j])
+            for k, polygons in enumerate(drawn)
             if j < len(polygons) and bounds[k] < bounds[k + 1]
         ]
         if not samples:
             continue
+        arc_types = {arc_type for *_, arc_type in samples}
         polygon = {
             "positions": [
                 {
                     "interval": when(lower, upper),
-                    "cartographicDegrees": [
-                        v
-                        for x, y in zip(rings[0][0::2], rings[0][1::2])
-                        for v in (x, y, 0)
-                    ],
+                    "cartographicDegrees": _ring_degrees(shape.exterior.coords[:-1]),
                 }
-                for lower, upper, rings in samples
+                for lower, upper, shape, _ in samples
             ],
-            "arcType": "RHUMB",
+            "arcType": (
+                arc_types.pop()
+                if len(arc_types) == 1
+                else [
+                    {"interval": when(lower, upper), "arcType": arc_type}
+                    for lower, upper, _, arc_type in samples
+                ]
+            ),
             "material": {"solidColor": {"color": {"rgba": rgba(fill, alpha)}}},
         }
-        if any(len(rings) > 1 for _, _, rings in samples):
+        if any(len(shape.interiors) > 0 for _, _, shape, _ in samples):
             polygon["holes"] = [
                 {
                     "interval": when(lower, upper),
                     "cartographicDegrees": [
-                        [v for x, y in zip(ring[0::2], ring[1::2]) for v in (x, y, 0)]
-                        for ring in rings[1:]
+                        _ring_degrees(ring.coords[:-1]) for ring in shape.interiors
                     ],
                 }
-                for lower, upper, rings in samples
+                for lower, upper, shape, _ in samples
             ]
         packets.append(
             {
@@ -363,7 +479,7 @@ def _footprint_polygon_packets(  # pylint: disable=too-many-arguments,too-many-l
                 "availability": [
                     when(lower, upper)
                     for lower, upper in _merge_intervals(
-                        [(lower, upper) for lower, upper, _ in samples]
+                        [(lower, upper) for lower, upper, *_ in samples]
                     )
                 ],
                 "polygon": polygon,
@@ -497,16 +613,13 @@ def _polygon_positions(polygon: Polygon) -> dict:
     """
     graphics = {
         "positions": {
-            "cartographicDegrees": [
-                v for x, y, *_ in polygon.exterior.coords[:-1] for v in (x, y, 0)
-            ]
+            "cartographicDegrees": _ring_degrees(polygon.exterior.coords[:-1])
         }
     }
     if len(polygon.interiors) > 0:
         graphics["holes"] = {
             "cartographicDegrees": [
-                [v for x, y, *_ in ring.coords[:-1] for v in (x, y, 0)]
-                for ring in polygon.interiors
+                _ring_degrees(ring.coords[:-1]) for ring in polygon.interiors
             ]
         }
     return graphics
@@ -566,9 +679,7 @@ def swath_packets(
             if isinstance(geometry, MultiPolygon)
             else [geometry] if isinstance(geometry, Polygon) else []
         )
-        for j, polygon in enumerate(polygons):
-            if polygon.is_empty:
-                continue
+        for j, (polygon, arc_type) in enumerate(display_polygons(polygons)):
             packets.append(
                 {
                     "id": f"swath/{row.satellite}/{i}/{j}",
@@ -580,7 +691,7 @@ def swath_packets(
                     "availability": interval(row.end.to_pydatetime(), end),
                     "polygon": {
                         **_polygon_positions(polygon),
-                        "arcType": "RHUMB",
+                        "arcType": arc_type,
                         "material": {
                             "solidColor": {"color": {"rgba": rgba(color, alpha)}}
                         },
