@@ -31,6 +31,18 @@ Each analysis has endpoints to enqueue it (`POST`), retrieve its results
 (`GET .../{task_id}/czml`). `POST /validate/space-system` validates a satellite
 or constellation and summarizes its members.
 
+Satellites of past and present programs can be loaded from the TAT-C system
+catalog (`tatc.catalog`): `GET /catalog/systems` lists its satellite systems,
+and `POST /catalog/systems/{system_id}/build` builds the selected spacecraft
+with their cataloged instruments. The catalog's orbits are idealized (orbit
+planes, repeat ground tracks, and geostationary slots), so each spacecraft's
+orbit is replaced by its current general perturbations (GP) elements from
+CelesTrak, which coordinates satellites across systems. Elements come from
+the cached CelesTrak group (see `TATC_CELESTRAK_GROUP` below) or, for a
+spacecraft outside of it, a query for that one object. Each query result,
+including "no data" for decayed objects, is cached for two hours. Spacecraft
+without GP elements keep their cataloged orbits, with a warning.
+
 ## Configuration
 
 For the Manual Docker Containers and Python development methods (see
@@ -83,9 +95,9 @@ number of the broker and backend components.
  * `TATC_CELESTRAK_GROUP`: CelesTrak group searched for orbital elements
    (default: `active`); the server downloads it at most once every two hours,
    per [CelesTrak's usage policy](https://celestrak.org/NORAD/documentation/gp-data-formats.php)
- * `TATC_CELESTRAK_CACHE_DIR`: directory in which the CelesTrak group is cached
-   so restarts do not download it again (default: `tatc-app` in the system's
-   temporary directory)
+ * `TATC_CELESTRAK_CACHE_DIR`: directory in which the CelesTrak group (and
+   objects queried by catalog number) are cached so restarts do not download
+   them again (default: `tatc-app` in the system's temporary directory)
 
 ## Development
 

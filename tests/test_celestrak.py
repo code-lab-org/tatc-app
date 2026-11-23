@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest import mock
 
 from tatc import constants
 from tatc.schemas import GeneralPerturbationsOrbit, TwoLineElements
@@ -10,6 +11,7 @@ from tatc.schemas import GeneralPerturbationsOrbit, TwoLineElements
 from tatc_app.celestrak.catalog import (
     MIN_REFRESH_INTERVAL,
     CelestrakCatalog,
+    download_omm_object,
     get_catalog,
     to_celestrak_object,
 )
@@ -66,6 +68,139 @@ class FakeDownload:
         if self.error:
             raise self.error
         return self.records
+
+
+class FakeObjectDownload:
+    """
+    Replaces downloads of objects (by catalog number) from CelesTrak,
+    recording the catalog numbers queried.
+    """
+
+    def __init__(self, records=(), error: Exception | None = None):
+        self.records = {int(r["NORAD_CAT_ID"]): r for r in records}
+        self.error = error
+        self.calls = []
+
+    async def __call__(self, catalog_number: int) -> dict | None:
+        self.calls.append(catalog_number)
+        if self.error:
+            raise self.error
+        return self.records.get(catalog_number)
+
+
+# an object outside of the group
+OTHER = omm_record("OTHER SAT", 43013, "2017-073A")
+
+
+class CelestrakObjectsTestCase(unittest.TestCase):
+    def setUp(self):
+        self.cache_dir = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.cache_dir.cleanup()
+
+    def create_catalog(self, download_object, **kwargs):
+        return CelestrakCatalog(
+            cache_dir=self.cache_dir.name,
+            download=FakeDownload(),
+            download_object=download_object,
+            **kwargs,
+        )
+
+    def test_objects_in_group_are_not_queried(self):
+        download_object = FakeObjectDownload()
+        catalog = self.create_catalog(download_object)
+        objects = asyncio.run(catalog.get_objects([25544, 39084, 212345]))
+        self.assertEqual(
+            [o.name for o in objects.values()],
+            ["ISS (ZARYA)", "LANDSAT 8", "ALPHA FIVE SAT"],
+        )
+        self.assertEqual(download_object.calls, [])
+
+    def test_other_objects_are_queried_once(self):
+        download_object = FakeObjectDownload([OTHER])
+        catalog = self.create_catalog(download_object)
+        for _ in range(3):
+            objects = asyncio.run(catalog.get_objects([25544, 43013, 25063]))
+            self.assertEqual(objects[43013].name, "OTHER SAT")
+            self.assertEqual(objects[43013].orbit.get_catalog_number(), 43013)
+            # CelesTrak has no data for the object
+            self.assertIsNone(objects[25063])
+        self.assertEqual(download_object.calls, [43013, 25063])
+
+    def test_other_objects_are_queried_after_refresh_interval(self):
+        download_object = FakeObjectDownload([OTHER])
+        catalog = self.create_catalog(download_object)
+        asyncio.run(catalog.get_objects([43013, 25063]))
+        catalog._objects = {
+            number: (queried - MIN_REFRESH_INTERVAL - timedelta(seconds=1), record)
+            for number, (queried, record) in catalog._objects.items()
+        }
+        asyncio.run(catalog.get_objects([43013, 25063]))
+        self.assertEqual(download_object.calls, [43013, 25063, 43013, 25063])
+
+    def test_reuses_objects_cache_on_disk(self):
+        asyncio.run(
+            self.create_catalog(FakeObjectDownload([OTHER])).get_objects([43013, 25063])
+        )
+        download_object = FakeObjectDownload([OTHER])
+        catalog = self.create_catalog(download_object)
+        objects = asyncio.run(catalog.get_objects([43013, 25063]))
+        self.assertEqual(objects[43013].name, "OTHER SAT")
+        self.assertIsNone(objects[25063])
+        self.assertEqual(download_object.calls, [])
+
+    def test_failed_query_stops_queries_until_retry_interval(self):
+        download_object = FakeObjectDownload(error=RuntimeError("CelesTrak 403"))
+        catalog = self.create_catalog(download_object)
+        objects = asyncio.run(catalog.get_objects([43013, 25063]))
+        self.assertEqual(objects, {43013: None, 25063: None})
+        asyncio.run(catalog.get_objects([43013, 25063]))
+        self.assertEqual(download_object.calls, [43013])
+
+    def test_failed_query_uses_stale_record(self):
+        catalog = self.create_catalog(FakeObjectDownload([OTHER]))
+        asyncio.run(catalog.get_objects([43013]))
+        catalog._objects[43013] = (
+            catalog._objects[43013][0] - MIN_REFRESH_INTERVAL - timedelta(seconds=1),
+            catalog._objects[43013][1],
+        )
+        catalog._download_object = FakeObjectDownload(error=RuntimeError("down"))
+        objects = asyncio.run(catalog.get_objects([43013]))
+        self.assertEqual(objects[43013].name, "OTHER SAT")
+
+    def test_objects_without_group(self):
+        download_object = FakeObjectDownload([OTHER])
+        catalog = CelestrakCatalog(
+            download=FakeDownload(error=RuntimeError("down")),
+            download_object=download_object,
+        )
+        objects = asyncio.run(catalog.get_objects([43013]))
+        self.assertEqual(objects[43013].name, "OTHER SAT")
+
+    def test_download_object(self):
+        response = json.dumps([OTHER])
+        with mock.patch(
+            "tatc_app.celestrak.catalog._get_omm_json",
+            mock.AsyncMock(return_value=(200, response)),
+        ) as get:
+            self.assertEqual(asyncio.run(download_omm_object(43013)), OTHER)
+        get.assert_awaited_once_with({"CATNR": 43013}, timeout=30)
+
+    def test_download_object_without_data(self):
+        with mock.patch(
+            "tatc_app.celestrak.catalog._get_omm_json",
+            mock.AsyncMock(return_value=(404, "No GP data found")),
+        ):
+            self.assertIsNone(asyncio.run(download_omm_object(25063)))
+
+    def test_download_object_error(self):
+        with mock.patch(
+            "tatc_app.celestrak.catalog._get_omm_json",
+            mock.AsyncMock(return_value=(403, "Forbidden")),
+        ):
+            with self.assertRaises(RuntimeError):
+                asyncio.run(download_omm_object(43013))
 
 
 class CelestrakCatalogTestCase(unittest.TestCase):

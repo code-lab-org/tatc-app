@@ -22,6 +22,7 @@ from tatc_app.coverage.router import router as coverage_router
 from tatc_app.generation.router import router as generation_router
 from tatc_app.latency.router import router as latency_router
 from tatc_app.overflight.router import router as overflight_router
+from tatc_app.system_catalog.router import router as system_catalog_router
 from tatc_app.tracking.router import router as tracking_router
 from tatc_app.validation.router import router as validation_router
 
@@ -63,6 +64,12 @@ app.include_router(
 app.include_router(
     celestrak_router,
     prefix="/celestrak",
+    dependencies=[Depends(current_user)],
+)
+# Include the router for the /catalog route
+app.include_router(
+    system_catalog_router,
+    prefix="/catalog",
     dependencies=[Depends(current_user)],
 )
 # Include the router for the /cesium route

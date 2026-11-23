@@ -115,6 +115,9 @@
                 </div>
               </div>
               <div class="mt-1">
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="catalog-open" title="Load satellites of past and present programs from the system catalog" data-toggle="modal" data-target="#catalog-dialog">
+                  <i class="fas fa-book"></i> Catalog
+                </button>
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="design-export" title="Download the design as a JSON file">
                   <i class="fas fa-file-export"></i> Export
                 </button>
@@ -535,6 +538,57 @@
     </div>
   </div>
 
+  <!-- System catalog -->
+  <div class="modal fade" id="catalog-dialog" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Load from System Catalog</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted">Satellites of past and present programs from the TAT-C system catalog. Their cataloged (idealized) orbits are replaced by current general perturbations (GP) elements from CelesTrak, so that satellites are coordinated across systems.</p>
+          <div class="form-group row">
+            <label for="catalog-systems" class="col-sm-2 col-form-label">System</label>
+            <div class="col-sm-10">
+              <select class="form-control" id="catalog-systems" size="7"></select>
+              <div class="small text-muted mt-1" id="catalog-details"></div>
+            </div>
+          </div>
+          <div class="form-group row">
+            <label class="col-sm-2 col-form-label">Satellites</label>
+            <div class="col-sm-10">
+              <div class="form-control overflow-auto small h-auto" style="max-height:9em" id="catalog-members"></div>
+            </div>
+          </div>
+          <div class="form-group row">
+            <label class="col-sm-2 col-form-label">Instruments</label>
+            <div class="col-sm-10">
+              <div class="form-control overflow-auto small h-auto" style="max-height:7em" id="catalog-instruments"></div>
+              <small class="form-text text-muted">Cataloged instruments, each on the satellites that carry it (satellites without one have TAT-C's default instrument).</small>
+            </div>
+          </div>
+          <div class="form-group row">
+            <label for="catalog-time-step" class="col-sm-2 col-form-label">Time step</label>
+            <div class="input-group col-sm-4">
+              <input type="number" min="1" max="3600" value="60" step="any" class="form-control" id="catalog-time-step">
+              <div class="input-group-append"><span class="input-group-text">s</span></div>
+            </div>
+            <small class="col-sm-6 form-text text-muted">Analysis time step to which instruments that scan across track tailor their along-track field of view.</small>
+          </div>
+          <p class="small text-muted">Instruments that schedule their tilt by day are built for the analysis period of the Analysis tab.</p>
+          <div class="small" id="catalog-status"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-primary" id="catalog-load" disabled>Load</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Region and grid -->
   <div class="modal fade" id="region-dialog" role="dialog">
     <div class="modal-dialog" role="document">
@@ -701,6 +755,7 @@
   <script src="layers.js"></script>
   <script src="schemas.js"></script>
   <script src="satellites.js"></script>
+  <script src="catalog.js"></script>
   <script src="design.js"></script>
   <script src="region.js"></script>
   <script src="timeline-layer.js"></script>
