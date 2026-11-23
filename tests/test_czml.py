@@ -20,6 +20,7 @@ from tatc_app.utils.timeline import (
     MemberTrack,
     OrbitTracks,
     Timeline,
+    build_footprints,
     build_timeline,
 )
 
@@ -67,6 +68,28 @@ class TimelineTestCase(unittest.TestCase):
         timeline = build_timeline(pd.DataFrame(), EPOCH, ["a"], ["s1"])
         self.assertEqual(timeline.start, [])
         self.assertEqual(timeline.targets, ["a"])
+
+    def test_build_footprints(self):
+        ground_track = gpd.GeoDataFrame(
+            {
+                "time": [EPOCH + timedelta(seconds=s) for s in (0, 60, 120)],
+                "valid_obs": [True, False, True],
+            },
+            geometry=[
+                box(0, 0, 1, 1),
+                box(0, 0, 1, 1),
+                MultiPolygon([box(170, 0, 180, 10), box(-180, 0, -170, 10)]),
+            ],
+            crs="EPSG:4326",
+        )
+        footprints = build_footprints(ground_track, EPOCH)
+        self.assertEqual([t for t, _ in footprints], [0, 60, 120])
+        # rings are not closed
+        self.assertEqual(len(footprints[0][1]), 1)
+        self.assertEqual(len(footprints[0][1][0][0]), 8)
+        # no polygons if the instrument does not observe
+        self.assertEqual(footprints[1][1], [])
+        self.assertEqual(len(footprints[2][1]), 2)
 
 
 class CzmlTestCase(unittest.TestCase):
@@ -133,6 +156,68 @@ class CzmlTestCase(unittest.TestCase):
         self.assertLess(fills[1][3], 255)
         # footprints can be omitted
         self.assertEqual(len(satellite_packets(tracks, footprint=False)), 1)
+
+    def test_satellite_footprint_polygons(self):
+        square = [[0, 0, 1, 0, 1, 1, 0, 1]]
+        ring = [[2, 2, 6, 2, 6, 6, 2, 6], [3, 3, 4, 3, 4, 4, 3, 4]]
+        tracks = OrbitTracks(
+            epoch=EPOCH,
+            tracks=[
+                MemberTrack(
+                    name="s1",
+                    positions=[0, 0, 0, 500e3, 60, 3.8, 0, 500e3, 120, 7.6, 0, 500e3],
+                    instruments=[
+                        InstrumentTrack(
+                            name="a",
+                            swath_widths=[0, 2000e3, 60, 2000e3, 120, 2000e3],
+                            # two parts, then none, then one with a hole
+                            footprints=[(0, [square, square]), (60, []), (120, [ring])],
+                        ),
+                        InstrumentTrack(
+                            name="b",
+                            swath_widths=[0, 2000e3, 60, 2000e3, 120, 2000e3],
+                            footprints=[(0, []), (60, []), (120, [])],
+                        ),
+                    ],
+                )
+            ],
+        )
+        packets = satellite_packets(tracks, {"s1": "#4e79a7"})
+        # a parent (to show or hide the footprint) and one child per part;
+        # nothing for an instrument that never observes
+        self.assertEqual(
+            [p["id"] for p in packets], ["sat/s1", "fp/s1/0", "fp/s1/0/0", "fp/s1/0/1"]
+        )
+        parent, first, second = packets[1:]
+        self.assertNotIn("polygon", parent)
+        self.assertNotIn("ellipse", first)
+        self.assertEqual(first["parent"], "fp/s1/0")
+        # samples span the midpoints with their neighbors
+        self.assertEqual(
+            first["availability"],
+            [
+                "2022-01-01T00:00:00.000Z/2022-01-01T00:00:30.000Z",
+                "2022-01-01T00:01:30.000Z/2022-01-01T00:02:00.000Z",
+            ],
+        )
+        self.assertEqual(
+            second["availability"],
+            ["2022-01-01T00:00:00.000Z/2022-01-01T00:00:30.000Z"],
+        )
+        positions = first["polygon"]["positions"]
+        self.assertEqual(len(positions), 2)
+        self.assertEqual(positions[0]["cartographicDegrees"][:6], [0, 0, 0, 1, 0, 0])
+        self.assertEqual(len(positions[1]["cartographicDegrees"]), 12)
+        self.assertEqual(
+            first["polygon"]["holes"][1]["cartographicDegrees"],
+            [[3, 3, 0, 4, 3, 0, 4, 4, 0, 3, 4, 0]],
+        )
+        self.assertEqual(first["polygon"]["holes"][0]["cartographicDegrees"], [])
+        self.assertNotIn("holes", second["polygon"])
+        self.assertEqual(
+            first["polygon"]["material"]["solidColor"]["color"]["rgba"],
+            rgba("#4e79a7", 70),
+        )
 
     def test_links(self):
         timeline = Timeline(

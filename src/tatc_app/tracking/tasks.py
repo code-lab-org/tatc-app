@@ -12,7 +12,7 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import shape
 from tatc.analysis import collect_ground_track, collect_orbit_track
-from tatc.schemas import Satellite
+from tatc.schemas import Instrument, Satellite
 
 from ..czml import assign_colors
 from ..utils.analysis import tag, untag
@@ -90,9 +90,20 @@ def collect_ground_track_task(
     return to_geojson(results)
 
 
+def has_circular_footprint(instrument) -> bool:
+    """
+    Checks whether an instrument's footprint is the circle spanned by its
+    swath width: a (simple) instrument, whose view is a cone centered on
+    nadir spanning its field of regard. Footprints of other instruments
+    (pointed, conical, or in situ) are computed by TAT-C to animate results.
+    """
+    return isinstance(instrument, Instrument) and instrument.type == "instrument"
+
+
 def compute_member_track(satellite: Satellite, times: pd.DatetimeIndex, epoch):
     """
-    Computes the orbit track of a member satellite to animate results.
+    Computes the orbit track (and instrument footprints) of a member
+    satellite to animate results.
 
     Args:
         satellite (tatc.schemas.Satellite): The satellite.
@@ -102,12 +113,18 @@ def compute_member_track(satellite: Satellite, times: pd.DatetimeIndex, epoch):
     Returns:
         MemberTrack: The member track.
     """
+    indices = range(len(satellite.instruments))
     return build_member_track(
-        [
-            collect_orbit_track(satellite, times, index)
-            for index in range(len(satellite.instruments))
-        ],
+        [collect_orbit_track(satellite, times, index) for index in indices],
         epoch,
+        [
+            (
+                None
+                if has_circular_footprint(satellite.instruments[index])
+                else collect_ground_track(satellite, times, index)
+            )
+            for index in indices
+        ],
     )
 
 

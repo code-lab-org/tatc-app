@@ -65,13 +65,17 @@ function applyPreviewDisplayOptions() {
   });
 }
 
-// Gets the (opaque) CSS color of an entity's footprint, if any.
+// Gets the (opaque) CSS color of an entity's footprint, if any: a circle
+// (ellipse) or, for footprints computed by TAT-C, the polygon of its first
+// part (a child entity, `<id>/0`).
 function getFootprintColor(source, id) {
   const entity = source.entities.getById(id);
-  if (!entity || !entity.ellipse || !entity.ellipse.material) {
+  const part = source.entities.getById(id + "/0");
+  const graphics = (entity && entity.ellipse) || (part && part.polygon);
+  if (!graphics || !graphics.material) {
     return null;
   }
-  const color = entity.ellipse.material.color.getValue(viewer.clock.currentTime);
+  const color = graphics.material.color.getValue(viewer.clock.currentTime);
   return color ? color.withAlpha(1).toCssColorString() : null;
 }
 

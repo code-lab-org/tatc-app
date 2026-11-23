@@ -58,6 +58,12 @@ class AnalyzeSwathsTestCase(TatcTestCase):
             )
             for instrument in track.instruments:
                 self.assertEqual(len(instrument.swath_widths), 2 * 181)
+            # footprints computed by TAT-C for the pointed instrument, while
+            # the simple instrument's footprint is its swath width's circle
+            footprints = track.instruments[0].footprints
+            self.assertEqual(len(footprints), 181)
+            self.assertTrue(all(len(polygons) > 0 for _, polygons in footprints))
+            self.assertIsNone(track.instruments[1].footprints)
             self.assertNotEqual(
                 track.instruments[1].swath_widths[1],
                 track.instruments[0].swath_widths[1],
@@ -73,7 +79,13 @@ class AnalyzeSwathsTestCase(TatcTestCase):
         ids = [packet["id"] for packet in czml]
         self.assertIn(f"sat/{members[0]}", ids)
         self.assertIn(f"fp/{members[0]}/0", ids)
+        self.assertIn(f"fp/{members[0]}/0/0", ids)
         self.assertIn(f"fp/{members[0]}/1", ids)
+        polygon = next(p for p in czml if p["id"] == f"fp/{members[0]}/0/0")
+        self.assertEqual(polygon["parent"], f"fp/{members[0]}/0")
+        self.assertGreater(len(polygon["polygon"]["positions"]), 1)
+        circle = next(p for p in czml if p["id"] == f"fp/{members[0]}/1")
+        self.assertIn("ellipse", circle)
         swaths = [packet for packet in czml if packet["id"].startswith("swath/")]
         self.assertGreaterEqual(len(swaths), 12)
         self.assertTrue(all(p["availability"].endswith("Z") for p in swaths))

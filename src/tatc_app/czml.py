@@ -218,27 +218,41 @@ def satellite_packets(
             }
         packets.append(packet)
         if footprint:
-            packets.extend(_footprint_packets(track, color, epoch, start, end))
+            packets.extend(_footprint_packets(track, color, tracks.epoch, start, end))
     return packets
 
 
 def _footprint_packets(
-    track: MemberTrack, color: str, epoch: str, start: datetime, end: datetime
+    track: MemberTrack, color: str, epoch: datetime, start: datetime, end: datetime
 ) -> List[dict]:
     """
-    Builds packets for the footprint of each instrument of a satellite,
-    following the position of the satellite packet.
+    Builds packets for the footprint of each instrument of a satellite: the
+    polygons computed by TAT-C, if any, or else the circle spanned by the
+    swath width, following the position of the satellite packet.
     """
     packets = []
     for index, instrument in enumerate(track.instruments):
+        fill = instrument_color(color, index, len(track.instruments))
+        if instrument.footprints is not None:
+            packets.extend(
+                _footprint_polygon_packets(
+                    f"fp/{track.name}/{index}",
+                    f"{track.name} {instrument.name}",
+                    instrument.footprints,
+                    fill,
+                    epoch,
+                    start,
+                    end,
+                )
+            )
+            continue
         widths = instrument.swath_widths
         if not any(w > 0 for w in widths[1::2]):
             continue
         radii = []
         for t, width in zip(widths[0::2], widths[1::2]):
             radii.extend([t, max(width / 2, 1.0)])
-        axis = {"epoch": epoch, "number": radii}
-        fill = instrument_color(color, index, len(track.instruments))
+        axis = {"epoch": iso(epoch), "number": radii}
         packets.append(
             {
                 "id": f"fp/{track.name}/{index}",
@@ -250,6 +264,109 @@ def _footprint_packets(
                     "semiMinorAxis": axis,
                     "material": {"solidColor": {"color": {"rgba": rgba(fill, 70)}}},
                 },
+            }
+        )
+    return packets
+
+
+def _merge_intervals(spans: Sequence[Tuple[float, float]]) -> List[Tuple[float, float]]:
+    """
+    Merges sorted spans (seconds) that touch or overlap.
+    """
+    merged: List[Tuple[float, float]] = []
+    for lower, upper in spans:
+        if merged and lower <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], upper))
+        else:
+            merged.append((lower, upper))
+    return merged
+
+
+def _footprint_polygon_packets(  # pylint: disable=too-many-arguments,too-many-locals
+    identifier: str,
+    name: str,
+    footprints: Sequence[Tuple[float, Sequence[Sequence[Sequence[float]]]]],
+    fill: str,
+    epoch: datetime,
+    start: datetime,
+    end: datetime,
+    alpha: int = 70,
+) -> List[dict]:
+    """
+    Builds packets for the time-sampled footprint polygons of an instrument
+    (see `InstrumentTrack.footprints`): a parent entity (`identifier`, to
+    show or hide the footprint) and one child entity for each polygon of a
+    (multi-part) footprint, whose positions change at the midpoints between
+    samples.
+    """
+    times = [t for t, _ in footprints]
+    if not any(polygons for _, polygons in footprints):
+        return []
+    # each sample spans from the midpoints with its neighbors
+    bounds = (
+        [times[0]] + [(a + b) / 2 for a, b in zip(times[:-1], times[1:])] + [times[-1]]
+    )
+
+    def when(lower: float, upper: float) -> str:
+        return interval(
+            max(start, epoch + timedelta(seconds=lower)),
+            min(end, epoch + timedelta(seconds=upper)),
+        )
+
+    packets = [
+        {
+            "id": identifier,
+            "name": name,
+            "availability": interval(start, end),
+        }
+    ]
+    parts = max(len(polygons) for _, polygons in footprints)
+    for j in range(parts):
+        samples = [
+            (bounds[k], bounds[k + 1], polygons[j])
+            for k, (_, polygons) in enumerate(footprints)
+            if j < len(polygons) and bounds[k] < bounds[k + 1]
+        ]
+        if not samples:
+            continue
+        polygon = {
+            "positions": [
+                {
+                    "interval": when(lower, upper),
+                    "cartographicDegrees": [
+                        v
+                        for x, y in zip(rings[0][0::2], rings[0][1::2])
+                        for v in (x, y, 0)
+                    ],
+                }
+                for lower, upper, rings in samples
+            ],
+            "arcType": "RHUMB",
+            "material": {"solidColor": {"color": {"rgba": rgba(fill, alpha)}}},
+        }
+        if any(len(rings) > 1 for _, _, rings in samples):
+            polygon["holes"] = [
+                {
+                    "interval": when(lower, upper),
+                    "cartographicDegrees": [
+                        [v for x, y in zip(ring[0::2], ring[1::2]) for v in (x, y, 0)]
+                        for ring in rings[1:]
+                    ],
+                }
+                for lower, upper, rings in samples
+            ]
+        packets.append(
+            {
+                "id": f"{identifier}/{j}",
+                "name": name,
+                "parent": identifier,
+                "availability": [
+                    when(lower, upper)
+                    for lower, upper in _merge_intervals(
+                        [(lower, upper) for lower, upper, _ in samples]
+                    )
+                ],
+                "polygon": polygon,
             }
         )
     return packets
