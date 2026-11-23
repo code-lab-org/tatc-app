@@ -571,7 +571,7 @@ $(document).ready(function() {
   loadInitialDesign();
   // revalidate once logged in (validation requires a session)
   $(document).ajaxSuccess(function(event, xhr, settings) {
-    if (settings.url == "/users/me") {
+    if (settings.url == "/auth/me") {
       _.forEach(design.satellites, function(item) {
         if (item.validation.status == "unknown") {
           validateItem(item);

@@ -13,9 +13,8 @@ services:
       TATC_BROKER: amqp://guest:guest@broker:5672//
       TATC_BACKEND: redis://backend:6379/
       TATC_CESIUM_TOKEN: ${TATC_CESIUM_TOKEN}
-      TATC_DATABASE_URL: sqlite+aiosqlite:///data/data.db
-    volumes:
-      - tatc-data:/var/tatc-app/data
+      # local development only: no sign in required
+      TATC_AUTH: none
   worker:
     build:
       context: .
@@ -36,5 +35,3 @@ services:
     image: redis:6
     ports:
       - "6379:6379"
-volumes:
-  tatc-data:

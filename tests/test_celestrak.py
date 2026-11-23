@@ -48,6 +48,6 @@ class CelestrakTestCase(TatcTestCase):
         self.assertTrue(len(response.text.splitlines()) < 2)
 
     def test_get_tle_invalid_user(self):
-        self.client.app.dependency_overrides = {}
+        self.require_authentication()
         response = self.client.get("/celestrak/tle?name=zarya")
         self.assertEqual(response.status_code, 401)

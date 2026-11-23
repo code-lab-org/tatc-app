@@ -194,30 +194,34 @@ function formatError(xhr) {
   return String(xhr || "Request failed.");
 }
 
-// --- Login ---
+// --- Authentication ---
 
-function initializePage(user) {
-  $("#login-modal").modal("hide");
+function signedIn(info) {
   $("#login-link").hide();
-  $("#logout-link").show();
-  $("#user-email").text(user.email);
   $("#nav-info-tab").off("hide.bs.tab");
+  if (info.mode == "oidc") {
+    $("#user-email").text(info.user.email || info.user.name || info.user.id);
+    $("#user-menu").show();
+  } else {
+    // authentication is disabled (local development)
+    $("#user-menu").hide();
+  }
   initializeCesium();
 }
 
+function signedOut() {
+  $("#user-menu").hide();
+  $("#user-email").text("");
+  $("#login-link").show();
+  // require sign in before leaving the information tab
+  $("#nav-info-tab").off("hide.bs.tab").on("hide.bs.tab", function(e) {
+    e.preventDefault();
+    window.location.href = "/auth/login";
+  });
+}
+
 function getUserInformation() {
-  $.get("/users/me")
-    .done(initializePage)
-    .fail(function() {
-      $("#login-link").show();
-      $("#logout-link").hide();
-      $("#user-email").text("");
-      // require login before leaving the information tab
-      $("#nav-info-tab").off("hide.bs.tab").on("hide.bs.tab", function(e) {
-        e.preventDefault();
-        $("#login-modal").modal("show");
-      });
-    });
+  $.get("/auth/me").done(signedIn).fail(signedOut);
 }
 
 $(document).ready(function() {
@@ -225,24 +229,23 @@ $(document).ready(function() {
   $.get("/openapi.json").done(function(api) {
     $("#app-version").text(api.info.version);
   });
-  $("#login-form").on("submit", function(e) {
-    e.preventDefault();
-    $("#login-message").text("");
-    $.post("/login", $(this).serialize())
-      .done(getUserInformation)
-      .fail(function(xhr) {
-        $("#login-message").text(
-          xhr.status == 400 ? "Incorrect email or password." : formatError(xhr)
-        );
-      });
-  });
   $("#logout-link").click(function(e) {
     e.preventDefault();
-    $.post("/logout").done(function() {
+    $.post("/auth/logout").always(function() {
       $("#nav-info-tab").tab("show");
       getUserInformation();
     });
   });
-  $("#login-modal").modal({ backdrop: "static", keyboard: false, show: false });
+  $("#token-link").click(function(e) {
+    e.preventDefault();
+    $.get("/auth/token")
+      .done(function(token) {
+        navigator.clipboard.writeText(token).then(
+          function() { alert("API token copied. Send it in the header 'Authorization: Bearer <token>' until it expires."); },
+          function() { window.prompt("API token (send as 'Authorization: Bearer <token>'):", token); }
+        );
+      })
+      .fail(function(xhr) { alert(formatError(xhr)); });
+  });
   getUserInformation();
 });

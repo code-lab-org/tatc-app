@@ -61,13 +61,17 @@ name/URL, and port number of the broker and backend components.
 
  * `TATC_BROKER`: broker connection string (default: `amqp://guest:guest@broker:5672//`, assuming a local broker)
  * `TATC_BACKEND`: backend connection string (default: `redis://backend:6379/`, assuming a local backend)
- * `TATC_DATABASE_URL`: server user-account database connection string (default: `sqlite+aiosqlite:///data.db`,
-   a SQLite file in the working directory); the Docker Compose methods below override this to store the
-   file in the `tatc-data` volume so accounts persist across container restarts
+ * `TATC_AUTH`: authentication mode (default: `oidc`): `oidc` requires users to
+   sign in with an OpenID Connect provider such as Dex (see
+   [Authentication](#authentication)); `none` disables authentication for
+   **local development only**
+ * `TATC_OIDC_ISSUER`: OpenID Connect issuer URL (required for `oidc`), e.g. `https://example.com/dex`
+ * `TATC_OIDC_CLIENT_ID`: OpenID Connect client identifier (default: `tatc-app`)
+ * `TATC_OIDC_CLIENT_SECRET`: OpenID Connect client secret (required for `oidc`)
+ * `TATC_PUBLIC_URL`: public base URL of the server, used to build the sign-in
+   redirect URI `<TATC_PUBLIC_URL>/auth/callback` (default: inferred from requests)
  * `TATC_LOGIN_LIFETIME_SECONDS`: time until reauthentication required (default: `7200` seconds)
- * `TATC_SECRET`: cryptographic security secret phrase (default: `change me`)
- * `TATC_ADMIN_EMAIL`: administrator account email (default: `admin@example.com`)
- * `TATC_ADMIN_PASSWORD`: administrator account password (default: `admin`)
+ * `TATC_SECRET`: secret used to sign session cookies (required for `oidc`)
  * `TATC_CESIUM_TOKEN`: Cesium access token
 
 ## Development
@@ -154,7 +158,9 @@ the project root:
 pip install -e .
 ```
 
-To start the TAT-C server application, run the command:
+For local development without sign in, set `TATC_AUTH=none` in the `.env`
+file (`compose.dev.yml` does this for the Docker Compose method). To start the
+TAT-C server application, run the command:
 ```shell
 uvicorn tatc_app.main:app --reload --reload-dir tatc_app
 ```
@@ -244,10 +250,14 @@ the GUI/API, broker, and backend. It requires:
  * `BACKEND_USER` / `BACKEND_PASSWORD`: credentials for the Redis backend;
    these must match an enabled user in `redis.acl` (see below) and are used
    to build the server's `TATC_BACKEND` connection string
- * `TATC_SECRET`: cryptographic secret used to sign session/authentication
-   tokens — set this to a long, random value
- * `TATC_ADMIN_EMAIL` / `TATC_ADMIN_PASSWORD`: initial administrator account
-   credentials
+ * `TATC_SECRET`: secret used to sign session cookies — set this to a long,
+   random value
+ * `TATC_OIDC_CLIENT_SECRET`: secret shared by the server and Dex to
+   authenticate the server as a Dex client — set this to a long, random value
+ * `TATC_ADMIN_EMAIL` / `TATC_ADMIN_PASSWORD_HASH`: email and bcrypt password
+   hash of a user who signs in with Dex (see [Authentication](#authentication))
+ * `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`: credentials of a GitHub OAuth
+   app for users to sign in with GitHub (see [Authentication](#authentication))
  * `TATC_CESIUM_TOKEN`: Cesium access token (see
    [Cesium Access Token and Assets](#cesium-access-token-and-assets) above)
 
@@ -260,9 +270,43 @@ merge to `main`) rather than building them locally. Leave
 `.env` to a specific commit SHA for a reproducible, rollback-able deploy that
 auto-deploy will then keep redeploying rather than moving off of.
 
-The server's user-account database is stored in the `tatc-data` Docker
-volume; `compose.server.yml` sets `TATC_DATABASE_URL` to place it there
-automatically, so it persists across restarts without further configuration.
+### Authentication
+
+The server deployment authenticates users with [Dex](https://dexidp.io), an
+OpenID Connect provider that runs alongside the server (`compose.server.yml`)
+at `https://<TATC_DOMAIN>/dex` and is configured by `dex.yaml`. Users sign in
+through Dex with either:
+
+ * **Email and password** of users listed under `staticPasswords` in
+   `dex.yaml`. The template defines one user whose email and bcrypt password
+   hash come from `TATC_ADMIN_EMAIL` and `TATC_ADMIN_PASSWORD_HASH`. Create a
+   hash with, for example, `htpasswd -bnBC 10 "" 'your password' | tr -d ':\n'`
+   or `python -c "import bcrypt; print(bcrypt.hashpw(b'your password', bcrypt.gensalt()).decode())"`,
+   and wrap it in single quotes in `.env` (it contains `$` characters):
+   `TATC_ADMIN_PASSWORD_HASH='$2b$10$...'`. Add more users to `dex.yaml` in
+   the same way.
+ * **GitHub**, using a GitHub OAuth app (GitHub settings, Developer settings,
+   OAuth Apps) with the authorization callback URL
+   `https://<TATC_DOMAIN>/dex/callback`; set its credentials as
+   `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. To allow only members of
+   GitHub organizations, uncomment `orgs` in `dex.yaml`; to disable GitHub
+   sign in, remove its connector from `dex.yaml`.
+
+Any user who signs in through Dex can use the application. See the
+[Dex connectors](https://dexidp.io/docs/connectors/) to sign in with other
+identity providers (for example, an institutional OpenID Connect, SAML, or
+LDAP provider). Dex stores its state in the `tatc-dex-data` Docker volume.
+
+Signed-in users can choose **Copy API token** in the user menu to copy an ID
+token that authenticates programmatic API requests until it expires (8 hours),
+for example:
+```shell
+curl -H "Authorization: Bearer <token>" https://<TATC_DOMAIN>/auth/me
+```
+
+Previous versions stored user accounts in a SQLite database in the `tatc-data`
+Docker volume, which is no longer used and may be removed
+(`docker volume rm tatc-data`).
 
 A `redis.acl` file must also exist alongside `compose.server.yml` — see
 [Redis ACL File](#redis-acl-file) below.
@@ -271,9 +315,9 @@ A `redis.acl` file must also exist alongside `compose.server.yml` — see
 
 Run `docker compose -f compose.worker.yml up` on each additional host that
 should process tasks for a broker/backend already started by
-`compose.server.yml`. It requires only the connection credentials — not
-`TATC_SECRET`, `TATC_ADMIN_EMAIL`/`TATC_ADMIN_PASSWORD`, `TATC_CESIUM_TOKEN`,
-or `ACME_EMAIL`, none of which the worker uses:
+`compose.server.yml`. It requires only the connection credentials — none of
+the authentication settings, `TATC_CESIUM_TOKEN`, or `ACME_EMAIL`, which the
+worker does not use:
 
  * `TATC_DOMAIN`: same public domain name as the server deployment, used to
    reach the broker (AMQPS) and backend (TLS Redis) through Traefik

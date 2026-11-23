@@ -24,12 +24,9 @@ RUN python -m pip install --no-cache-dir .
 COPY src src
 RUN python -m pip install --no-cache-dir .
 
-# Run as a dedicated non-root user. The data directory is created (and
-# owned by that user) here so its ownership is propagated to the
-# `tatc-data` volume the first time it is mounted over that path.
+# Run as a dedicated non-root user.
 RUN groupadd --system tatc \
     && useradd --system --gid tatc --no-create-home --shell /usr/sbin/nologin tatc \
-    && mkdir -p /var/tatc-app/data \
     && chown -R tatc:tatc /var/tatc-app
 USER tatc
 

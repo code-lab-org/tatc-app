@@ -37,12 +37,15 @@ services:
       TATC_BACKEND: redis://${BACKEND_USER}:${BACKEND_PASSWORD}@backend:6379/
       TATC_LOGIN_LIFETIME_SECONDS: 7200
       TATC_SECRET: ${TATC_SECRET}
-      TATC_ADMIN_EMAIL: ${TATC_ADMIN_EMAIL}
-      TATC_ADMIN_PASSWORD: ${TATC_ADMIN_PASSWORD}
       TATC_CESIUM_TOKEN: ${TATC_CESIUM_TOKEN}
-      TATC_DATABASE_URL: sqlite+aiosqlite:///data/data.db
-    volumes:
-      - tatc-data:/var/tatc-app/data
+      TATC_AUTH: oidc
+      TATC_PUBLIC_URL: https://${TATC_DOMAIN}
+      TATC_OIDC_ISSUER: https://${TATC_DOMAIN}/dex
+      TATC_OIDC_CLIENT_ID: tatc-app
+      TATC_OIDC_CLIENT_SECRET: ${TATC_OIDC_CLIENT_SECRET}
+    # reach Dex at its public URL through the reverse proxy on this host
+    extra_hosts:
+      - "${TATC_DOMAIN}:host-gateway"
     expose:
       - "8000"
     labels:
@@ -55,6 +58,32 @@ services:
     depends_on:
       worker:
         condition: service_started
+      dex:
+        condition: service_started
+  dex:
+    image: ghcr.io/dexidp/dex:v2.46.1
+    container_name: tatc-dex
+    restart: unless-stopped
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    environment:
+      TATC_DOMAIN: ${TATC_DOMAIN}
+      TATC_OIDC_CLIENT_SECRET: ${TATC_OIDC_CLIENT_SECRET}
+      TATC_ADMIN_EMAIL: ${TATC_ADMIN_EMAIL}
+      TATC_ADMIN_PASSWORD_HASH: ${TATC_ADMIN_PASSWORD_HASH}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+    volumes:
+      - ./dex.yaml:/etc/dex/config.yaml:ro
+      - dex-data:/var/dex
+    expose:
+      - "5556"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.dex.rule=Host(`${TATC_DOMAIN}`) && PathPrefix(`/dex`)
+      - traefik.http.routers.dex.entrypoints=websecure
+      - traefik.http.routers.dex.tls=true
+      - traefik.http.routers.dex.tls.certresolver=le
+      - traefik.http.services.dex.loadbalancer.server.port=5556
   worker:
     image: ghcr.io/code-lab-org/tatc-worker:${TATC_WORKER_IMAGE_TAG:-latest}
     container_name: tatc-worker
@@ -113,5 +142,5 @@ volumes:
     name: tatc-rabbitmq-data
   redis-data:
     name: tatc-redis-data
-  tatc-data:
-    name: tatc-data
+  dex-data:
+    name: tatc-dex-data
