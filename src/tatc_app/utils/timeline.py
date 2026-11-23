@@ -112,6 +112,19 @@ def build_timeline(
     )
 
 
+class InstrumentTrack(BaseModel):
+    """
+    Swath widths of one instrument of a member satellite.
+    """
+
+    name: str = Field(..., description="Instrument name.")
+    swath_widths: List[float] = Field(
+        ...,
+        description="Interleaved samples [t, swath width (m), ...] of the "
+        "instrument field of regard, with t in seconds since epoch.",
+    )
+
+
 class MemberTrack(BaseModel):
     """
     Orbit track of a member satellite.
@@ -123,10 +136,8 @@ class MemberTrack(BaseModel):
         description="Interleaved samples [t, longitude (deg), latitude (deg), "
         "altitude (m), ...] with t in seconds since epoch.",
     )
-    swath_widths: List[float] = Field(
-        ...,
-        description="Interleaved samples [t, swath width (m), ...] of the "
-        "instrument field of regard, with t in seconds since epoch.",
+    instruments: List[InstrumentTrack] = Field(
+        [], description="Swath widths of each instrument (in order)."
     )
 
 
@@ -153,30 +164,50 @@ class OrbitTracks(BaseModel):
         )
 
 
-def build_member_track(orbit_track: pd.DataFrame, epoch: datetime) -> MemberTrack:
+def build_member_track(
+    orbit_tracks: Sequence[pd.DataFrame], epoch: datetime
+) -> MemberTrack:
     """
     Builds the track of one member satellite from its orbit track results
-    (`tatc.analysis.collect_orbit_track`, for one satellite and instrument).
+    (`tatc.analysis.collect_orbit_track`, for one satellite and each of its
+    instruments, in order). Positions are taken from the first instrument.
 
     Args:
-        orbit_track (geopandas.GeoDataFrame): The orbit track.
+        orbit_tracks (Sequence[geopandas.GeoDataFrame]): The orbit track of
+            each instrument.
         epoch (datetime.datetime): The reference time.
 
     Returns:
         MemberTrack: The member track.
     """
-    times = _seconds_since(orbit_track["time"], epoch)
     positions = []
-    swath_widths = []
-    for t, geometry, width in zip(
-        times, orbit_track.geometry, orbit_track["swath_width"]
-    ):
-        positions.extend(
-            [t, round(geometry.x, 6), round(geometry.y, 6), round(geometry.z, 1)]
+    instruments = []
+    for i, orbit_track in enumerate(orbit_tracks):
+        times = _seconds_since(orbit_track["time"], epoch)
+        if i == 0:
+            for t, geometry in zip(times, orbit_track.geometry):
+                positions.extend(
+                    [
+                        t,
+                        round(geometry.x, 6),
+                        round(geometry.y, 6),
+                        round(geometry.z, 1),
+                    ]
+                )
+        swath_widths = []
+        for t, width in zip(times, orbit_track["swath_width"]):
+            swath_widths.extend([t, 0.0 if np.isnan(width) else round(float(width), 1)])
+        instruments.append(
+            InstrumentTrack(
+                name=str(orbit_track["instrument"].iloc[0]) if len(orbit_track) else "",
+                swath_widths=swath_widths,
+            )
         )
-        swath_widths.extend([t, 0.0 if np.isnan(width) else round(float(width), 1)])
+    first = orbit_tracks[0] if len(orbit_tracks) else None
     return MemberTrack(
-        name=str(orbit_track["satellite"].iloc[0]) if len(orbit_track) else "",
+        name=(
+            str(first["satellite"].iloc[0]) if first is not None and len(first) else ""
+        ),
         positions=positions,
-        swath_widths=swath_widths,
+        instruments=instruments,
     )

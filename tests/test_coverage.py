@@ -110,7 +110,8 @@ class CoverageAnalysisTestCase(TatcTestCase):
         czml = self.get_json(f"/analyze/coverage/{task['task_id']}/czml")
         self.assertEqual(czml[0]["id"], "document")
         self.assertEqual(
-            {p["id"] for p in czml[1:]}, {f"sat/{m.name}" for m in members}
+            {p["id"] for p in czml[1:]},
+            {f"sat/{m.name}" for m in members} | {f"fp/{m.name}/0" for m in members},
         )
 
     def test_analyze_coverage_points_list(self):

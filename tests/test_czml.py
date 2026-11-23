@@ -8,6 +8,7 @@ from shapely.geometry import MultiPolygon, box
 from tatc_app.czml import (
     assign_colors,
     document_packet,
+    instrument_color,
     link_packets,
     rgba,
     satellite_packets,
@@ -15,6 +16,7 @@ from tatc_app.czml import (
     swath_packets,
 )
 from tatc_app.utils.timeline import (
+    InstrumentTrack,
     MemberTrack,
     OrbitTracks,
     Timeline,
@@ -82,6 +84,16 @@ class CzmlTestCase(unittest.TestCase):
         self.assertEqual(colors["b"], "#000000")
         self.assertTrue(colors["a"].startswith("#"))
 
+    def test_instrument_colors(self):
+        # the first (or only) instrument keeps the satellite color
+        self.assertEqual(instrument_color("#4e79a7", 0, 2), "#4e79a7")
+        self.assertEqual(instrument_color("#4e79a7", 0, 1), "#4e79a7")
+        # others rotate the hue, distinct from each other
+        colors = {instrument_color("#4e79a7", i, 3) for i in range(3)}
+        self.assertEqual(len(colors), 3)
+        # gray colors gain saturation to remain distinct
+        self.assertNotEqual(instrument_color("#808080", 1, 2), "#808080")
+
     def test_satellites(self):
         tracks = OrbitTracks(
             epoch=EPOCH,
@@ -89,19 +101,38 @@ class CzmlTestCase(unittest.TestCase):
                 MemberTrack(
                     name="s1",
                     positions=[0, 0, 0, 500e3, 60, 3.8, 0, 500e3],
-                    swath_widths=[0, 2000e3, 60, 2000e3],
+                    instruments=[
+                        InstrumentTrack(name="a", swath_widths=[0, 2000e3, 60, 2000e3]),
+                        InstrumentTrack(name="b", swath_widths=[0, 500e3, 60, 500e3]),
+                        InstrumentTrack(name="c", swath_widths=[0, 0, 60, 0]),
+                    ],
                 )
             ],
         )
-        (packet,) = satellite_packets(tracks)
+        packet, first, second = satellite_packets(tracks, {"s1": "#4e79a7"})
         self.assertEqual(packet["id"], "sat/s1")
         self.assertEqual(packet["position"]["cartographicDegrees"][4], 60)
-        self.assertEqual(
-            packet["ellipse"]["semiMajorAxis"]["number"], [0, 1e6, 60, 1e6]
-        )
+        self.assertNotIn("ellipse", packet)
         # path trails one orbital period (about 95 minutes at 500 km)
         self.assertAlmostEqual(packet["path"]["trailTime"], 5677, delta=60)
         self.assertEqual(tracks.get_end(), EPOCH + timedelta(seconds=60))
+        # one translucent footprint per instrument (with a swath), following
+        # the satellite, in distinct colors
+        self.assertEqual([first["id"], second["id"]], ["fp/s1/0", "fp/s1/1"])
+        self.assertEqual(first["position"], {"reference": "sat/s1#position"})
+        self.assertEqual(first["ellipse"]["semiMajorAxis"]["number"], [0, 1e6, 60, 1e6])
+        self.assertEqual(
+            second["ellipse"]["semiMinorAxis"]["number"], [0, 250e3, 60, 250e3]
+        )
+        fills = [
+            p["ellipse"]["material"]["solidColor"]["color"]["rgba"]
+            for p in (first, second)
+        ]
+        self.assertEqual(fills[0], rgba("#4e79a7", 70))
+        self.assertNotEqual(fills[1][:3], fills[0][:3])
+        self.assertLess(fills[1][3], 255)
+        # footprints can be omitted
+        self.assertEqual(len(satellite_packets(tracks, footprint=False)), 1)
 
     def test_links(self):
         timeline = Timeline(
@@ -138,6 +169,7 @@ class CzmlTestCase(unittest.TestCase):
         swaths = gpd.GeoDataFrame(
             {
                 "satellite": ["s1", "s1"],
+                "instrument": ["a", "b"],
                 "start": [EPOCH, EPOCH + timedelta(minutes=10)],
                 "end": [EPOCH + timedelta(minutes=10), EPOCH + timedelta(minutes=20)],
             },
@@ -157,3 +189,21 @@ class CzmlTestCase(unittest.TestCase):
         self.assertEqual(
             len(packets[0]["polygon"]["positions"]["cartographicDegrees"]), 12
         )
+        # without instruments, segments take the satellite color
+        colors = {
+            p["polygon"]["material"]["solidColor"]["color"]["rgba"][0] for p in packets
+        }
+        self.assertEqual(len(colors), 1)
+        # with instruments, segments of each instrument take distinct colors
+        packets = swath_packets(
+            swaths, end, {"s1": "#4e79a7"}, instruments={"s1": ["a", "b"]}
+        )
+        self.assertEqual(
+            packets[0]["polygon"]["material"]["solidColor"]["color"]["rgba"],
+            rgba("#4e79a7", 150),
+        )
+        self.assertEqual(
+            packets[1]["polygon"]["material"]["solidColor"]["color"]["rgba"],
+            rgba(instrument_color("#4e79a7", 1, 2), 150),
+        )
+        self.assertEqual(packets[1]["name"], "s1 b swath")

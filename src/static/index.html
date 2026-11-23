@@ -38,6 +38,15 @@
     .legend-overlay .colorbar { border-color: #666; }
     .list-badge { font-size: 10px; }
     .analysis-panel { display: none; }
+    .preview-layer + .preview-layer { border-top: 1px solid #eee; padding-top: 2px; }
+    .preview-layer-details { padding-left: 1.25rem; }
+    .preview-layer-hidden { opacity: 0.5; }
+    .preview-layer-members { max-height: 8em; overflow-y: auto; }
+    .preview-swatch {
+      display: inline-block; width: 10px; height: 10px; margin-right: 4px;
+      border-radius: 2px; border: 1px solid rgba(0, 0, 0, 0.3); vertical-align: -1px;
+    }
+    .preview-swatch-none { background: repeating-linear-gradient(45deg, #ccc, #ccc 2px, #fff 2px, #fff 4px); }
   </style>
 </head>
 
@@ -191,6 +200,13 @@
               </div>
             </div>
             <div class="alert alert-danger small mt-2" id="orbit-error" style="display:none"></div>
+            <div class="mt-2" id="preview-layers" style="display:none">
+              <div class="d-flex justify-content-between align-items-baseline">
+                <span class="small font-weight-bold">Displayed Satellites and Instruments</span>
+                <button type="button" class="btn btn-link btn-sm p-0" id="preview-layers-all">Show all</button>
+              </div>
+              <div class="border rounded px-2 py-1 small overflow-auto" style="max-height:16em" id="preview-layers-list"></div>
+            </div>
           </div>
 
           <!-- Analysis -->

@@ -3,15 +3,17 @@ Builders for CZML documents to animate analysis results in Cesium.
 
 Each function returns a list of CZML packets (plain dictionaries). Entity
 identifiers follow the pattern `<kind>/<name>`: `sat/<satellite>` for
-satellites, `tgt/<target_hash>` for target points, `gs/<station>` for ground
-stations, `link/...` for access and contact lines, and `swath/...` for swath
-segments, so clients can look up entities by identifier.
+satellites, `fp/<satellite>/<instrument index>` for instrument footprints,
+`tgt/<target_hash>` for target points, `gs/<station>` for ground stations,
+`link/...` for access and contact lines, and `swath/...` for swath segments,
+so clients can look up entities by identifier.
 
 See https://github.com/AnalyticalGraphicsInc/czml-writer/wiki/CZML-Guide
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import colorsys
 import math
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -20,7 +22,7 @@ import geopandas as gpd
 from shapely.geometry import MultiPolygon, Polygon
 from tatc.constants import EARTH_MEAN_RADIUS, EARTH_MU
 
-from .utils.timeline import OrbitTracks, Timeline
+from .utils.timeline import MemberTrack, OrbitTracks, Timeline
 
 # categorical colors (Tableau 10) assigned to satellites without a color
 PALETTE = [
@@ -83,6 +85,30 @@ def assign_colors(
     }
 
 
+def instrument_color(color: str, index: int, count: int) -> str:
+    """
+    Derives a distinct color for each instrument of a satellite: the first
+    instrument keeps the satellite color, and others rotate its hue evenly
+    (with a minimum saturation, so variants of gray colors stay distinct).
+
+    Args:
+        color (str): The satellite color (`#rrggbb`).
+        index (int): The instrument index.
+        count (int): The number of instruments of the satellite.
+
+    Returns:
+        str: The instrument color (`#rrggbb`).
+    """
+    if index <= 0 or count <= 1:
+        return color
+    red, green, blue = (c / 255 for c in rgba(color)[:3])
+    hue, lightness, saturation = colorsys.rgb_to_hls(red, green, blue)
+    red, green, blue = colorsys.hls_to_rgb(
+        (hue + index / count) % 1, lightness, max(saturation, 0.5)
+    )
+    return "#" + "".join(f"{round(c * 255):02x}" for c in (red, green, blue))
+
+
 def document_packet(
     name: str, start: datetime, end: datetime, multiplier: float = 60
 ) -> dict:
@@ -131,14 +157,15 @@ def satellite_packets(
 ) -> List[dict]:
     """
     Builds packets for satellites moving along their orbit tracks, with an
-    optional trailing path and an optional footprint (the circle spanned by
-    the swath width of the instrument's field of regard).
+    optional trailing path and optional footprints (for each instrument, the
+    circle spanned by the swath width of its field of regard, in a distinct
+    translucent color so overlapping footprints remain visible).
 
     Args:
         tracks (OrbitTracks): The orbit tracks.
         colors (Optional[Dict[str, str]]): The color of each satellite.
         path (bool): `True`, to draw a path trailing one orbital period.
-        footprint (bool): `True`, to draw the field of regard footprint.
+        footprint (bool): `True`, to draw the field of regard footprints.
 
     Returns:
         List[dict]: The CZML packets.
@@ -189,17 +216,42 @@ def satellite_packets(
                 "width": 1.5,
                 "material": {"solidColor": {"color": {"rgba": rgba(color, 160)}}},
             }
-        if footprint and any(w > 0 for w in track.swath_widths[1::2]):
-            radii = []
-            for t, width in zip(track.swath_widths[0::2], track.swath_widths[1::2]):
-                radii.extend([t, max(width / 2, 1.0)])
-            axis = {"epoch": epoch, "number": radii}
-            packet["ellipse"] = {
-                "semiMajorAxis": axis,
-                "semiMinorAxis": axis,
-                "material": {"solidColor": {"color": {"rgba": rgba(color, 70)}}},
-            }
         packets.append(packet)
+        if footprint:
+            packets.extend(_footprint_packets(track, color, epoch, start, end))
+    return packets
+
+
+def _footprint_packets(
+    track: MemberTrack, color: str, epoch: str, start: datetime, end: datetime
+) -> List[dict]:
+    """
+    Builds packets for the footprint of each instrument of a satellite,
+    following the position of the satellite packet.
+    """
+    packets = []
+    for index, instrument in enumerate(track.instruments):
+        widths = instrument.swath_widths
+        if not any(w > 0 for w in widths[1::2]):
+            continue
+        radii = []
+        for t, width in zip(widths[0::2], widths[1::2]):
+            radii.extend([t, max(width / 2, 1.0)])
+        axis = {"epoch": epoch, "number": radii}
+        fill = instrument_color(color, index, len(track.instruments))
+        packets.append(
+            {
+                "id": f"fp/{track.name}/{index}",
+                "name": f"{track.name} {instrument.name}",
+                "availability": interval(start, end),
+                "position": {"reference": f"sat/{track.name}#position"},
+                "ellipse": {
+                    "semiMajorAxis": axis,
+                    "semiMinorAxis": axis,
+                    "material": {"solidColor": {"color": {"rgba": rgba(fill, 70)}}},
+                },
+            }
+        )
     return packets
 
 
@@ -343,10 +395,23 @@ def _polygon_positions(polygon: Polygon) -> dict:
     return graphics
 
 
+def _swath_color(color: str, instrument: Optional[str], names: Sequence[str]) -> str:
+    """
+    Gets the color of a swath segment of an instrument (by name) among the
+    instruments of a satellite, or the satellite color if not found.
+    """
+    names = list(names)
+    if instrument in names:
+        return instrument_color(color, names.index(instrument), len(names))
+    return color
+
+
 def swath_packets(
     swaths: gpd.GeoDataFrame,
     end: datetime,
     colors: Optional[Dict[str, str]] = None,
+    *,
+    instruments: Optional[Dict[str, Sequence[str]]] = None,
     tolerance: float = 0.01,
     alpha: int = 150,
 ) -> List[dict]:
@@ -357,18 +422,27 @@ def swath_packets(
 
     Args:
         swaths (geopandas.GeoDataFrame): The swath segments, with columns
-            `satellite`, `start`, `end`, and `geometry`.
+            `satellite`, `start`, `end`, and `geometry` (and, optionally,
+            `instrument`).
         end (datetime.datetime): The end of the analysis.
         colors (Optional[Dict[str, str]]): The color of each satellite.
         tolerance (float): The tolerance (degrees) to simplify geometries.
         alpha (int): The fill opacity (0-255).
+        instruments (Optional[Dict[str, Sequence[str]]]): The instrument
+            names of each satellite (in order), to color the segments of each
+            instrument distinctly (see `instrument_color`).
 
     Returns:
         List[dict]: The CZML packets.
     """
     colors = assign_colors(list(dict.fromkeys(swaths["satellite"])), colors)
+    instruments = instruments or {}
     packets = []
     for i, row in enumerate(swaths.itertuples()):
+        instrument = getattr(row, "instrument", None)
+        color = _swath_color(
+            colors[row.satellite], instrument, instruments.get(row.satellite, [])
+        )
         geometry = row.geometry.simplify(tolerance, preserve_topology=True)
         polygons = (
             list(geometry.geoms)
@@ -381,15 +455,17 @@ def swath_packets(
             packets.append(
                 {
                     "id": f"swath/{row.satellite}/{i}/{j}",
-                    "name": f"{row.satellite} swath",
+                    "name": " ".join(
+                        str(part)
+                        for part in (row.satellite, instrument, "swath")
+                        if part
+                    ),
                     "availability": interval(row.end.to_pydatetime(), end),
                     "polygon": {
                         **_polygon_positions(polygon),
                         "arcType": "RHUMB",
                         "material": {
-                            "solidColor": {
-                                "color": {"rgba": rgba(colors[row.satellite], alpha)}
-                            }
+                            "solidColor": {"color": {"rgba": rgba(color, alpha)}}
                         },
                     },
                 }

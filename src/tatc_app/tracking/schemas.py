@@ -149,3 +149,8 @@ class SwathAnalysisResult(BaseModel):
     )
     tracks: OrbitTracks = Field(..., description="Orbit tracks of satellites.")
     colors: Dict[str, str] = Field({}, description="Display color of satellites.")
+    systems: Dict[str, int] = Field(
+        {},
+        description="Index of the requested satellite or constellation of "
+        "each member satellite, by name.",
+    )

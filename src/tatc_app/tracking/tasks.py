@@ -102,7 +102,13 @@ def compute_member_track(satellite: Satellite, times: pd.DatetimeIndex, epoch):
     Returns:
         MemberTrack: The member track.
     """
-    return build_member_track(collect_orbit_track(satellite, times, 0), epoch)
+    return build_member_track(
+        [
+            collect_orbit_track(satellite, times, index)
+            for index in range(len(satellite.instruments))
+        ],
+        epoch,
+    )
 
 
 @app.task
@@ -222,7 +228,9 @@ def combine_tracks(results: list, epoch: datetime) -> OrbitTracks:
 
 
 @app.task
-def combine_swaths_task(results: list, start: str, colors: dict) -> str:
+def combine_swaths_task(
+    results: list, start: str, colors: dict, systems: Optional[dict] = None
+) -> str:
     """
     Task to combine swath segments and orbit tracks of member satellites.
 
@@ -230,6 +238,8 @@ def combine_swaths_task(results: list, start: str, colors: dict) -> str:
         results (list): Tagged results of parallel tasks.
         start (str): ISO 8601 serialized start time (reference time).
         colors (dict): Display colors by member satellite name.
+        systems (Optional[dict]): Index of the satellite or constellation by
+            member satellite name.
 
     Returns:
         str: JSON serialized `SwathAnalysisResult`.
@@ -243,6 +253,7 @@ def combine_swaths_task(results: list, start: str, colors: dict) -> str:
         swaths=json.loads(to_geojson(swaths)),
         tracks=tracks,
         colors=assign_colors([track.name for track in tracks.tracks], colors),
+        systems=systems or {},
     ).model_dump_json()
 
 

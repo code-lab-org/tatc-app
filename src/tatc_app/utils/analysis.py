@@ -105,6 +105,20 @@ class AnalysisRequest(BaseModel):
                     colors[member.name] = color
         return colors
 
+    def get_member_systems(self) -> Dict[str, int]:
+        """
+        Gets the satellite or constellation of each member satellite.
+
+        Returns:
+            Dict[str, int]: The index (in `satellites`) of the satellite or
+                constellation of each member, by name.
+        """
+        return {
+            member.name: i
+            for i, system in enumerate(self.satellites)
+            for member in generate_members(system)
+        }
+
 
 def tag(kind: str, data) -> dict:
     """

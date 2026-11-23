@@ -168,7 +168,9 @@ def enqueue_swath_analysis(request: SwathAnalysisRequest):
         chord(
             group(tasks),
             combine_swaths_task.s(
-                request.start.isoformat(), request.get_member_colors()
+                request.start.isoformat(),
+                request.get_member_colors(),
+                request.get_member_systems(),
             ),
         )
     )
@@ -221,10 +223,18 @@ def retrieve_swath_analysis_czml(task_id: UUID):
     swaths = from_geojson(
         result.swaths.model_dump_json(),
         datetimes=["start", "end"],
-        columns=["satellite", "start", "end", "geometry"],
+        columns=["satellite", "instrument", "start", "end", "geometry"],
     )
     return (
         [document_packet("Swath analysis", start, end)]
         + satellite_packets(tracks, result.colors)
-        + swath_packets(swaths, end, result.colors)
+        + swath_packets(
+            swaths,
+            end,
+            result.colors,
+            instruments={
+                track.name: [instrument.name for instrument in track.instruments]
+                for track in tracks.tracks
+            },
+        )
     )

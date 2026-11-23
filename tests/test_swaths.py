@@ -51,6 +51,18 @@ class AnalyzeSwathsTestCase(TatcTestCase):
         for track in result.tracks.tracks:
             # 3 hours at 60 second steps (inclusive)
             self.assertEqual(len(track.positions), 4 * 181)
+            # swath widths of each instrument
+            self.assertEqual(
+                [instrument.name for instrument in track.instruments],
+                ["Imager", "Wide"],
+            )
+            for instrument in track.instruments:
+                self.assertEqual(len(instrument.swath_widths), 2 * 181)
+            self.assertNotEqual(
+                track.instruments[1].swath_widths[1],
+                track.instruments[0].swath_widths[1],
+            )
+        self.assertEqual(result.systems, {member: 0 for member in members})
         # one segment per 30 minutes per member (for the pointed instrument)
         self.assertEqual(len(result.swaths.features), 2 * 6)
         for feature in result.swaths.features:
@@ -60,6 +72,8 @@ class AnalyzeSwathsTestCase(TatcTestCase):
         self.assertEqual(czml[0]["id"], "document")
         ids = [packet["id"] for packet in czml]
         self.assertIn(f"sat/{members[0]}", ids)
+        self.assertIn(f"fp/{members[0]}/0", ids)
+        self.assertIn(f"fp/{members[0]}/1", ids)
         swaths = [packet for packet in czml if packet["id"].startswith("swath/")]
         self.assertGreaterEqual(len(swaths), 12)
         self.assertTrue(all(p["availability"].endswith("Z") for p in swaths))
