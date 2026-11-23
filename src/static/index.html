@@ -7,16 +7,15 @@
   <meta name="author" content="TAT-C Team">
   <meta name="description" content="Tradespace analysis tool for constellations.">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.82.1/Widgets/widgets.min.css" integrity="sha512-h9djTljMpI/36vV9pOtaO/bqarwzjbD6eYjE1ISRhnPDkJ3IWNpEUnSyqUUepEPDno/k6Mv+Cm179z1O1qYAJA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.145.0/Widgets/widgets.css" integrity="sha512-fsYfjqOKt+KyVW0YZa1aHucMVyjVuLVkCP/187bJFe+AO9vSyJnjHd3Qkt4sioYq1qrnHu81rPY3KDK8fRRykA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/css/bootstrap.min.css" integrity="sha512-P5MgMn1jBN01asBgU0z60Qk4QxiXo86+wlFahKrsQf37c9cro517WzVSPPV1tDKzhku2iJ2FVgL67wG03SGnNA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" integrity="sha512-iBBXm8fW90+nuLcSKlbmrPcLa0OT92xO1BIsZ+ywDWZCvqsWgccV3gFoRBv0z+8dLJgyAHIhR35VZc2oM/gI1w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tempusdominus-bootstrap-4/5.39.0/css/tempusdominus-bootstrap-4.min.css" integrity="sha512-3JRrEUwaCkFUBLK1N8HehwQgu8e23jTH4np5NHOmQOobuC4ROQxFwFgBLTnhcnQRMs84muMh0PnnwXlPq5MGjg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="stylesheet" href="https://cdn.datatables.net/1.10.25/css/dataTables.bootstrap4.min.css" />
   <style>
-    .split {
-      display: flex;
-      flex-direction: row;
-    }
+    html, body, main { height: 100%; }
+    .split { display: flex; flex-direction: row; }
+    #editor { overflow-y: auto; }
+    #viewer, #cesiumContainer { height: 100%; position: relative; }
     .gutter {
       background-color: #eee;
       background-repeat: no-repeat;
@@ -26,9 +25,19 @@
       background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAeCAYAAADkftS9AAAAIklEQVQoU2M4c+bMfxAGAgYYmwGrIIiDjrELjpo5aiZeMwF+yNnOs5KSvgAAAABJRU5ErkJggg==');
       cursor: col-resize;
     }
-    input:invalid {
-      background-color:#fcc;
+    input:invalid { background-color: #fcc; }
+    .colorbar { display: flex; height: 14px; border: 1px solid #999; }
+    .colorbar span { flex: 1 1 0; }
+    .colorbar-labels { display: flex; justify-content: space-between; font-size: 11px; }
+    .mono { font-family: monospace; font-size: 11px; }
+    .legend-overlay {
+      position: absolute; top: 8px; left: 8px; z-index: 10; min-width: 220px;
+      background: rgba(40, 40, 40, 0.8); color: #fff; padding: 6px 8px; border-radius: 4px;
+      font-size: 12px; display: none;
     }
+    .legend-overlay .colorbar { border-color: #666; }
+    .list-badge { font-size: 10px; }
+    .analysis-panel { display: none; }
   </style>
 </head>
 
@@ -37,20 +46,15 @@
     <div id="editor">
       <nav class="navbar navbar-expand-md navbar-dark bg-dark">
         <a class="navbar-brand" href="/">TAT-C</a>
-        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-          <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navbarNav">
-          <ul class="navbar-nav text-center">
-            <li class="nav-item active"><a class="nav-link" href="/docs">Docs</a></li>
-          </ul>
-        </div>
+        <ul class="navbar-nav">
+          <li class="nav-item"><a class="nav-link" href="/docs">API Docs</a></li>
+        </ul>
         <ul class="navbar-nav ml-auto">
           <li class="nav-item"><a class="nav-link" id="login-link" data-toggle="modal" data-target="#login-modal" href="#login-modal">Login</a></li>
           <li class="nav-item"><a class="nav-link" id="logout-link" href="#">Logout <span id="user-email"></span></a></li>
         </ul>
       </nav>
-      <div class="class=container-fluid">
+      <div class="container-fluid p-0">
         <nav>
           <div class="nav nav-tabs" id="nav-tab" role="tablist">
             <a class="nav-link active" id="nav-info-tab" data-toggle="tab" href="#nav-info" role="tab" aria-controls="nav-info" aria-selected="true">Information</a>
@@ -59,8 +63,10 @@
           </div>
         </nav>
         <div class="tab-content p-2 border border-top-0 rounded-bottom">
+          <!-- Information -->
           <div class="tab-pane fade show active" id="nav-info" role="tabpanel" aria-labelledby="nav-info-tab">
             <p><strong>Tradespace Analysis Tool for Constellations (TAT-C)</strong>: Mission engineering platform for distributed satellite missions.</p>
+            <p class="small text-muted">Application version <span id="app-version"></span>, based on the <a href="https://github.com/code-lab-org/tatc">TAT-C library</a> version 3.7.</p>
             <p>Current project team:</p>
             <ul>
               <li>PI: Paul T. Grogan (<a href="mailto:paul.grogan@asu.edu">paul.grogan@asu.edu</a>)</li>
@@ -79,45 +85,76 @@
             <p>This project was supported in part by the National Aeronautics and Space Administration (NASA) Earth Science Division (ESD) Earth Science Technology Office (ESTO) Advanced Information Systems Technology (AIST) program under grant numbers: NNX17AE06G, 80NSSC17K0586, 80NSSC20K1118, 80NSSC21K1515, 80NSSC22K1705 and 80NSSC24K0575 and NASA Jet Propulsion Laboratory contracts: 1074657, 1689594, 1686623, 1705655.</p>
           </div>
 
+          <!-- Design -->
           <div class="tab-pane fade" id="nav-design" role="tabpanel" aria-labelledby="nav-design-tab">
             <div class="form-group">
+              <label for="satellites">Satellites and Constellations</label>
+              <div class="input-group">
+                <div class="list-group form-control p-0 overflow-auto" style="height:9em" id="satellites"></div>
+                <div class="input-group-append btn-group-vertical" role="group">
+                  <button type="button" class="btn btn-secondary btn-sm" id="satellite-add" title="Add">
+                    <i class="fas fa-plus"></i>
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" id="satellite-edit" disabled title="Edit">
+                    <i class="fas fa-edit"></i>
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" id="satellite-copy" disabled title="Copy">
+                    <i class="far fa-copy"></i>
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" id="satellite-delete" disabled title="Delete">
+                    <i class="fas fa-minus"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="mt-1">
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="design-export" title="Download the design as a JSON file">
+                  <i class="fas fa-file-export"></i> Export
+                </button>
+                <label class="btn btn-outline-secondary btn-sm mb-0" title="Load a design from a JSON file">
+                  <i class="fas fa-file-import"></i> Import
+                  <input type="file" accept=".json,application/json" id="design-import" hidden>
+                </label>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="design-reset" title="Reset to the default design">
+                  <i class="fas fa-undo"></i> Reset
+                </button>
+              </div>
+            </div>
+            <h6>Orbit Preview</h6>
+            <div class="form-group">
               <div class="row">
-                <label for="display-start" class="col-sm-2 col-form-label">Start</label>
-                <div class="input-group date col-sm-10" id="display-start" data-target-input="nearest">
-                  <input type="text" class="form-control datetimepicker-input" data-target="#display-start"/>
-                  <div class="input-group-append" data-target="#display-start" data-toggle="datetimepicker">
-                    <div class="input-group-text"><i class="far fa-calendar"></i></div>
-                  </div>
+                <label for="display-start" class="col-sm-3 col-form-label">Start (UTC)</label>
+                <div class="input-group col-sm-9">
+                  <input type="datetime-local" step="1" class="form-control" id="display-start">
                 </div>
               </div>
               <div class="row">
-                <label for="display-duration" class="col-sm-2 col-form-label">Duration</label>
+                <label for="display-duration" class="col-sm-3 col-form-label">Duration</label>
                 <div class="input-group col-sm-4">
-                  <input type="number" min="1" max="600" step="any" class="form-control" id="display-duration">
-                  <div class="input-group-append">
-                    <span class="input-group-text">min</span>
-                  </div>
+                  <input type="number" min="1" max="1440" value="100" step="any" class="form-control" id="display-duration">
+                  <div class="input-group-append"><span class="input-group-text">min</span></div>
                 </div>
                 <label for="display-step" class="col-sm-2 col-form-label">Step</label>
-                <div class="input-group col-sm-4">
-                  <input type="number" min="5" max="600" value="60" step="any" class="form-control" id="display-step">
-                  <div class="input-group-append">
-                    <span class="input-group-text">s</span>
-                  </div>
+                <div class="input-group col-sm-3">
+                  <input type="number" min="5" max="600" value="30" step="any" class="form-control" id="display-step">
+                  <div class="input-group-append"><span class="input-group-text">s</span></div>
                 </div>
               </div>
               <div class="row">
-                <label for="display-observer" class="col-sm-2 col-form-label">Observer</label>
-                <div class="input-group col-sm-4">
+                <label for="display-observer" class="col-sm-3 col-form-label">Observer</label>
+                <div class="input-group col-sm-3">
                   <select class="form-control" id="display-observer">
-                    <option value="fixed" label="Fixed">Fixed</option>
-                    <option value="inertial" label="Inertial">Inertial</option>
+                    <option value="fixed">Fixed</option>
+                    <option value="inertial">Inertial</option>
                   </select>
                 </div>
-                <div class="input-group col-sm-6">
+                <div class="input-group col-sm-6 pt-2">
                   <div class="form-check form-check-inline">
-                    <input type="checkbox" class="form-check-input" id="display-path">
+                    <input type="checkbox" class="form-check-input" id="display-path" checked>
                     <label for="display-path" class="form-check-label">Path</label>
+                  </div>
+                  <div class="form-check form-check-inline">
+                    <input type="checkbox" class="form-check-input" id="display-footprint" checked>
+                    <label for="display-footprint" class="form-check-label">Footprint</label>
                   </div>
                   <div class="form-check form-check-inline">
                     <input type="checkbox" class="form-check-input" id="display-lighting">
@@ -126,159 +163,237 @@
                 </div>
               </div>
             </div>
-            <div class="form-group">
-              <label for="satellites">Satellites and Constellations</label>
-              <div class="input-group">
-                <select size="3" class="form-control" id="satellites"></select>
-                <div class="input-group-append btn-group-vertical" role="group">
-                  <button type="button" class="btn btn-secondary" id="satellite-add" title="add">
-                    <i class="fas fa-plus"></i>
-                  </button>
-                  <button type="button" class="btn btn-secondary" id="satellite-edit" disabled title="edit" data-toggle="modal" data-target="#satellite-dialog">
-                    <i class="fas fa-edit"></i>
-                  </button>
-                  <button type="button" class="btn btn-secondary" id="satellite-copy" disabled title="Copy">
-                    <i class="far fa-copy"></i>
-                  </button>
-                  <button type="button" class="btn btn-secondary" id="satellite-delete" disabled title="Delete">
-                    <i class="fas fa-minus"></i>
-                  </button>
-                </div>
-              </div>
-            </div>
             <div class="row">
-              <div class="input-group col-sm-4">
-              </div>
-              <div class="input-group col-sm-4">
-                <button type="button" class="form-control btn btn-primary" id="orbit-analyze">
+              <div class="col-sm-6">
+                <button type="button" class="btn btn-primary btn-block" id="orbit-analyze">
                   <span class="spinner-border spinner-border-sm" style="display:none" role="status" aria-hidden="true"></span>
-                  Analyze
+                  Preview
                 </button>
-                <div class="d-block w-100">
-                  <div class="progress" id="orbit-progress" style="display:none">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
-                  </div>
+                <div class="progress mt-1" id="orbit-progress" style="display:none; height:4px">
+                  <div class="progress-bar" role="progressbar" style="width: 0%"></div>
                 </div>
               </div>
-              <div class="input-group col-sm-4">
-                <button type="button" class="form-control btn btn-secondary" id="orbit-data" disabled data-toggle="modal" data-target="#orbit-dialog">
-                  <i class="fas fa-database"></i>
-                  Data
+              <div class="col-sm-6">
+                <button type="button" class="btn btn-secondary btn-block" id="orbit-data" disabled>
+                  <i class="fas fa-database"></i> Data
                 </button>
               </div>
             </div>
+            <div class="alert alert-danger small mt-2" id="orbit-error" style="display:none"></div>
           </div>
+
+          <!-- Analysis -->
           <div class="tab-pane fade" id="nav-analysis" role="tabpanel" aria-labelledby="nav-analysis-tab">
+            <div class="form-group row">
+              <label for="analysis-type" class="col-sm-3 col-form-label">Analysis</label>
+              <div class="col-sm-9">
+                <select class="form-control" id="analysis-type">
+                  <option value="coverage">Coverage and Revisit</option>
+                  <option value="swaths">Ground Track Swaths</option>
+                  <option value="latency">Data Latency (Ground Stations)</option>
+                  <option value="access">Point Access (Overflight)</option>
+                </select>
+              </div>
+            </div>
+            <p class="small text-muted" id="analysis-description"></p>
             <div class="form-group">
               <div class="row">
-                <label for="region-type" class="col-sm-2 col-form-label">Region</label>
+                <label for="analysis-start" class="col-sm-3 col-form-label">Start (UTC)</label>
+                <div class="input-group col-sm-9">
+                  <input type="datetime-local" step="1" class="form-control" id="analysis-start">
+                </div>
+              </div>
+              <div class="row">
+                <label for="analysis-duration" class="col-sm-3 col-form-label">Duration</label>
+                <div class="input-group col-sm-4">
+                  <input type="number" min="0.01" max="365" value="7" step="any" class="form-control" id="analysis-duration">
+                  <div class="input-group-append"><span class="input-group-text">days</span></div>
+                </div>
+                <label for="analysis-animate" class="col-sm-2 col-form-label animate-control" title="Duration of the satellite animation (orbit tracks) from the start">Animate</label>
+                <div class="input-group col-sm-3 animate-control">
+                  <input type="number" min="0.1" max="168" value="24" step="any" class="form-control" id="analysis-animate">
+                  <div class="input-group-append"><span class="input-group-text">h</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Region (coverage and latency) -->
+            <div class="form-group region-panel">
+              <div class="row">
+                <label for="region-type" class="col-sm-3 col-form-label">Region</label>
                 <div class="input-group col-sm-6">
                   <select class="form-control" id="region-type">
-                      <option label="Contiguous United States" value="conus"></option>
-                      <option label="United States of America" value="USA"></option>
-                      <option label="Global" value="global"></option>
-                      <option label="By Latitude" value="latitude" selected></option>
-                      <option label="By Latitude/Longitude" value="latlon"></option>
-                      <option label="Custom" value="custom"></option>
+                    <option value="conus">Contiguous United States</option>
+                    <option value="USA">United States of America</option>
+                    <option value="global">Global</option>
+                    <option value="latitude" selected>By Latitude</option>
+                    <option value="latlon">By Latitude/Longitude</option>
+                    <option value="custom">Custom</option>
                   </select>
                   <div class="input-group-append">
-                    <button type="button" class="btn btn-secondary" id="region-edit" title="edit" data-toggle="modal" data-target="#region-dialog">
+                    <button type="button" class="btn btn-secondary" id="region-edit" title="Edit region and grid" data-toggle="modal" data-target="#region-dialog">
                       <i class="fas fa-edit"></i>
                     </button>
                   </div>
-                  <!--
-                  <div class="input-group-append">
-                    <button type="button" class="btn btn-secondary" id="region-data" disabled title="edit" data-toggle="modal" data-target="#region-dialog">
-                      <i class="fas fa-database"></i>
+                </div>
+                <div class="input-group col-sm-3">
+                  <button type="button" class="btn btn-outline-primary btn-block" id="region-generate">
+                    <span class="spinner-border spinner-border-sm" style="display:none" role="status" aria-hidden="true"></span>
+                    Grid
+                  </button>
+                </div>
+              </div>
+              <div class="mt-1" id="region-coordinates-group">
+                <label for="region-coordinates" class="small mb-0">Coordinates (longitude, latitude pairs)</label>
+                <div class="input-group">
+                  <textarea class="form-control mono" id="region-coordinates" rows="2" disabled></textarea>
+                  <div class="input-group-append btn-group-vertical" role="group">
+                    <button type="button" class="btn btn-secondary btn-sm" id="select-coordinates" title="Pick on map" disabled>
+                      <i class="fas fa-map-marker"></i>
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="edit-coordinates" title="Edit" disabled>
+                      <i class="fas fa-edit"></i>
                     </button>
                   </div>
-                  -->
-                </div>
-                <div class="input-group col-sm-4">
-                  <button type="button" class="form-control btn btn-primary" id="region-generate">
-                    <span class="spinner-border spinner-border-sm" style="display:none" role="status" aria-hidden="true"></span>
-                    Generate
-                  </button>
                 </div>
               </div>
             </div>
-            <div class="form-group" id="region-coordinates-group">
-              <label for="region-coordinates">Coordinates</label>
-              <div class="input-group">
-                <textarea class="form-control" style="font-size:10px; font-family:monospace" id="region-coordinates" rows="3" disabled></textarea>
-                <div class="input-group-append btn-group-vertical" role="group">
-                  <button type="button" class="btn btn-secondary" id="select-coordinates" title="Edit" disabled>
-                    <i class="fas fa-map-marker"></i>
-                  </button>
-                  <button type="button" class="btn btn-secondary" id="edit-coordinates" title="Edit" disabled>
-                    <i class="fas fa-edit"></i>
-                  </button>
+
+            <!-- Coverage -->
+            <div class="analysis-panel" data-analysis="coverage">
+              <div class="form-group row">
+                <label for="coverage-mode" class="col-sm-3 col-form-label">Display</label>
+                <div class="col-sm-9">
+                  <select class="form-control" id="coverage-mode">
+                    <option value="samples">Observations so far (animated)</option>
+                    <option value="since">Time since last observation (animated)</option>
+                    <option value="revisit">Mean revisit time (final)</option>
+                    <option value="final-samples">Number of observations (final)</option>
+                  </select>
                 </div>
               </div>
             </div>
-            <div class="form-group">
-              <div class="row">
-                <label for="analysis-start" class="col-sm-2 col-form-label">Start</label>
-                <div class="input-group date col-sm-10" id="analysis-start" data-target-input="nearest">
-                  <input type="text" class="form-control datetimepicker-input" data-target="#analysis-start"/>
-                  <div class="input-group-append" data-target="#analysis-start" data-toggle="datetimepicker">
-                    <div class="input-group-text"><i class="far fa-calendar"></i></div>
+
+            <!-- Swaths -->
+            <div class="analysis-panel" data-analysis="swaths">
+              <div class="form-group row">
+                <label for="swaths-instrument" class="col-sm-3 col-form-label">Instrument</label>
+                <div class="col-sm-3">
+                  <input type="number" min="0" value="0" step="1" class="form-control" id="swaths-instrument" title="Instrument index (0 is the first instrument)">
+                </div>
+                <label for="swaths-step" class="col-sm-2 col-form-label">Step</label>
+                <div class="input-group col-sm-4">
+                  <input type="number" min="5" max="600" value="60" step="any" class="form-control" id="swaths-step">
+                  <div class="input-group-append"><span class="input-group-text">s</span></div>
+                </div>
+              </div>
+              <div class="form-group row">
+                <label for="swaths-segment" class="col-sm-3 col-form-label">Segment</label>
+                <div class="input-group col-sm-4">
+                  <input type="number" min="1" max="1440" value="10" step="any" class="form-control" id="swaths-segment">
+                  <div class="input-group-append"><span class="input-group-text">min</span></div>
+                </div>
+                <div class="col-sm-5 small text-muted">Swaths accumulate as each segment completes. The animation spans the analysis duration.</div>
+              </div>
+            </div>
+
+            <!-- Latency -->
+            <div class="analysis-panel" data-analysis="latency">
+              <div class="form-group">
+                <label for="stations">Ground Stations</label>
+                <div class="input-group">
+                  <div class="list-group form-control p-0 overflow-auto" style="height:6em" id="stations"></div>
+                  <div class="input-group-append btn-group-vertical" role="group">
+                    <button type="button" class="btn btn-secondary btn-sm" id="station-add" title="Add"><i class="fas fa-plus"></i></button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="station-edit" title="Edit" disabled><i class="fas fa-edit"></i></button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="station-delete" title="Delete" disabled><i class="fas fa-minus"></i></button>
                   </div>
                 </div>
               </div>
-              <div class="row">
-                <label for="analysis-duration" class="col-sm-2 col-form-label">Duration</label>
-                <div class="input-group col-sm-4">
-                  <input type="number" min="1" max="600" step="any" class="form-control" id="analysis-duration">
-                  <div class="input-group-append">
-                    <span class="input-group-text">days</span>
+              <div class="form-group row">
+                <label for="latency-contact" class="col-sm-5 col-form-label" title="When an observation made during a contact is downlinked">Downlink during contact</label>
+                <div class="col-sm-7">
+                  <select class="form-control" id="latency-contact">
+                    <option value="end">At the end of the contact</option>
+                    <option value="immediate">Immediately</option>
+                    <option value="next">At the next contact</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group row">
+                <label for="latency-mode" class="col-sm-3 col-form-label">Display</label>
+                <div class="col-sm-9">
+                  <select class="form-control" id="latency-mode">
+                    <option value="pending">Observations awaiting downlink (animated)</option>
+                    <option value="latency">Mean data latency (final)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Access -->
+            <div class="analysis-panel" data-analysis="access">
+              <div class="form-group">
+                <label for="targets">Target Points</label>
+                <div class="input-group">
+                  <div class="list-group form-control p-0 overflow-auto" style="height:6em" id="targets"></div>
+                  <div class="input-group-append btn-group-vertical" role="group">
+                    <button type="button" class="btn btn-secondary btn-sm" id="target-pick" title="Add points by clicking the map"><i class="fas fa-map-marker-alt"></i></button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="target-add" title="Add by coordinates"><i class="fas fa-plus"></i></button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="target-delete" title="Delete" disabled><i class="fas fa-minus"></i></button>
+                  </div>
+                </div>
+              </div>
+              <div class="form-group row">
+                <label for="access-instrument" class="col-sm-3 col-form-label">Instrument</label>
+                <div class="col-sm-3">
+                  <input type="number" min="0" step="1" placeholder="All" class="form-control" id="access-instrument" title="Instrument index (blank for all instruments)">
+                </div>
+                <div class="col-sm-6 pt-2">
+                  <div class="form-check">
+                    <input type="checkbox" class="form-check-input" id="access-solar">
+                    <label for="access-solar" class="form-check-label">Solar angles</label>
                   </div>
                 </div>
               </div>
             </div>
-            <div class="form-group revisit-group">
-              <p>Coverage Analysis</p>
-              <div class="row">
-                <div class="input-group col-sm-4">
-                  <button type="button" class="form-control btn btn-primary" id="coverage-analyze">
-                    <span class="spinner-border spinner-border-sm" style="display:none" role="status" aria-hidden="true"></span>
-                    Analyze
-                  </button>
-                  <div class="d-block w-100">
-                    <div class="progress" id="coverage-progress" style="display:none">
-                      <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
-                    </div>
-                  </div>
-                </div>
-                <div class="input-group col-sm-4">
-                  <button type="button" class="form-control btn btn-secondary" id="coverage-data" disabled data-toggle="modal" data-target="#coverage-dialog">
-                    <i class="fas fa-database"></i>
-                    Data
-                  </button>
+
+            <div class="row">
+              <div class="col-sm-6">
+                <button type="button" class="btn btn-primary btn-block" id="analysis-run">
+                  <span class="spinner-border spinner-border-sm" style="display:none" role="status" aria-hidden="true"></span>
+                  Analyze
+                </button>
+                <div class="progress mt-1" id="analysis-progress" style="display:none; height:4px">
+                  <div class="progress-bar" role="progressbar" style="width: 0%"></div>
                 </div>
               </div>
-              <p>Mean Revisit Time</p>
-              <div class="w-100" id="revisit-colorbar"></div>
-              <div class="row">
-                <div class="input-group col-sm-2">
-                  <div class="form-check pt-2">
-                    <input type="checkbox" class="form-check-input" id="revisit-custom">
-                    <label for="revisit-custom" class="form-check-label">Custom</label>
-                  </div>
+              <div class="col-sm-6">
+                <button type="button" class="btn btn-secondary btn-block" id="analysis-data" disabled>
+                  <i class="fas fa-database"></i> Data
+                </button>
+              </div>
+            </div>
+            <div class="alert alert-danger small mt-2" id="analysis-error" style="display:none"></div>
+
+            <div class="form-group mt-3" id="colorbar-group" style="display:none">
+              <div class="d-flex justify-content-between">
+                <strong class="small" id="colorbar-title"></strong>
+                <div class="form-check form-check-inline small mr-0">
+                  <input type="checkbox" class="form-check-input" id="colorbar-custom">
+                  <label for="colorbar-custom" class="form-check-label">Custom range</label>
                 </div>
-                <label for="revisit-min" class="col-sm-1 col-form-label">Min</label>
-                <div class="input-group col-sm-4">
-                  <input type="number" min="0" max="100" value="0" step="any" class="form-control" id="revisit-min">
-                  <div class="input-group-append">
-                    <span class="input-group-text">hr</span>
-                  </div>
+              </div>
+              <div class="row mt-1" id="colorbar-range" style="display:none">
+                <label for="colorbar-min" class="col-sm-2 col-form-label col-form-label-sm">Min</label>
+                <div class="input-group input-group-sm col-sm-4">
+                  <input type="number" min="0" value="0" step="any" class="form-control" id="colorbar-min">
+                  <div class="input-group-append"><span class="input-group-text colorbar-unit"></span></div>
                 </div>
-                <label for="revisit-max" class="col-sm-1 col-form-label">Max</label>
-                <div class="input-group col-sm-4">
-                  <input type="number" min="0" max="100" value="100" step="any" class="form-control" id="revisit-max">
-                  <div class="input-group-append">
-                    <span class="input-group-text">hr</span>
-                  </div>
+                <label for="colorbar-max" class="col-sm-2 col-form-label col-form-label-sm">Max</label>
+                <div class="input-group input-group-sm col-sm-4">
+                  <input type="number" min="0" value="10" step="any" class="form-control" id="colorbar-max">
+                  <div class="input-group-append"><span class="input-group-text colorbar-unit"></span></div>
                 </div>
               </div>
             </div>
@@ -288,8 +403,15 @@
     </div>
     <div id="viewer">
       <div id="cesiumContainer"></div>
+      <div class="legend-overlay" id="legend-overlay">
+        <div id="legend-title"></div>
+        <div class="colorbar my-1" id="legend-colorbar"></div>
+        <div class="colorbar-labels"><span id="legend-min"></span><span id="legend-max"></span></div>
+      </div>
     </div>
   </main>
+
+  <!-- Login -->
   <div class="modal" role="dialog" id="login-modal" aria-hidden="true">
     <div class="modal-dialog">
       <div class="modal-content">
@@ -298,356 +420,124 @@
             <div class="form-group">
               <label for="login-email">Email</label>
               <input type="email" id="login-email" name="username" class="form-control" placeholder="Email address" required autofocus>
-              <div><span class="text-danger" id="login-email-message"></span></div>
             </div>
             <div class="form-group">
               <label for="login-password">Password</label>
               <input type="password" id="login-password" name="password" class="form-control" placeholder="Password" required>
-              <div><span class="text-danger" id="login-password-message"></span></div>
             </div>
-            <button class="btn btn-primary" type="submit">Submit</button>
+            <div class="text-danger small mb-2" id="login-message"></div>
+            <button class="btn btn-primary" type="submit">Login</button>
           </form>
         </div>
       </div>
     </div>
   </div>
-  <div class="modal fade" id="satellite-dialog" role="dialog">
-    <div class="modal-dialog" role="document">
+
+  <!-- Satellite / constellation editor -->
+  <div class="modal fade" id="satellite-dialog" role="dialog" data-backdrop="static">
+    <div class="modal-dialog modal-lg" role="document">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title">Edit Satellite</h5>
+          <h5 class="modal-title">Edit Satellite or Constellation</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
             <span aria-hidden="true">&times;</span>
           </button>
         </div>
         <div class="modal-body">
-          <div class="container">
-            <div class="satellite-group">
+          <ul class="nav nav-tabs mb-2" role="tablist">
+            <li class="nav-item"><a class="nav-link active" id="satellite-form-tab" data-toggle="tab" href="#satellite-form" role="tab">Form</a></li>
+            <li class="nav-item"><a class="nav-link" id="satellite-json-tab" data-toggle="tab" href="#satellite-json" role="tab">JSON</a></li>
+          </ul>
+          <div class="tab-content">
+            <div class="tab-pane fade show active" id="satellite-form" role="tabpanel">
               <div class="form-group row">
                 <label for="satellite-name" class="col-sm-2 col-form-label">Name</label>
-                <div class="input-group col-sm-10">
+                <div class="col-sm-5">
                   <input type="text" class="form-control" id="satellite-name">
+                </div>
+                <label for="satellite-color" class="col-sm-2 col-form-label">Color</label>
+                <div class="col-sm-3">
+                  <input type="color" class="form-control" id="satellite-color">
                 </div>
               </div>
               <div class="form-group row">
                 <label for="satellite-type" class="col-sm-2 col-form-label">Type</label>
+                <div class="col-sm-10">
+                  <select class="form-control" id="satellite-type"></select>
+                </div>
+              </div>
+              <div id="platform-fields"></div>
+              <h6 class="mt-3">Orbit</h6>
+              <div class="form-group row">
+                <label for="orbit-type" class="col-sm-2 col-form-label">Type</label>
                 <div class="input-group col-sm-10">
-                  <select class="form-control" id="satellite-type">
-                    <option value="satellite" label="Satellite"></option>
-                    <option value="train" label="Train Constellation"></option>
-                    <option value="walker" label="Walker Constellation"></option>
-                  </select>
-                </div>
-              </div>
-              <div class="form-group constellation-train-group">
-                <div class="row">
-                  <label for="train-count" class="col-sm-2 col-form-label">Satellites</label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="1" max="20" value="1" step="1" class="form-control" id="train-count">
-                  </div>
-                  <label for="train-interval" class="col-sm-2 col-form-label">Interval</label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="0" value="10" max="150" step="any" class="form-control" id="train-interval">
-                    <div class="input-group-append">
-                      <span class="input-group-text">min</span>
-                    </div>
+                  <select class="form-control" id="orbit-type"></select>
+                  <div class="input-group-append">
+                    <button type="button" class="btn btn-secondary" id="query-celestrak" title="Search CelesTrak" data-toggle="modal" data-target="#celestrak-dialog">
+                      <i class="fas fa-search"></i> CelesTrak
+                    </button>
                   </div>
                 </div>
               </div>
-              <div class="form-group constellation-walker-group">
-                <div class="row">
-                  <label for="walker-count" class="col-sm-2 col-form-label">Satellites</label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="1" max="20" value="1" step="1" class="form-control" id="walker-count">
-                  </div>
-                  <label for="walker-planes" class="col-sm-2 col-form-label">Planes</label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="1" value="1" step="1" class="form-control" id="walker-planes">
-                  </div>
-                </div>
-                <div class="row">
-                  <label for="walker-config" class="col-sm-2 col-form-label">Config.</label>
-                  <div class="input-group col-sm-4">
-                    <select class="form-control" id="walker-config">
-                      <option value="delta" label="Delta"></option>
-                      <option value="star" label="Star"></option>
-                    </select>
-                  </div>
-                  <label for="walker-spacing" class="col-sm-2 col-form-label">Spacing</label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="0" value="0" step="1" class="form-control" id="walker-spacing">
+              <div id="orbit-fields"></div>
+              <h6 class="mt-3">Instruments</h6>
+              <div class="form-group row">
+                <div class="input-group col-sm-12">
+                  <select class="form-control" id="instruments"></select>
+                  <div class="input-group-append btn-group" role="group">
+                    <button type="button" class="btn btn-secondary" id="instrument-add" title="Add"><i class="fas fa-plus"></i></button>
+                    <button type="button" class="btn btn-secondary" id="instrument-copy" title="Copy"><i class="far fa-copy"></i></button>
+                    <button type="button" class="btn btn-secondary" id="instrument-delete" title="Delete"><i class="fas fa-minus"></i></button>
                   </div>
                 </div>
               </div>
               <div class="form-group row">
-                <label for="satellite-orbit" class="col-sm-2 col-form-label">Orbit</label>
-                <div class="input-group col-sm-4">
-                  <select class="form-control" id="satellite-orbit">
-                    <option value="tle" label="TLE"></option>
-                    <option value="circular" label="Circular"></option>
-                    <option value="sso" label="Sun Synchronous"></option>
-                    <option value="keplerian" label="Keplerian"></option>
-                  </select>
-                </div>
-                <label for="satellite-color" class="col-sm-2 col-form-label">Color</label>
-                <input type="color" class="col-sm-4 form-control" id="satellite-color" />
-              </div>
-              <div class="form-group orbit-tle-group">
-                <label for="orbit-tle">Two Line Elements</label>
-                <div class="input-group">
-                  <textarea rows="2" style="font-family:monospace;font-size:9px" class="form-control" id="orbit-tle"></textarea>
-                  <div class="input-group-append">
-                    <button type="button" class="btn btn-secondary" id="query-celestrak" data-toggle="modal" data-target="#celestrak-dialog">
-                      <i class="fas fa-search"></i>
-                    </button>
-                  </div>
+                <label for="instrument-type" class="col-sm-2 col-form-label">Type</label>
+                <div class="col-sm-10">
+                  <select class="form-control" id="instrument-type"></select>
                 </div>
               </div>
-              <div class="form-group orbit-circular-group">
-                <div class="row">
-                  <label class="col-sm-2 col-form-label" for="orbit-circular-epoch">Epoch</label>
-                  <div class="input-group date col-sm-10" id="orbit-circular-epoch" data-target-input="nearest">
-                    <input type="text" class="form-control datetimepicker-input" data-target="#orbit-circular-epoch"/>
-                    <div class="input-group-append" data-target="#orbit-circular-epoch" data-toggle="datetimepicker">
-                      <div class="input-group-text"><i class="far fa-calendar"></i></div>
-                    </div>
-                  </div>
-                </div>
-                <div class="row">
-                  <label class="col-sm-2 col-form-label" for="orbit-circular-altitude">Altitude</label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="200" value="400" step="any" class="form-control" id="orbit-circular-altitude">
-                    <div class="input-group-append">
-                      <span class="input-group-text">km</span>
-                    </div>
-                  </div>
-                  <label class="col-sm-2 col-form-label" for="orbit-circular-inclination">Inclination</label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="0" max="180" value="0" step="any" class="form-control" id="orbit-circular-inclination">
-                    <div class="input-group-append">
-                      <span class="input-group-text">&deg;</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="row">
-                  <label class="col-sm-2 col-form-label" for="orbit-circular-raan"><abbr title="Right Ascension of Ascending Node">RAAN</abbr></label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="0" max="360" value="0" step="any" class="form-control" id="orbit-circular-raan">
-                    <div class="input-group-append">
-                      <span class="input-group-text">&deg;</span>
-                    </div>
-                  </div>
-                  <label class="col-sm-2 col-form-label" for="orbit-circular-ta"><abbr title="True Anomaly">TA</abbr></label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="0" max="360" value="0" step="any" class="form-control" id="orbit-circular-ta">
-                    <div class="input-group-append">
-                      <span class="input-group-text">&deg;</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="form-group orbit-sso-group">
-                <div class="row">
-                  <label class="col-sm-2 col-form-label" for="orbit-sso-epoch">Epoch</label>
-                  <div class="input-group date col-sm-10" id="orbit-sso-epoch" data-target-input="nearest">
-                    <input type="text" class="form-control datetimepicker-input" data-target="#orbit-sso-epoch"/>
-                    <div class="input-group-append" data-target="#orbit-sso-epoch" data-toggle="datetimepicker">
-                      <div class="input-group-text"><i class="far fa-calendar"></i></div>
-                    </div>
-                  </div>
-                </div>
-                <div class="row">
-                  <label class="col-sm-2 col-form-label" for="orbit-sso-ect"><abbr title="Equator Crossing Time">ECT</abbr></label>
-                  <div class="input-group date col-sm-4" id="orbit-sso-ect" data-target-input="nearest">
-                    <input type="text" class="form-control datetimepicker-input" data-target="#orbit-sso-ect"/>
-                    <div class="input-group-append" data-target="#orbit-sso-ect" data-toggle="datetimepicker">
-                      <div class="input-group-text"><i class="far fa-clock"></i></div>
-                    </div>
-                  </div>
-                  <label class="col-sm-2 col-form-label" for="orbit-sso-direction">Direction</label>
-                  <div class="input-group col-sm-4">
-                    <select class="form-control" id="orbit-sso-direction">
-                      <option value="asc" label="Ascending"></option>
-                      <option value="desc" label="Descending"></option>
-                    </select>
-                  </div>
-                </div>
-                <div class="row">
-                  <label class="col-sm-2 col-form-label" for="orbit-sso-altitude">Altitude</label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="200" value="400" step="any" class="form-control" id="orbit-sso-altitude">
-                    <div class="input-group-append">
-                      <span class="input-group-text">km</span>
-                    </div>
-                  </div>
-                  <label class="col-sm-2 col-form-label" for="orbit-sso-ta"><abbr title="True Anomaly">TA</abbr></label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="0" max="360" value="0" step="any" class="form-control" id="orbit-sso-ta">
-                    <div class="input-group-append">
-                      <span class="input-group-text">&deg;</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="form-group orbit-keplerian-group">
-                <div class="row">
-                  <label class="col-sm-2 col-form-label" for="orbit-keplerian-epoch">Epoch</label>
-                  <div class="input-group date col-sm-10" id="orbit-keplerian-epoch" data-target-input="nearest">
-                    <input type="text" class="form-control datetimepicker-input" data-target="#orbit-keplerian-epoch"/>
-                    <div class="input-group-append" data-target="#orbit-keplerian-epoch" data-toggle="datetimepicker">
-                      <div class="input-group-text"><i class="far fa-calendar"></i></div>
-                    </div>
-                  </div>
-                </div>
-                <div class="row">
-                  <label class="col-sm-2 col-form-label" for="orbit-keplerian-altitude">Altitude</label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="200" value="400" step="any" class="form-control" id="orbit-keplerian-altitude">
-                    <div class="input-group-append">
-                      <span class="input-group-text">km</span>
-                    </div>
-                  </div>
-                  <label class="col-sm-2 col-form-label" for="orbit-keplerian-inclination">Inclination</label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="0" max="180" value="0" step="any" class="form-control" id="orbit-keplerian-inclination">
-                    <div class="input-group-append">
-                      <span class="input-group-text">&deg;</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="row">
-                  <label class="col-sm-2 col-form-label" for="orbit-keplerian-eccentricity">Eccentricity</label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="0" max="1" value="0" step="any" class="form-control" id="orbit-keplerian-eccentricity">
-                  </div>
-                  <label class="col-sm-2 col-form-label" for="orbit-keplerian-pa"><abbr title="Perigee Argument">PA</abbr></label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="0" max="360" value="0" step="any" class="form-control" id="orbit-keplerian-pa">
-                    <div class="input-group-append">
-                      <span class="input-group-text">&deg;</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="row">
-                  <label class="col-sm-2 col-form-label" for="orbit-keplerian-raan"><abbr title="Right Ascension of Ascending Node">RAAN</abbr></label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="0" max="360" value="0" step="any" class="form-control" id="orbit-keplerian-raan">
-                    <div class="input-group-append">
-                      <span class="input-group-text">&deg;</span>
-                    </div>
-                  </div>
-                  <label class="col-sm-2 col-form-label" for="orbit-keplerian-ta"><abbr title="True Anomaly">TA</abbr></label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="0" max="360" value="0" step="any" class="form-control" id="orbit-keplerian-ta">
-                    <div class="input-group-append">
-                      <span class="input-group-text">&deg;</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="form-group">
-                <label for="instruments">Instrument</label>
-                <div class="input-group">
-                  <select class="form-control" id="instruments"></select>
-                  <div class="input-group-append btn-group" role="group">
-                    <button type="button" class="btn btn-secondary" id="instrument-add" title="Add">
-                      <i class="fas fa-plus"></i>
-                    </button>
-                    <button type="button" class="btn btn-secondary" id="instrument-copy" title="Copy">
-                      <i class="far fa-copy"></i>
-                    </button>
-                    <button type="button" class="btn btn-secondary" id="instrument-delete" title="Delete">
-                      <i class="fas fa-minus"></i>
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div class="form-group instrument-group">
-                <div class="row">
-                  <label for="instrument-name" class="col-sm-2 col-form-label">Name</label>
-                  <div class="input-group col-sm-10">
-                    <input type="text" class="form-control" id="instrument-name">
-                  </div>
-                </div>
-                <div class="row">
-                  <label for="instrument-field" class="col-sm-2 col-form-label">Field</label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="5" max="180" step="any" class="form-control" id="instrument-field">
-                    <div class="input-group-append">
-                      <span class="input-group-text">&deg;</span>
-                    </div>
-                  </div>
-                  <label for="instrument-access" class="col-sm-2 col-form-label">Access</label>
-                  <div class="input-group col-sm-4">
-                    <input type="number" min="0" max="60" step="any" class="form-control" id="instrument-access">
-                    <div class="input-group-append">
-                      <span class="input-group-text">s</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="row">
-                  <label for="instrument-target-sunlit" class="col-sm-2 col-form-label">Target</label>
-                  <div class="input-group col-sm-4">
-                    <select class="form-control" id="instrument-target-sunlit">
-                      <option value="none" label="(None)"></option>
-                      <option value="sunlit" label="Sunlit"></option>
-                      <option value="eclipse" label="Eclipse"></option>
-                    </select>
-                  </div>
-                  <label for="instrument-self-sunlit" class="col-sm-2 col-form-label">Satellite</label>
-                  <div class="input-group col-sm-4">
-                    <select class="form-control" id="instrument-self-sunlit">
-                      <option value="none" label="(None)"></option>
-                      <option value="sunlit" label="Sunlit"></option>
-                      <option value="eclipse" label="Eclipse"></option>
-                    </select>
-                  </div>
-                </div>
-              </div>
+              <div id="instrument-fields"></div>
+              <p class="small text-muted mb-0" id="satellite-extra"></p>
+            </div>
+            <div class="tab-pane fade" id="satellite-json" role="tabpanel">
+              <p class="small text-muted">The satellite or constellation in the schema of the TAT-C library (SI units). Use this editor for settings without a form, such as attitudes, general perturbations (GP) elements, and angle profiles.</p>
+              <textarea class="form-control mono" rows="18" id="satellite-json-text" spellcheck="false"></textarea>
+              <button type="button" class="btn btn-secondary btn-sm mt-1" id="satellite-json-apply">Apply JSON</button>
             </div>
           </div>
+          <div class="mt-2 small" id="satellite-validation"></div>
         </div>
         <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" id="satellite-validate">Validate</button>
           <button type="button" class="btn btn-primary" data-dismiss="modal">OK</button>
         </div>
       </div>
     </div>
   </div>
+
+  <!-- CelesTrak -->
   <div class="modal fade" id="celestrak-dialog" role="dialog">
     <div class="modal-dialog modal-lg" role="document">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title">Query Celestrak TLE</h5>
+          <h5 class="modal-title">Query CelesTrak TLE</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
             <span aria-hidden="true">&times;</span>
           </button>
         </div>
         <div class="modal-body">
-          <div class="container">
-            <div class="form-group row">
-              <div class="col-2">
-                <label for="celestrak-name">Name</label>
-              </div>
-              <div class="col-10">
-                  <input class="form-control" type="text" id="celestrak-name">
-              </div>
-            </div>
-            <div class="form-group row overflow-auto">
-              <div class="col-2">
-                <label for="celestrak-objects">Object</label>
-              </div>
-              <div class="col-10">
-                <select class="form-control" id="celestrak-objects" size="5"></select>
-              </div>
-            </div>
-            <div class="form-group row">
-              <div class="col-2">
-                <label for="celestrak-tle">TLE</label>
-              </div>
-              <div class="col-10">
-                <textarea class="form-control" style="font-size:12px; font-family:monospace" id="celestrak-tle" rows="2" disabled></textarea>
-              </div>
-            </div>
+          <div class="form-group row">
+            <label for="celestrak-name" class="col-2 col-form-label">Name</label>
+            <div class="col-10"><input class="form-control" type="text" id="celestrak-name" placeholder="At least 3 characters, e.g., LANDSAT"></div>
+          </div>
+          <div class="form-group row">
+            <label for="celestrak-objects" class="col-2 col-form-label">Object</label>
+            <div class="col-10"><select class="form-control" id="celestrak-objects" size="5"></select></div>
+          </div>
+          <div class="form-group row">
+            <label for="celestrak-tle" class="col-2 col-form-label">TLE</label>
+            <div class="col-10"><textarea class="form-control mono" id="celestrak-tle" rows="2" disabled></textarea></div>
           </div>
         </div>
         <div class="modal-footer">
@@ -658,156 +548,153 @@
     </div>
   </div>
 
+  <!-- Region and grid -->
   <div class="modal fade" id="region-dialog" role="dialog">
     <div class="modal-dialog" role="document">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title">Edit Region</h5>
+          <h5 class="modal-title">Edit Region and Grid</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
             <span aria-hidden="true">&times;</span>
           </button>
         </div>
         <div class="modal-body">
-          <div class="container">
-            <div class="form-group row" id="region-latitude-group">
-              <span class="col-sm-2 col-form-label">Latitude</span>
-              <label for="region-latitude-min" class="col-sm-1 col-form-label">Min</label>
-              <div class="input-group col-sm-4">
-                <input type="number" min="-90" max="90" value="-45" step="any" class="form-control" id="region-latitude-min" disabled>
-                <div class="input-group-append">
-                  <span class="input-group-text">&deg;</span>
-                </div>
-              </div>
-              <label for="region-latitude-max" class="col-sm-1 col-form-label">Max</label>
-              <div class="input-group col-sm-4">
-                <input type="number" min="-90" max="90" value="45" step="any" class="form-control" id="region-latitude-max" disabled>
-                <div class="input-group-append">
-                  <span class="input-group-text">&deg;</span>
-                </div>
-              </div>
+          <div class="form-group row" id="region-latitude-group">
+            <span class="col-sm-3 col-form-label">Latitude</span>
+            <div class="input-group col-sm-4">
+              <input type="number" min="-90" max="90" value="-45" step="any" class="form-control" id="region-latitude-min" aria-label="Minimum latitude">
+              <div class="input-group-append"><span class="input-group-text">&deg; min</span></div>
             </div>
-            <div class="form-group row" id="region-longitude-group">
-              <span class="col-sm-2 col-form-label">Longitude</span>
-              <label for="region-longitude-min" class="col-sm-1 col-form-label">Min</label>
-              <div class="input-group col-sm-4">
-                <input type="number" min="-180" max="180" value="-180" step="any" class="form-control" id="region-longitude-min" disabled>
-                <div class="input-group-append">
-                  <span class="input-group-text">&deg;</span>
-                </div>
-              </div>
-              <label for="region-latitude-max" class="col-sm-1 col-form-label">Max</label>
-              <div class="input-group col-sm-4">
-                <input type="number" min="-180" max="180" value="180" step="any" class="form-control" id="region-longitude-max" disabled>
-                <div class="input-group-append">
-                  <span class="input-group-text">&deg;</span>
-                </div>
-              </div>
+            <div class="input-group col-sm-5">
+              <input type="number" min="-90" max="90" value="45" step="any" class="form-control" id="region-latitude-max" aria-label="Maximum latitude">
+              <div class="input-group-append"><span class="input-group-text">&deg; max</span></div>
             </div>
-
-            <h6>Points</h6>
-            <div class="form-group">
-              <div class="row">
-                <label for="point-method" class="col-sm-2 col-form-label">Method</label>
-                <div class="col-sm-10">
-                  <select class="form-control" id="point-method">
-                      <option label="Equally Spaced" value="equally_spaced" selected>Equally Spaced</option>
-                      <option label="Fibonacci Lattice" value="fibonacci_lattice">Fibonacci Lattice</option>
-                  </select>
-                </div>
-              </div>
-              <div class="row">
-                <label for="point-distance" class="col-sm-2 col-form-label">Distance</label>
-                <div class="input-group col-sm-10">
-                  <input type="number" min="100" value="2500" step="any" class="form-control" id="point-distance">
-                  <div class="input-group-append">
-                    <span class="input-group-text">km</span>
-                  </div>
-                </div>
-              </div>
+          </div>
+          <div class="form-group row" id="region-longitude-group">
+            <span class="col-sm-3 col-form-label">Longitude</span>
+            <div class="input-group col-sm-4">
+              <input type="number" min="-180" max="180" value="-180" step="any" class="form-control" id="region-longitude-min" aria-label="Minimum longitude">
+              <div class="input-group-append"><span class="input-group-text">&deg; min</span></div>
             </div>
-
-            <h6>Cells</h6>
-            <div class="form-group">
-              <div class="row">
-                <label for="cell-method" class="col-sm-2 col-form-label">Method</label>
-                <div class="col-sm-5">
-                  <select class="form-control" id="cell-method">
-                      <option label="Equally Spaced" value="equally_spaced" selected>Eq</option>
-                  </select>
-                </div>
-                <label for="cell-strips" class="col-sm-2 col-form-label">Strips</label>
-                <div class="col-sm-3">
-                  <select class="form-control" id="cell-strips" disabled>
-                      <option value="none" selected>None</option>
-                      <option value="lat">Lat</option>
-                      <option value="lon">Lon</option>
-                  </select>
-                </div>
-              </div>
-              <div class="row">
-                <label for="cell-distance" class="col-sm-2 col-form-label">Distance</label>
-                <div class="input-group col-sm-10">
-                  <input type="number" min="100" value="5000" step="any" class="form-control" id="cell-distance">
-                  <div class="input-group-append">
-                    <span class="input-group-text">km</span>
-                  </div>
-                </div>
-              </div>
+            <div class="input-group col-sm-5">
+              <input type="number" min="-180" max="180" value="180" step="any" class="form-control" id="region-longitude-max" aria-label="Maximum longitude">
+              <div class="input-group-append"><span class="input-group-text">&deg; max</span></div>
             </div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-primary" data-dismiss="modal">OK</button>
+          </div>
+          <h6>Points</h6>
+          <div class="form-group row">
+            <label for="point-method" class="col-sm-3 col-form-label">Method</label>
+            <div class="col-sm-9">
+              <select class="form-control" id="point-method">
+                <option value="equally_spaced" selected>Equally Spaced</option>
+                <option value="fibonacci_lattice">Fibonacci Lattice</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group row">
+            <label for="point-distance" class="col-sm-3 col-form-label">Distance</label>
+            <div class="input-group col-sm-9">
+              <input type="number" min="50" value="1000" step="any" class="form-control" id="point-distance">
+              <div class="input-group-append"><span class="input-group-text">km</span></div>
+            </div>
+          </div>
+          <h6>Cells</h6>
+          <div class="form-group row">
+            <label for="cell-distance" class="col-sm-3 col-form-label">Distance</label>
+            <div class="input-group col-sm-5">
+              <input type="number" min="100" value="2500" step="any" class="form-control" id="cell-distance">
+              <div class="input-group-append"><span class="input-group-text">km</span></div>
+            </div>
+            <label for="cell-strips" class="col-sm-2 col-form-label">Strips</label>
+            <div class="col-sm-2 pl-0">
+              <select class="form-control" id="cell-strips">
+                <option value="none" selected>None</option>
+                <option value="lat">Lat</option>
+                <option value="lon">Lon</option>
+              </select>
             </div>
           </div>
         </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-primary" data-dismiss="modal">OK</button>
+        </div>
       </div>
     </div>
   </div>
 
-  <div class="modal fade" id="orbit-dialog" tabindex="-1" role="dialog">
-    <div class="modal-dialog modal-xl" role="document">
+  <!-- Ground station -->
+  <div class="modal fade" id="station-dialog" role="dialog">
+    <div class="modal-dialog" role="document">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title">Orbit Data</h5>
+          <h5 class="modal-title">Edit Ground Station</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
             <span aria-hidden="true">&times;</span>
           </button>
         </div>
-        <div class="modal-body overflow-auto" style="max-height:40em;">
-          <table class="table small w-100" id="orbit-table">
-          </table>
-        </div>
+        <div class="modal-body" id="station-fields"></div>
         <div class="modal-footer">
-          <a href="#" id="orbit-data-json" class="btn btn-secondary" role="button" download="data.json">
-            <span class="fa fa-download" aria-hidden="true"></span> JSON
-          </a>
-          <a href="#" id="orbit-data-csv" class="btn btn-secondary" role="button" download="data.csv">
-            <span class="fa fa-download" aria-hidden="true"></span> CSV
-          </a>
-          <button type="button" class="btn btn-primary" data-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-primary" data-dismiss="modal">OK</button>
         </div>
       </div>
     </div>
   </div>
-  <div class="modal fade" id="coverage-dialog" tabindex="-1" role="dialog">
+
+  <!-- Target point -->
+  <div class="modal fade" id="target-dialog" role="dialog">
+    <div class="modal-dialog" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Add Target Point</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group row">
+            <label for="target-latitude" class="col-sm-3 col-form-label">Latitude</label>
+            <div class="input-group col-sm-9">
+              <input type="number" min="-90" max="90" value="33.42" step="any" class="form-control" id="target-latitude">
+              <div class="input-group-append"><span class="input-group-text">&deg;</span></div>
+            </div>
+          </div>
+          <div class="form-group row">
+            <label for="target-longitude" class="col-sm-3 col-form-label">Longitude</label>
+            <div class="input-group col-sm-9">
+              <input type="number" min="-180" max="180" value="-111.93" step="any" class="form-control" id="target-longitude">
+              <div class="input-group-append"><span class="input-group-text">&deg;</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="target-ok" data-dismiss="modal">Add</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results table -->
+  <div class="modal fade" id="results-dialog" tabindex="-1" role="dialog">
     <div class="modal-dialog modal-xl" role="document">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title">Coverage Analysis</h5>
+          <h5 class="modal-title" id="results-title">Results</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
             <span aria-hidden="true">&times;</span>
           </button>
         </div>
         <div class="modal-body overflow-auto" style="max-height:40em;">
-          <table class="table small w-100" id="coverage-table">
-          </table>
+          <p class="small text-muted" id="results-note"></p>
+          <table class="table table-sm small w-100" id="results-table"></table>
         </div>
         <div class="modal-footer">
-          <a href="#" id="coverage-data-json" class="btn btn-secondary" role="button" download="data.json">
+          <button type="button" id="results-json" class="btn btn-secondary">
             <span class="fa fa-download" aria-hidden="true"></span> JSON
-          </a>
-          <a href="#" id="coverage-data-csv" class="btn btn-secondary" role="button" download="data.csv">
+          </button>
+          <button type="button" id="results-csv" class="btn btn-secondary">
             <span class="fa fa-download" aria-hidden="true"></span> CSV
-          </a>
+          </button>
           <button type="button" class="btn btn-primary" data-dismiss="modal">Close</button>
         </div>
       </div>
@@ -815,21 +702,21 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js" integrity="sha512-894YE6QWD5I59HgZOGReFYm4dnWc1Qt5NtvYSaNcOP+u1T9qYdvdihz0PPSiiqn/+/3e7Jo4EaG7TubfWGUrMQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/js/bootstrap.min.js" integrity="sha512-XKa9Hemdy1Ui3KSGgJdgMyYlUg1gM+QhL6cnlyTe2qzMCYm4nAZ1PsVerQzTTXzonUR+dmswHqgJPuwCq1MaAg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.82.1/Cesium.js" integrity="sha512-i0+16B+F5kx2x4LXbltoipFgmrTDaPxRHXxSbQt0evQwKmR5AuygDz740EUDCoRzP2qV81paIxizqxGjw9WPNQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/js/bootstrap.bundle.min.js" integrity="sha512-wV7Yj1alIZDqZFCUQJy85VN+qvEIly93fIQAN7iqDFCPEucLCeNFz4r35FCo9s6WrpdDQPi80xbljXB8Bjtvcg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.145.0/Cesium.js" integrity="sha512-sRomm/RzBx9jpW4QRpWKA8aA0FCxhEEy5NOF8wLlqhMJmywhKldjsZR7CRdjs1V4ZKO2PAPbRaCWtkOA25JBQQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/split.js/1.6.4/split.min.js" integrity="sha512-HwVfwWgxD3SrpYgpIEGapjIid6YzmKiY4lwoc55rbO/6Y/2ZSgy6PX7zYUV5wqBD4hTsHzDovN6HqEzc/68lUg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment-with-locales.min.js" integrity="sha512-LGXaggshOkD/at6PFNcp2V2unf9LzFq6LE+sChH7ceMTDP0g2kn6Vxwgg7wkPP7AAtX+lmPqPdxB47A0Nz0cMQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/moment-timezone/0.5.33/moment-timezone-with-data-10-year-range.min.js" integrity="sha512-48hjVXIRd5d3sGKDfphGflqnxq91J14nwVO5Q6dHhK66n9XjP4zg0YR8IJRNZSJAVCrjjTU4fgpQgXeyx2lHNA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/tempusdominus-bootstrap-4/5.39.0/js/tempusdominus-bootstrap-4.min.js" integrity="sha512-k6/Bkb8Fxf/c1Tkyl39yJwcOZ1P4cRrJu77p83zJjN2Z55prbFHxPs9vN7q3l3+tSMGPDdoH51AEU8Vgo1cgAA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js" integrity="sha512-WFN04846sdKMIP5LKNphMaWzU7YpMyCU245etK3g/2ARYbPK9Ub18eG+ljU96qKRCWh+quCY7yefSmlkQw1ANQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdn.datatables.net/1.10.25/js/jquery.dataTables.min.js"></script>
   <script src="https://cdn.datatables.net/1.10.25/js/dataTables.bootstrap4.min.js"></script>
   <script src="colormap.js"></script>
   <script src="index.js"></script>
-  <script src="region.js"></script>
-  <script src="orbit.js"></script>
+  <script src="tasks.js"></script>
+  <script src="layers.js"></script>
+  <script src="schemas.js"></script>
   <script src="satellites.js"></script>
   <script src="design.js"></script>
+  <script src="region.js"></script>
+  <script src="timeline-layer.js"></script>
   <script src="analysis.js"></script>
 </body>
 

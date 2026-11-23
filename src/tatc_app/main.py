@@ -4,7 +4,6 @@ TAT-C application configuration.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-
 import os
 from contextlib import asynccontextmanager
 
@@ -33,6 +32,7 @@ from tatc_app.utils.users import (
     fastapi_users,
     jwt_backend,
 )
+from tatc_app.validation.router import router as validation_router
 
 # Load environment variables from the .env file
 load_dotenv()
@@ -102,6 +102,12 @@ app.include_router(
 app.include_router(
     generation_router,
     prefix="/generate",
+    dependencies=[Depends(current_active_user)],
+)
+# Include the router for the /validate route
+app.include_router(
+    validation_router,
+    prefix="/validate",
     dependencies=[Depends(current_active_user)],
 )
 # Include the router for the /analyze route

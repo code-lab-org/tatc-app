@@ -15,6 +15,22 @@ The TAT-C web application contains four major components:
 
 The web application is configured to support the RabbitMQ Broker and Redis Backend.
 
+The application requires TAT-C version 3.7 and accepts all of its space-domain
+platforms: satellites and Walker, train, MOG, and streets-of-coverage (SOC)
+constellations, with every orbit type (including two line elements and repeat
+ground track orbits), instrument type (simple, pointed, and conical), and
+attitude. It supports the following analyses, each split into parallel worker
+tasks and visualized with animated results (CZML) in the GUI:
+ * Coverage and revisit (`/analyze/coverage`): observations of a grid of points and cells.
+ * Ground track swaths (`/analyze/swaths`): instrument swaths that accumulate over time.
+ * Data latency (`/analyze/latency`): latency to downlink observations at ground stations.
+ * Point access (`/analyze/overflight`): access windows of satellites to target points.
+
+Each analysis has endpoints to enqueue it (`POST`), retrieve its results
+(`GET .../{task_id}`), and retrieve an animated CZML document
+(`GET .../{task_id}/czml`). `POST /validate/space-system` validates a satellite
+or constellation and summarizes its members.
+
 ## Configuration
 
 For the Manual Docker Containers and Python development methods (see
@@ -170,6 +186,11 @@ project root:
 pip install -e ".[dev]"
 pytest
 ```
+
+By default, tests run Celery tasks eagerly (in-process) with an in-memory
+result backend, so they do not require a broker, backend, or worker (see
+`tests/conftest.py`). To instead run tests against running components
+configured by `TATC_BROKER` and `TATC_BACKEND`, set `TATC_TEST_LIVE=1`.
 
 ### Code Style
 

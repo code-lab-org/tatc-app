@@ -1,47 +1,37 @@
 """
-Schema specifications for overflight analysis endpoints.
+Schema specifications for overflight (point access) analysis endpoints.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+from typing import Dict, List, Optional
 
-from datetime import datetime
-from typing import List, Union
+from geojson_pydantic import FeatureCollection
+from pydantic import BaseModel, Field, model_validator
+from tatc.schemas import Point
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-from pydantic.alias_generators import to_camel
-from tatc.schemas import Instrument, Point
+from ..satellites import validate_instrument_index
+from ..utils.analysis import AnalysisRequest
+from ..utils.timeline import OrbitTracks, Timeline
 
-from ..generation.schemas import PointGenerator
-from ..satellites import SpaceSystemInput
+# maximum number of points in an overflight analysis (to analyze more, use a
+# coverage analysis)
+MAX_POINTS = 1000
 
 
-class OverflightAnalysisRequest(BaseModel):
+class OverflightAnalysisRequest(AnalysisRequest):
     """
-    User request to collect overflights.
+    User request to collect overflights (accesses) of points.
     """
 
-    model_config = ConfigDict(
-        from_attributes=True, populate_by_name=True, alias_generator=to_camel
-    )
-    points: Union[List[Point], PointGenerator] = Field(
-        ..., description="Points from which to collect observations."
-    )
-    satellite: SpaceSystemInput = Field(
-        ..., description="Satellite from which to observe."
-    )
-    instrument: Union[int, Instrument] = Field(
-        0, description="Instrument (or index thereof) performing the observation."
-    )
-    start: datetime = Field(
+    points: List[Point] = Field(
         ...,
-        description="Start date time of the observation period.",
-        examples=[datetime.fromisoformat("2021-01-01T00:00:00+00:00")],
+        min_length=1,
+        max_length=MAX_POINTS,
+        description="Points from which to collect observations.",
     )
-    end: datetime = Field(
-        ...,
-        description="End date time of the observation period.",
-        examples=[datetime.fromisoformat("2021-01-02T00:00:00+00:00")],
+    instrument_index: Optional[int] = Field(
+        None, ge=0, description="Instrument index, or `null` for all instruments."
     )
     omit_solar: bool = Field(
         True,
@@ -53,12 +43,31 @@ class OverflightAnalysisRequest(BaseModel):
         """
         Validates the instrument index is in bounds.
         """
-        # pylint: disable=E1101
-        if (
-            self.satellite is not None
-            and self.instrument is not None
-            and isinstance(self.instrument, int)
-            and self.instrument >= len(self.satellite.instruments)
-        ):
-            raise ValueError("Instrument index out of bounds.")
+        validate_instrument_index(self.satellites, self.instrument_index)
         return self
+
+
+class OverflightAnalysisResult(BaseModel):
+    """
+    Response to provide overflight analysis results.
+    """
+
+    points: FeatureCollection = Field(
+        ...,
+        description="Points (`point_id`, the hash of the geometry, and `id`) "
+        "with statistics of observations by all satellites (`samples`, and mean "
+        "`access` and `revisit` in seconds; overlapping observations by "
+        "several satellites count once).",
+    )
+    observations: FeatureCollection = Field(
+        ...,
+        description="Observations by each satellite and instrument "
+        "(`target_hash`, `satellite`, `instrument`, `start`, `epoch`, `end`, "
+        "`platform_alt`, `platform_az`, and solar angles unless omitted), "
+        "sorted by start time.",
+    )
+    timeline: Timeline = Field(
+        ..., description="Observations of points (in the order of `points`)."
+    )
+    tracks: OrbitTracks = Field(..., description="Orbit tracks of satellites.")
+    colors: Dict[str, str] = Field({}, description="Display color of satellites.")

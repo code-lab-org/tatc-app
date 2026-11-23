@@ -4,7 +4,6 @@ Router specifications for celestrak endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-
 import aiohttp
 from fastapi import APIRouter
 from fastapi.responses import PlainTextResponse
@@ -26,7 +25,8 @@ async def get_celestrak_tle(name: str):
     """
     async with aiohttp.ClientSession() as session:
         async with session.get(
-            f"https://celestrak.com/NORAD/elements/gp.php?NAME={name}&FORMAT=TLE"
+            "https://celestrak.org/NORAD/elements/gp.php",
+            params={"NAME": name, "FORMAT": "TLE"},
         ) as response:
             result = await response.text()
     return result

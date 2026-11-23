@@ -9,17 +9,8 @@ import json
 from fastapi import APIRouter
 from geojson_pydantic import FeatureCollection
 
-from .schemas import (
-    CellGenerator,
-    CellGeneratorMethod,
-    PointGenerator,
-    PointGeneratorMethod,
-)
-from .tasks import (
-    generate_equally_spaced_cells_task,
-    generate_equally_spaced_points_task,
-    generate_fibonacci_lattice_points_task,
-)
+from .schemas import CellGenerator, PointGenerator
+from .utils import generate_cells_geojson, generate_points_geojson
 
 router = APIRouter()
 
@@ -30,7 +21,7 @@ router = APIRouter()
     response_model_exclude_none=True,
     responses={"200": {"content": {"application/x-msgpack": {}}}},
 )
-async def generate_points(generator: PointGenerator):
+def generate_points(generator: PointGenerator):
     """
     Endpoint to generate a set of points.
 
@@ -40,19 +31,7 @@ async def generate_points(generator: PointGenerator):
     Returns:
         FeatureCollection: generated points
     """
-    if generator.method == PointGeneratorMethod.equally_spaced:
-        task = generate_equally_spaced_points_task.delay(
-            generator.distance,
-            generator.elevation,
-            generator.model_dump().get("mask", None),
-        )
-    elif generator.method == PointGeneratorMethod.fibonacci_lattice:
-        task = generate_fibonacci_lattice_points_task.delay(
-            generator.distance,
-            generator.elevation,
-            generator.model_dump().get("mask", None),
-        )
-    return json.loads(task.get())
+    return json.loads(generate_points_geojson(generator))
 
 
 @router.post(
@@ -61,7 +40,7 @@ async def generate_points(generator: PointGenerator):
     response_model_exclude_none=True,
     responses={"200": {"content": {"application/x-msgpack": {}}}},
 )
-async def generate_cells(generator: CellGenerator):
+def generate_cells(generator: CellGenerator):
     """
     Endpoint to generate a set of cells.
 
@@ -71,11 +50,4 @@ async def generate_cells(generator: CellGenerator):
     Returns:
         FeatureCollection: generated cells
     """
-    if generator.method == CellGeneratorMethod.equally_spaced:
-        task = generate_equally_spaced_cells_task.delay(
-            generator.distance,
-            generator.elevation,
-            generator.model_dump().get("mask", None),
-            generator.strips,
-        )
-    return json.loads(task.get())
+    return json.loads(generate_cells_geojson(generator))

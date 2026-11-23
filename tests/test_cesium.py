@@ -1,6 +1,6 @@
-from .base import TatcTestCase
-
 import os
+
+from .base import TatcTestCase
 
 
 class CesiumTestCase(TatcTestCase):

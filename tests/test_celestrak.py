@@ -1,12 +1,12 @@
 import warnings
-from tatc.schemas import GeneralPerturbationsOrbit
-
-from .base import TatcTestCase
-
+from asyncio.proactor_events import _ProactorBasePipeTransport
 
 # suppress `RuntimeError: Event loop is closed` known to exist on Windows
 from functools import wraps
-from asyncio.proactor_events import _ProactorBasePipeTransport
+
+from tatc.schemas import GeneralPerturbationsOrbit
+
+from .base import TatcTestCase
 
 
 def silence_event_loop_closed(func):

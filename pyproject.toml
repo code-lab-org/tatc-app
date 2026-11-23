@@ -12,7 +12,7 @@ authors = [
     {name = "Paul T. Grogan", email = "paul.grogan@asu.edu"}
 ]
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11, <3.15"
 license = {text = "BSD License"}
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -29,7 +29,7 @@ dependencies = [
     "geojson-pydantic",
     "msgpack-asgi",
     "python-dotenv",
-    "tatc >= 3.5.0",
+    "tatc >= 3.7.0, < 3.8",
     "tzlocal",
     "uvicorn[standard]"
 ]

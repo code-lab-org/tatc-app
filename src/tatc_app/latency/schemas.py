@@ -4,30 +4,22 @@ Schema specifications for latency analysis endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from datetime import datetime
-from typing import List, Union
+from typing import Dict, List, Literal, Union
 
 from geojson_pydantic import FeatureCollection
-from pydantic import BaseModel, ConfigDict, Field
-from pydantic.alias_generators import to_camel
+from pydantic import BaseModel, Field, field_validator
 from tatc.schemas import GroundStation, Point
 
-from ..generation.schemas import (
-    Cell,
-    CellGenerator,
-    PointGenerator,
-)
-from ..satellites import SpaceSystemInput
+from ..generation.schemas import Cell, CellGenerator, PointGenerator
+from ..utils.analysis import AnalysisRequest
+from ..utils.timeline import OrbitTracks, Timeline
 
 
-class LatencyAnalysisRequest(BaseModel):
+class LatencyAnalysisRequest(AnalysisRequest):
     """
     User request to perform latency analysis.
     """
 
-    model_config = ConfigDict(
-        from_attributes=True, populate_by_name=True, alias_generator=to_camel
-    )
     points: Union[List[Point], PointGenerator] = Field(
         ..., description="Points from which to collect observations."
     )
@@ -35,21 +27,26 @@ class LatencyAnalysisRequest(BaseModel):
         ..., description="Cells from which to aggregate observations."
     )
     stations: List[GroundStation] = Field(
-        ..., description="Stations to which observations can be downlinked"
-    )
-    satellites: List[SpaceSystemInput] = Field(
-        ..., description="Satellite from which to observe."
-    )
-    start: datetime = Field(
         ...,
-        description="Start date time of the observation period.",
-        examples=[datetime.fromisoformat("2021-01-01T00:00:00+00:00")],
+        min_length=1,
+        description="Ground stations to which observations can be downlinked.",
     )
-    end: datetime = Field(
-        ...,
-        description="End date time of the observation period.",
-        examples=[datetime.fromisoformat("2021-01-02T00:00:00+00:00")],
+    during_contact: Literal["next", "end", "immediate"] = Field(
+        "end",
+        description="Downlink of an observation made during a contact: at the "
+        "`end` of that contact, at the `next` contact, or `immediate`.",
     )
+
+    @field_validator("stations")
+    @classmethod
+    def unique_station_names(cls, stations: List[GroundStation]) -> List[GroundStation]:
+        """
+        Validates ground station names are unique.
+        """
+        names = [station.name for station in stations]
+        if len(set(names)) < len(names):
+            raise ValueError("Ground station names must be unique.")
+        return stations
 
 
 class LatencyAnalysisResult(BaseModel):
@@ -57,8 +54,27 @@ class LatencyAnalysisResult(BaseModel):
     Response to provide latency analysis results.
     """
 
-    model_config = ConfigDict(
-        from_attributes=True, populate_by_name=True, alias_generator=to_camel
+    points: FeatureCollection = Field(
+        ...,
+        description="Point-level latency statistics (`target_hash`, `samples`, "
+        "mean `latency` in seconds), for every point.",
     )
-    points: FeatureCollection = Field(..., description="Point-level latency analysis.")
-    cells: FeatureCollection = Field(..., description="Cell-level latency analysis.")
+    cells: FeatureCollection = Field(
+        ...,
+        description="Cell-level latency statistics (`cell_id`, `samples`, mean "
+        "`latency` in seconds), for every cell.",
+    )
+    timeline: Timeline = Field(
+        ...,
+        description="Observations of points (in the order of `points`) from "
+        "the time `observed` (start) to the time `downlinked` (end).",
+    )
+    contacts: Timeline = Field(
+        ..., description="Contacts between satellites and ground stations."
+    )
+    stations: List[GroundStation] = Field(..., description="Ground stations.")
+    cell_targets: Dict[str, List[int]] = Field(
+        {}, description="Indices of the points within each cell, by `cell_id`."
+    )
+    tracks: OrbitTracks = Field(..., description="Orbit tracks of satellites.")
+    colors: Dict[str, str] = Field({}, description="Display color of satellites.")

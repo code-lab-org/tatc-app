@@ -1,0 +1,93 @@
+from datetime import datetime, timedelta, timezone
+
+from tatc.schemas import (
+    CircularOrbit,
+    Instrument,
+    PointedInstrument,
+    WalkerConstellation,
+)
+
+from tatc_app.tracking.schemas import SwathAnalysisRequest, SwathAnalysisResult
+
+from .base import TatcTestCase
+
+
+class AnalyzeSwathsTestCase(TatcTestCase):
+    def setUp(self):
+        super().setUp()
+        self.constellation = WalkerConstellation(
+            name="W",
+            orbit=CircularOrbit(altitude=700e3, inclination=98),
+            instruments=[
+                PointedInstrument(
+                    name="Imager",
+                    cross_track_field_of_view=40,
+                    along_track_field_of_view=2,
+                ),
+                Instrument(name="Wide", field_of_regard=100),
+            ],
+            number_satellites=2,
+            number_planes=2,
+        )
+        self.start = datetime(2022, 6, 1, tzinfo=timezone.utc)
+        self.end = self.start + timedelta(hours=3)
+
+    def test_analyze_swaths(self):
+        task = self.run_analysis(
+            "/analyze/swaths",
+            SwathAnalysisRequest(
+                satellites=[self.constellation],
+                start=self.start,
+                end=self.end,
+                step=timedelta(seconds=60),
+                segment=timedelta(minutes=30),
+            ),
+        )
+        result = SwathAnalysisResult.model_validate(
+            self.get_json(f"/analyze/swaths/{task['task_id']}")
+        )
+        members = [m.name for m in self.constellation.generate_members()]
+        self.assertEqual([t.name for t in result.tracks.tracks], members)
+        for track in result.tracks.tracks:
+            # 3 hours at 60 second steps (inclusive)
+            self.assertEqual(len(track.positions), 4 * 181)
+        # one segment per 30 minutes per member (for the pointed instrument)
+        self.assertEqual(len(result.swaths.features), 2 * 6)
+        for feature in result.swaths.features:
+            self.assertEqual(feature.properties["instrument"], "Imager")
+            self.assertLess(feature.properties["start"], feature.properties["end"])
+        czml = self.get_json(f"/analyze/swaths/{task['task_id']}/czml")
+        self.assertEqual(czml[0]["id"], "document")
+        ids = [packet["id"] for packet in czml]
+        self.assertIn(f"sat/{members[0]}", ids)
+        swaths = [packet for packet in czml if packet["id"].startswith("swath/")]
+        self.assertGreaterEqual(len(swaths), 12)
+        self.assertTrue(all(p["availability"].endswith("Z") for p in swaths))
+
+    def test_analyze_tracks_only(self):
+        task = self.run_analysis(
+            "/analyze/swaths",
+            SwathAnalysisRequest(
+                satellites=[self.constellation],
+                start=self.start,
+                end=self.end,
+                segment=None,
+            ),
+        )
+        result = SwathAnalysisResult.model_validate(
+            self.get_json(f"/analyze/swaths/{task['task_id']}")
+        )
+        self.assertEqual(len(result.tracks.tracks), 2)
+        self.assertEqual(len(result.swaths.features), 0)
+
+    def test_too_many_steps(self):
+        response = self.client.post(
+            "/analyze/swaths",
+            json={
+                "satellites": [self.constellation.model_dump(mode="json")],
+                "start": "2022-01-01T00:00:00Z",
+                "end": "2023-01-01T00:00:00Z",
+                "step": "PT1S",
+            },
+        )
+        self.assertEqual(response.status_code, 422)
