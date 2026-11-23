@@ -8,8 +8,18 @@ import asyncio
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.encoders import jsonable_encoder
+from pydantic import ValidationError
 
 from ..celestrak.catalog import CelestrakCatalog, get_catalog
+from .instruments import (
+    CatalogInstrumentEntry,
+    CatalogInstrumentRequest,
+    CatalogInstrumentResult,
+    add_instrument,
+    get_instrument_entry,
+    list_instrument_entries,
+)
 from .systems import (
     CatalogBuildRequest,
     CatalogBuildResult,
@@ -70,5 +80,54 @@ async def build_catalog_system(
         return await asyncio.to_thread(
             build_satellites, system, spacecraft, objects, request
         )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.get("/instruments", response_model=List[CatalogInstrumentEntry])
+async def list_catalog_instruments() -> List[CatalogInstrumentEntry]:
+    """
+    Endpoint to list the instruments of the TAT-C instrument catalog whose
+    views TAT-C analyzes (not limb sounders or radio occultation receivers).
+
+    Returns:
+        List[CatalogInstrumentEntry]: The instruments.
+    """
+    return await asyncio.to_thread(list_instrument_entries)
+
+
+@router.post("/instruments/{entry_id}/add", response_model=CatalogInstrumentResult)
+async def add_catalog_instrument(
+    entry_id: str, request: CatalogInstrumentRequest
+) -> CatalogInstrumentResult:
+    """
+    Endpoint to add an instrument of the TAT-C instrument catalog to a
+    satellite or constellation. The instrument is built for the orbit of the
+    satellite (or constellation), the analysis time step, and the analysis
+    period, and sets the satellite's attitude to the validated one, which also
+    orients any other instruments it carries (see `attitude_changed`).
+
+    Args:
+        entry_id (str): The identifier of the instrument entry.
+        request (CatalogInstrumentRequest): The satellite and options.
+
+    Returns:
+        CatalogInstrumentResult: The satellite or constellation.
+    """
+    try:
+        entry = await asyncio.to_thread(get_instrument_entry, entry_id)
+    except KeyError as error:
+        raise HTTPException(
+            status_code=404, detail=f"No catalog instrument '{entry_id}'."
+        ) from error
+    try:
+        return await asyncio.to_thread(add_instrument, entry, request)
+    except ValidationError as error:
+        raise HTTPException(
+            status_code=422,
+            detail=jsonable_encoder(
+                error.errors(include_url=False, include_context=False)
+            ),
+        ) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

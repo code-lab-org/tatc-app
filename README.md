@@ -43,6 +43,16 @@ spacecraft outside of it, a query for that one object. Each query result,
 including "no data" for decayed objects, is cached for two hours. Spacecraft
 without GP elements keep their cataloged orbits, with a warning.
 
+Instruments of the TAT-C instrument catalog can also be added to any
+satellite or constellation: `GET /catalog/instruments` lists the instruments
+whose views TAT-C analyzes (not limb sounders or radio occultation receivers),
+and `POST /catalog/instruments/{entry_id}/add` adds a configuration to a
+satellite or constellation. Each configuration is built for the satellite's
+orbit, the analysis time step, and (for scheduled tilts) the analysis period.
+It also sets the satellite's attitude to the validated one, which orients the
+satellite's other instruments too, so the response reports when the attitude
+changes.
+
 ## Configuration
 
 For the Manual Docker Containers and Python development methods (see

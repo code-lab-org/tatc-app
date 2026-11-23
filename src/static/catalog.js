@@ -1,7 +1,8 @@
-// System catalog: loads the satellites of past and present programs from the
-// TAT-C system catalog. The server replaces their cataloged (idealized)
-// orbits with current general perturbations (GP) elements from CelesTrak, so
-// that satellites are coordinated across systems; it takes them from its
+// TAT-C catalog: loads the satellites of past and present programs from the
+// system catalog, and adds instruments of the instrument catalog to
+// satellites. The server replaces the cataloged (idealized) orbits of
+// satellites with current general perturbations (GP) elements from CelesTrak,
+// so that satellites are coordinated across systems; it takes them from its
 // cached CelesTrak group or narrow queries for each other satellite, each
 // cached for two hours (per CelesTrak's usage policy).
 
@@ -14,8 +15,22 @@ const SYSTEM_CLASS_LABELS = {
 let catalogSystems = null;
 let catalogUnchecked = {}; // instruments the user unchecked, by identifier
 
+function showStatus(container, text, className) {
+  container.empty().append($("<div>").addClass(className || "text-muted").text(text));
+}
+
+function appendNotes(container, notes) {
+  if (notes.length) {
+    const list = $("<ul>").addClass("mb-0 pl-3");
+    _.forEach(notes, function(note) {
+      list.append($("<li>").text(note));
+    });
+    container.append($("<div>").addClass("mt-1").text("Notes:"), list);
+  }
+}
+
 function showCatalogStatus(text, className) {
-  $("#catalog-status").empty().append($("<div>").addClass(className || "text-muted").text(text));
+  showStatus($("#catalog-status"), text, className);
 }
 
 function loadCatalogSystems() {
@@ -160,13 +175,7 @@ function showCatalogResult(result, count) {
       "GP elements from CelesTrak (" + range + " UTC)."
     ));
   }
-  if (result.warnings.length) {
-    const list = $("<ul>").addClass("mb-0 pl-3");
-    _.forEach(result.warnings, function(warning) {
-      list.append($("<li>").text(warning));
-    });
-    status.append($("<div>").addClass("mt-1").text("Notes:"), list);
-  }
+  appendNotes(status, result.warnings);
 }
 
 // Adds the satellites of a system to the design, in one color.
@@ -216,8 +225,164 @@ function loadCatalogSystem() {
   });
 }
 
+// --- Instrument catalog ---
+
+const INSTRUMENT_CLASS_LABELS = {
+  cross_track: "Cross-Track Scanners",
+  pushbroom: "Pushbroom Imagers",
+  conical: "Conical Scanners",
+  sar: "Synthetic Aperture Radars",
+  scatterometer: "Scatterometers",
+  altimeter: "Altimeters",
+  lidar: "Lidars",
+  profiler: "Profilers",
+  geostationary: "Geostationary Imagers",
+  geostationary_regional: "Geostationary Regional Imagers"
+};
+
+let catalogInstruments = null;
+
+function showInstrumentCatalogStatus(text, className) {
+  showStatus($("#instrument-catalog-status"), text, className);
+}
+
+function loadCatalogInstruments() {
+  if (catalogInstruments) {
+    return;
+  }
+  showInstrumentCatalogStatus("Loading the catalog…");
+  $.getJSON("/catalog/instruments").done(function(entries) {
+    catalogInstruments = entries;
+    renderCatalogInstrumentEntries();
+    $("#instrument-catalog-status").empty();
+  }).fail(function(xhr) {
+    showInstrumentCatalogStatus(formatError(xhr), "text-danger");
+  });
+}
+
+function renderCatalogInstrumentEntries() {
+  const select = $("#instrument-catalog-entries").empty();
+  _.forEach(INSTRUMENT_CLASS_LABELS, function(label, instrumentClass) {
+    const group = $("<optgroup>").attr("label", label);
+    _.forEach(_.sortBy(_.filter(catalogInstruments, { instrument_class: instrumentClass }), "name"), function(entry) {
+      group.append($("<option>").val(entry.id).text(entry.name + " (" + entry.platforms.join(", ") + ")"));
+    });
+    if (group.children().length) {
+      select.append(group);
+    }
+  });
+  renderCatalogInstrumentEntry();
+}
+
+function getCatalogInstrumentEntry() {
+  return _.find(catalogInstruments, { id: $("#instrument-catalog-entries").val() });
+}
+
+function renderCatalogInstrumentEntry() {
+  const entry = getCatalogInstrumentEntry();
+  const details = $("#instrument-catalog-details").empty();
+  const select = $("#instrument-catalog-configurations").empty();
+  $("#instrument-catalog-add").prop("disabled", !entry);
+  if (!entry) {
+    renderCatalogConfiguration();
+    return;
+  }
+  details.append(
+    $("<div>").text("Carried by " + entry.platforms.join(", ") + " · validation: " + entry.tier),
+    $("<div>").text(entry.selection)
+  );
+  if (entry.limitations.length) {
+    details.append($("<div>").text("Limitations: " + entry.limitations.join(" ")));
+  }
+  _.forEach(entry.configurations, function(configuration) {
+    select.append($("<option>").val(configuration.id).text(
+      configuration.id + " (" + configuration.grade.replace("_", " ") + ", " + configuration.tier
+      + (configuration.id == entry.default_configuration ? ", default" : "") + ")"
+    ));
+  });
+  select.val(entry.default_configuration);
+  renderCatalogConfiguration();
+}
+
+function renderCatalogConfiguration() {
+  const entry = getCatalogInstrumentEntry();
+  const configuration = entry && _.find(entry.configurations, { id: $("#instrument-catalog-configurations").val() });
+  const container = $("#instrument-catalog-configuration").empty();
+  if (configuration) {
+    container.text(configuration.description + (configuration.instruments > 1
+      ? " (" + configuration.instruments + " instruments: " + (configuration.grouping == "union"
+        ? "parts of one view)" : "alternative views)")
+      : ""));
+  }
+}
+
+// Whether the satellite carries only the design's default instrument.
+function hasDefaultInstruments(system) {
+  return !system.instruments || system.instruments.length == 0
+    || _.isEqual(system.instruments, [createInstrument()]);
+}
+
+function addCatalogInstrument() {
+  const entry = getCatalogInstrumentEntry();
+  if (!entry || !editing) {
+    return;
+  }
+  const period = getAnalysisPeriod();
+  const button = $("#instrument-catalog-add").prop("disabled", true);
+  showInstrumentCatalogStatus("Adding " + entry.name + "…");
+  $.ajax({
+    url: "/catalog/instruments/" + encodeURIComponent(entry.id) + "/add",
+    type: "POST",
+    contentType: "application/json",
+    dataType: "json",
+    data: JSON.stringify({
+      system: editing.system,
+      configuration: $("#instrument-catalog-configurations").val(),
+      time_step: Number($("#instrument-catalog-time-step").val()),
+      start: period.start.toISOString(),
+      end: period.end.toISOString(),
+      replace: $("#instrument-catalog-replace").is(":checked")
+    })
+  }).done(function(result) {
+    if (!editing) {
+      return;
+    }
+    if (result.attitude_changed && !confirm(
+      "Adding " + entry.name + " sets the satellite's attitude to the attitude it was validated with, "
+      + "which also orients the satellite's other instruments. Add it?"
+    )) {
+      showInstrumentCatalogStatus(entry.name + " was not added.");
+      return;
+    }
+    editing.system = result.system;
+    editing.instrument = result.system.instruments.length - result.added.length;
+    renderSatelliteForm();
+    formChanged();
+    $("#instrument-catalog-replace").prop("checked", false);
+    const status = $("#instrument-catalog-status").empty().append($("<div>").addClass("text-success").text(
+      "Added " + result.added.join(", ") + " (" + result.configuration + ") to " + result.system.name + "."
+    ));
+    appendNotes(status, result.notes);
+  }).fail(function(xhr) {
+    showInstrumentCatalogStatus(formatError(xhr), "text-danger");
+  }).always(function() {
+    button.prop("disabled", false);
+  });
+}
+
 $(document).ready(function() {
   $("#catalog-dialog").on("show.bs.modal", loadCatalogSystems);
+  $("#instrument-catalog-dialog").on("show.bs.modal", function() {
+    $("#instrument-catalog-status").empty();
+    $("#instrument-catalog-replace").prop("checked", Boolean(editing) && hasDefaultInstruments(editing.system));
+    loadCatalogInstruments();
+  });
+  $("#instrument-catalog-entries").on("change", function() {
+    $("#instrument-catalog-status").empty();
+    renderCatalogInstrumentEntry();
+  });
+  $("#instrument-catalog-configurations").on("change", renderCatalogConfiguration);
+  $("#instrument-catalog-add").click(addCatalogInstrument);
   $("#catalog-systems").on("change", function() {
     $("#catalog-status").empty();
     renderCatalogSystem();

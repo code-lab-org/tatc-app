@@ -91,21 +91,13 @@ class CatalogSatelliteSystem(BaseModel):
     spacecraft: list[CatalogSpacecraft] = Field(..., description="Its spacecraft.")
 
 
-class CatalogBuildRequest(BaseModel):
-    """Request to build satellites of a catalog system."""
+class CatalogPeriod(BaseModel):
+    """
+    The analysis time step and period for which cataloged instruments are
+    built (some tailor their fields of view to the time step, and some
+    schedule their tilt by day).
+    """
 
-    members: list[str] | None = Field(
-        None,
-        min_length=1,
-        description="Identifiers (or names) of the spacecraft to build "
-        + "(default: those not retired).",
-    )
-    instruments: bool | list[str] = Field(
-        True,
-        description="Whether satellites carry their cataloged instruments "
-        + "(otherwise, TAT-C's default instrument), or the identifiers of the "
-        + "cataloged instruments to carry (each on the satellites that carry it).",
-    )
     time_step: float = Field(
         60,
         gt=0,
@@ -125,7 +117,7 @@ class CatalogBuildRequest(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _check_period(self) -> CatalogBuildRequest:
+    def _check_period(self) -> CatalogPeriod:
         if self.start is None:
             self.start = datetime.now(timezone.utc).replace(second=0, microsecond=0)
         if self.end is None:
@@ -135,6 +127,23 @@ class CatalogBuildRequest(BaseModel):
         if self.end - self.start > MAX_DURATION:
             raise ValueError(f"the period must not exceed {MAX_DURATION.days} days")
         return self
+
+
+class CatalogBuildRequest(CatalogPeriod):
+    """Request to build satellites of a catalog system."""
+
+    members: list[str] | None = Field(
+        None,
+        min_length=1,
+        description="Identifiers (or names) of the spacecraft to build "
+        + "(default: those not retired).",
+    )
+    instruments: bool | list[str] = Field(
+        True,
+        description="Whether satellites carry their cataloged instruments "
+        + "(otherwise, TAT-C's default instrument), or the identifiers of the "
+        + "cataloged instruments to carry (each on the satellites that carry it).",
+    )
 
 
 class CatalogMember(BaseModel):

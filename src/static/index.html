@@ -477,6 +477,7 @@
                     <button type="button" class="btn btn-secondary" id="instrument-add" title="Add"><i class="fas fa-plus"></i></button>
                     <button type="button" class="btn btn-secondary" id="instrument-copy" title="Copy"><i class="far fa-copy"></i></button>
                     <button type="button" class="btn btn-secondary" id="instrument-delete" title="Delete"><i class="fas fa-minus"></i></button>
+                    <button type="button" class="btn btn-secondary" id="instrument-catalog-open" title="Add an instrument of a past or present mission from the instrument catalog" data-toggle="modal" data-target="#instrument-catalog-dialog"><i class="fas fa-book"></i> Catalog</button>
                   </div>
                 </div>
               </div>
@@ -584,6 +585,55 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
           <button type="button" class="btn btn-primary" id="catalog-load" disabled>Load</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Instrument catalog -->
+  <div class="modal fade" id="instrument-catalog-dialog" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Add Instrument from Catalog</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted">Instruments of past and present missions from the TAT-C instrument catalog, as validated against their data products. Each is built for this satellite's orbit and carries its validated attitude, which the satellite's instruments share.</p>
+          <div class="form-group row">
+            <label for="instrument-catalog-entries" class="col-sm-2 col-form-label">Instrument</label>
+            <div class="col-sm-10">
+              <select class="form-control" id="instrument-catalog-entries" size="7"></select>
+              <div class="small text-muted mt-1" id="instrument-catalog-details"></div>
+            </div>
+          </div>
+          <div class="form-group row">
+            <label for="instrument-catalog-configurations" class="col-sm-2 col-form-label">Configuration</label>
+            <div class="col-sm-10">
+              <select class="form-control" id="instrument-catalog-configurations"></select>
+              <div class="small text-muted mt-1" id="instrument-catalog-configuration"></div>
+            </div>
+          </div>
+          <div class="form-group row">
+            <label for="instrument-catalog-time-step" class="col-sm-2 col-form-label">Time step</label>
+            <div class="input-group col-sm-4">
+              <input type="number" min="1" max="3600" value="60" step="any" class="form-control" id="instrument-catalog-time-step">
+              <div class="input-group-append"><span class="input-group-text">s</span></div>
+            </div>
+            <small class="col-sm-6 form-text text-muted">Analysis time step to which instruments that scan across track tailor their along-track field of view.</small>
+          </div>
+          <div class="form-check mb-2">
+            <input type="checkbox" class="form-check-input" id="instrument-catalog-replace">
+            <label for="instrument-catalog-replace" class="form-check-label">Replace the satellite's instruments</label>
+          </div>
+          <p class="small text-muted">Instruments that schedule their tilt by day are built for the analysis period of the Analysis tab.</p>
+          <div class="small" id="instrument-catalog-status"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-primary" id="instrument-catalog-add" disabled>Add</button>
         </div>
       </div>
     </div>
