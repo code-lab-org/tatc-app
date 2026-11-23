@@ -112,9 +112,20 @@ function addCellPrimitives(features, collection, outlines, colorFunction) {
   }));
 }
 
+const GRID_ERROR_PREFIX = "Grid: ";
+
+// Hides a grid error (but not other analysis errors sharing the alert).
+function clearGridError() {
+  const error = $("#analysis-error");
+  if (_.startsWith(error.text(), GRID_ERROR_PREFIX)) {
+    error.hide().text("");
+  }
+}
+
 let gridRequest = 0;
 function generateRegionGrid() {
   const request = ++gridRequest;
+  clearGridError();
   $("#region-generate").prop("disabled", true).find(".spinner-border").show();
   clearRegionGrid();
   showRegionGrid(true);
@@ -138,7 +149,10 @@ function generateRegionGrid() {
       });
     })
     .fail(function(xhr) {
-      $("#analysis-error").text("Grid: " + formatError(xhr)).show();
+      // ignore failures of superseded requests
+      if (request == gridRequest) {
+        $("#analysis-error").text(GRID_ERROR_PREFIX + formatError(xhr)).show();
+      }
     })
     .always(function() {
       if (request == gridRequest) {
