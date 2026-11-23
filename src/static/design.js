@@ -132,16 +132,24 @@ $(document).ready(function() {
       previewOrbits();
     }
   }, 300));
+  // clock time of the orbit preview when leaving this tab, to resume from it
+  let pausedPreview = null;
   $("#nav-design-tab").on("shown.bs.tab", function() {
-    if (getCzmlLayer("design")) {
+    const source = getCzmlLayer("design");
+    if (source) {
       showCzmlLayer("design", true);
-      const source = getCzmlLayer("design");
       setClock(source.clock.startTime, source.clock.stopTime, source.clock.multiplier);
+      if (pausedPreview && pausedPreview.source === source) {
+        viewer.clock.currentTime = pausedPreview.time;
+      }
     } else {
       previewOrbits();
     }
+    pausedPreview = null;
   });
   $("#nav-design-tab").on("hide.bs.tab", function() {
+    const source = getCzmlLayer("design");
+    pausedPreview = source ? { source: source, time: viewer.clock.currentTime.clone() } : null;
     showCzmlLayer("design", false);
   });
 });

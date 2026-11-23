@@ -612,6 +612,8 @@ $(document).ready(function() {
         setClock(source.clock.startTime, source.clock.stopTime, source.clock.multiplier);
       }
     }
+    // pause any animation (such as the orbit preview) on entering this tab
+    viewer.clock.shouldAnimate = false;
   });
   $("#nav-analysis-tab").on("hide.bs.tab", function() {
     showAnalysisLayers(false);
