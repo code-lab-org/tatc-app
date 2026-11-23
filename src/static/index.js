@@ -224,8 +224,42 @@ function getUserInformation() {
   $.get("/auth/me").done(signedIn).fail(signedOut);
 }
 
+// --- Drawer ---
+
+// Collapsing the drawer hides only the panel: the active tab stays active, so
+// its layers stay visible on the globe.
+function setDrawerCollapsed(collapsed) {
+  $("#drawer").toggleClass("collapsed", collapsed);
+  $("#drawer-collapse").attr("aria-expanded", String(!collapsed));
+}
+
+function initializeDrawer() {
+  // Bound directly on the rail buttons, so this runs before Bootstrap's
+  // delegated tab handler: clicking the active tab toggles the drawer and
+  // clicking another tab opens it (Bootstrap then switches tabs).
+  $("#nav-tab .rail-btn").on("click", function() {
+    if ($(this).hasClass("active")) {
+      setDrawerCollapsed(!$("#drawer").hasClass("collapsed"));
+    } else {
+      setDrawerCollapsed(false);
+    }
+  });
+  $("#nav-tab .rail-btn").on("shown.bs.tab", function(e) {
+    $("#drawer-title").text($(e.target).attr("title"));
+  });
+  $("#drawer-collapse").on("click", function() {
+    setDrawerCollapsed(true);
+  });
+  $(document).on("keydown", function(e) {
+    // Esc in a dialog or menu closes that instead (handled by Bootstrap)
+    if (e.key === "Escape" && !$(".modal.show").length && !$(e.target).closest(".dropright").length) {
+      setDrawerCollapsed(true);
+    }
+  });
+}
+
 $(document).ready(function() {
-  window.Split(["#editor", "#viewer"], { sizes: [30, 70], minSize: [320, 200] });
+  initializeDrawer();
   $.get("/openapi.json").done(function(api) {
     $("#app-version").text(api.info.version);
   });
