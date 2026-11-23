@@ -82,7 +82,9 @@ def compute_overflights(
         dict: The `points` (with statistics), `observations`, and `timeline`.
     """
     if observations.empty:
-        statistics = points.assign(samples=0, access=pd.NaT, revisit=pd.NaT)
+        # access and revisit are durations (a bare pd.NaT would be a datetime)
+        missing = pd.Series(pd.NaT, index=points.index, dtype="timedelta64[ns]")
+        statistics = points.assign(samples=0, access=missing, revisit=missing)
     else:
         observations = observations.sort_values("start", ignore_index=True)
         # aggregation merges overlapping observations by several satellites

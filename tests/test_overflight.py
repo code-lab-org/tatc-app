@@ -103,6 +103,24 @@ class OverflightAnalysisTestCase(TatcTestCase):
             sum(len(link["availability"]) for link in links), len(expected)
         )
 
+    def test_analyze_overflight_no_observations(self):
+        # the ISS (51.6 deg inclination) never observes a polar point
+        task = self.run_analysis(
+            "/analyze/overflight",
+            OverflightAnalysisRequest(
+                satellites=self.satellites[:1],
+                points=[Point(id=1, latitude=89.0, longitude=0)],
+                start=self.start,
+                end=self.end,
+            ),
+        )
+        result = self.get_json(f"/analyze/overflight/{task['task_id']}")
+        self.assertEqual(len(result["observations"]["features"]), 0)
+        properties = result["points"]["features"][0]["properties"]
+        self.assertEqual(properties["samples"], 0)
+        self.assertIsNone(properties["access"])
+        self.assertIsNone(properties["revisit"])
+
     def test_analyze_overflight_solar(self):
         task = self.run_analysis(
             "/analyze/overflight",
