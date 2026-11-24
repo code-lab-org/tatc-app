@@ -26,12 +26,30 @@ function runAnalysis(options) {
   }
   const run = {
     cancelled: false,
+    task: null, // the enqueued task: {task_id, group_id}
     cancel: function() {
+      if (this.cancelled) {
+        return;
+      }
       this.cancelled = true;
+      revoke();
       finish();
     }
   };
   activeRuns[options.name] = run;
+
+  // Revokes the enqueued task (if enqueued yet) so workers skip its pending
+  // sub-tasks. Done tasks are unaffected, so this is safe to call any time.
+  function revoke() {
+    if (!run.task) {
+      return;
+    }
+    $.ajax({
+      url: "/tasks/" + run.task.task_id + "/revoke"
+        + (run.task.group_id ? "?group_id=" + run.task.group_id : ""),
+      type: "POST"
+    });
+  }
 
   function setBusy(busy) {
     if (options.button) {
@@ -119,6 +137,12 @@ function runAnalysis(options) {
     data: JSON.stringify(options.payload)
   })
     .done(function(task) {
+      run.task = task;
+      if (run.cancelled) {
+        // cancelled while enqueuing
+        revoke();
+        return;
+      }
       if (task.group_id) {
         pollProgress(task.group_id);
       }
@@ -127,4 +151,12 @@ function runAnalysis(options) {
     .fail(function(xhr) { fail(formatError(xhr)); });
 
   return run;
+}
+
+// Cancels the active run of a named analysis, if any: its results are dropped
+// and its server task is revoked.
+function cancelAnalysis(name) {
+  if (activeRuns[name]) {
+    activeRuns[name].cancel();
+  }
 }

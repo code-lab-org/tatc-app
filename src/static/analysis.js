@@ -251,12 +251,23 @@ function runSelectedAnalysis() {
           cellTargets: result.cell_targets
         });
         loadCzmlLayer("analysis", endpoint + "/" + taskId + "/czml", { clock: false }).then(function() {
-          setClock(payload.start, payload.end);
+          if (isCurrentResult()) {
+            setClock(payload.start, payload.end);
+          }
           applyDisplayMode();
         });
         applyDisplayMode();
       } else {
-        loadCzmlLayer("analysis", endpoint + "/" + taskId + "/czml");
+        loadCzmlLayer("analysis", endpoint + "/" + taskId + "/czml", { clock: false }).then(function(source) {
+          if (isCurrentResult() && source.clock) {
+            setClock(source.clock.startTime, source.clock.stopTime, source.clock.multiplier);
+          }
+        });
+      }
+      // the analysis type may change while the CZML loads: then keep the
+      // clock paused
+      function isCurrentResult() {
+        return analysisResult && analysisResult.taskId === taskId && getAnalysisType() === type;
       }
     }
   });
@@ -551,7 +562,15 @@ $(document).ready(function() {
   start.setUTCHours(0, 0, 0, 0);
   $("#analysis-start").val(toDateTimeInput(start));
 
-  $("#analysis-type").change(changeAnalysisType);
+  $("#analysis-type").change(function() {
+    // drop any run of the previous analysis type, and rewind and pause the
+    // animation until results of this analysis are ready (loading them
+    // restarts the clock)
+    cancelAnalysis("analysis");
+    viewer.clock.shouldAnimate = false;
+    viewer.clock.currentTime = viewer.clock.startTime.clone();
+    changeAnalysisType();
+  });
   $("#analysis-run").click(runSelectedAnalysis);
   $("#analysis-data").click(showAnalysisData);
   $("#coverage-mode, #latency-mode").change(function() {
