@@ -6,79 +6,191 @@ Task specifications for coverage analysis endpoints.
 
 import json
 from datetime import datetime
+from typing import Dict, List, Optional
 
 import geopandas as gpd
-from tatc.analysis.coverage import (
+from tatc.analysis import (
     aggregate_observations,
-    collect_multi_observations,
+    collect_observations,
     grid_observations,
     reduce_observations,
 )
-from tatc.schemas import Point, Satellite
+from tatc.schemas import Satellite
 
+from ..czml import assign_colors
+from ..tracking.tasks import combine_tracks
+from ..utils.analysis import deserialize_members, tag, untag
+from ..utils.serialization import concat, from_geojson, to_geojson
+from ..utils.timeline import build_timeline
 from ..worker import app
 from .schemas import CoverageAnalysisResult
 
+OBSERVATION_COLUMNS = [
+    "target_hash",
+    "satellite",
+    "instrument",
+    "start",
+    "epoch",
+    "end",
+    "access",
+    "revisit",
+    "geometry",
+]
 
-@app.task
-def run_coverage_analysis_task(
-    point: str, satellites: list, start: str, end: str
-) -> str:
+
+def collect_aggregated_observations(
+    points: gpd.GeoDataFrame,
+    satellites: List[Satellite],
+    start: datetime,
+    end: datetime,
+) -> gpd.GeoDataFrame:
     """
-    Task to run coverage analysis.
+    Collects and aggregates observations of points by all instruments of
+    satellites.
 
     Args:
-        point (str): JSON serialized :class:`tatc.schemas.Point` object.
+        points (geopandas.GeoDataFrame): The points.
+        satellites (List[tatc.schemas.Satellite]): The satellites.
+        start (datetime.datetime): The start of the analysis period.
+        end (datetime.datetime): The end of the analysis period.
+
+    Returns:
+        geopandas.GeoDataFrame: The aggregated observations.
+    """
+    observations = collect_observations(
+        points, satellites, start, end, instrument_index=None
+    )
+    if observations.empty:
+        return gpd.GeoDataFrame(
+            columns=OBSERVATION_COLUMNS, geometry="geometry", crs="EPSG:4326"
+        )
+    return aggregate_observations(observations)[OBSERVATION_COLUMNS]
+
+
+@app.task
+def collect_coverage_task(points: str, satellites: list, start: str, end: str) -> dict:
+    """
+    Task to collect and aggregate observations of a chunk of points.
+
+    Args:
+        points (str): GeoJSON serialized points.
         satellites (list): List of JSON serialized :class:`tatc.schemas.Satellite` objects.
         start (str): ISO 8601 serialized start time.
         end (str): ISO 8601 serialized end time.
 
     Returns:
-        str: GeoJSON serialized `FeatureCollection` containing coverage analysis.
+        dict: Tagged (`obs`) GeoJSON serialized aggregated observations.
     """
-    # call analysis function, parsing the serialized arguments
-    results = reduce_observations(
-        aggregate_observations(
-            collect_multi_observations(
-                Point.model_validate_json(point),
-                [Satellite.model_validate_json(satellite) for satellite in satellites],
-                datetime.fromisoformat(start),
-                datetime.fromisoformat(end),
-            )
-        )
+    results = collect_aggregated_observations(
+        from_geojson(points),
+        deserialize_members(satellites),
+        datetime.fromisoformat(start),
+        datetime.fromisoformat(end),
     )
-    # re-serialize constituent data
-    results["access"] = results["access"].apply(lambda t: t.value)
-    results["revisit"] = results["revisit"].apply(lambda t: t.value)
-    return results.to_json(show_bbox=False, drop_id=True)
+    return tag("obs", to_geojson(results))
+
+
+def get_cell_targets(
+    points: gpd.GeoDataFrame, cells: gpd.GeoDataFrame
+) -> Dict[str, List[int]]:
+    """
+    Gets the indices of points within each cell.
+
+    Args:
+        points (geopandas.GeoDataFrame): The points.
+        cells (geopandas.GeoDataFrame): The cells (with a `cell_id` column).
+
+    Returns:
+        Dict[str, List[int]]: The point indices by `cell_id`.
+    """
+    if points.empty or cells.empty:
+        return {}
+    joined = gpd.sjoin(
+        gpd.GeoDataFrame(geometry=points.geometry.values, crs="EPSG:4326"),
+        cells[["cell_id", "geometry"]],
+        predicate="intersects",
+    )
+    return {
+        str(cell_id): sorted(int(i) for i in group.index)
+        for cell_id, group in joined.groupby("cell_id")
+    }
+
+
+def compute_coverage(
+    observations: gpd.GeoDataFrame,
+    points: gpd.GeoDataFrame,
+    cells: gpd.GeoDataFrame,
+    epoch: datetime,
+    members: Optional[List[str]] = None,
+) -> dict:
+    """
+    Reduces aggregated observations to coverage statistics of points and
+    cells, and a timeline of observations.
+
+    Args:
+        observations (geopandas.GeoDataFrame): The aggregated observations.
+        points (geopandas.GeoDataFrame): The points.
+        cells (geopandas.GeoDataFrame): The cells.
+        epoch (datetime.datetime): The reference time.
+        members (Optional[List[str]]): The member satellite names (default:
+            those with observations).
+
+    Returns:
+        dict: The `points`, `cells`, `timeline`, and `cell_targets`.
+    """
+    reduced = reduce_observations(observations, targets=points).reset_index(drop=True)
+    gridded = grid_observations(reduced, cells)
+    timeline = build_timeline(
+        observations,
+        epoch,
+        reduced["target_hash"].tolist(),
+        members or sorted(set(observations["satellite"])),
+    )
+    return {
+        "points": json.loads(to_geojson(reduced)),
+        "cells": json.loads(to_geojson(gridded)),
+        "timeline": timeline,
+        "cell_targets": get_cell_targets(reduced, cells),
+    }
 
 
 @app.task
-def grid_coverage_analysis_task(coverage_results: str, cells: str) -> str:
+def combine_coverage_task(
+    results: list, points: str, cells: str, start: str, colors: dict
+) -> str:
     """
-    Task to grid coverage analysis over specified cells.
+    Task to combine the observations of chunks of points into coverage
+    statistics.
 
     Args:
-        coverage_results (str): GeoJSON serialized `FeatureCollection` containing coverage analysis.
-        cells (str): GeoJSON serialized `FeatureCollection` containing cell polygons.
+        results (list): Tagged results of parallel tasks.
+        points (str): GeoJSON serialized points.
+        cells (str): GeoJSON serialized cells.
+        start (str): ISO 8601 serialized start time (reference time).
+        colors (dict): Display colors by member satellite name.
 
     Returns:
-        str: JSON serialized `CoverageAnalysisResult` containing coverage analysis results.
+        str: JSON serialized `CoverageAnalysisResult`.
     """
-    # deserialize the coverage statistics
-    gdf = gpd.GeoDataFrame.from_features(json.loads(coverage_results), crs="EPSG:4326")
-    # de-serialize constituent data
-    gdf["access"] = gdf["access"].astype("timedelta64[ns]")
-    gdf["revisit"] = gdf["revisit"].astype("timedelta64[ns]")
-    # deserialize the cells
-    grid_cells = gpd.GeoDataFrame.from_features(json.loads(cells), crs="EPSG:4326")
-    # grid the results
-    grid_data = grid_observations(gdf, grid_cells)
-    # re-serialize constituent data
-    grid_data["access"] = grid_data["access"].apply(lambda t: t.value)
-    grid_data["revisit"] = grid_data["revisit"].apply(lambda t: t.value)
-    # return the results object in json format
+    epoch = datetime.fromisoformat(start)
+    observations = concat(
+        from_geojson(
+            data,
+            datetimes=["start", "epoch", "end"],
+            timedeltas=["access", "revisit"],
+            columns=OBSERVATION_COLUMNS,
+        )
+        for data in untag(results, "obs")
+    )
+    tracks = combine_tracks(results, epoch)
     return CoverageAnalysisResult(
-        points=json.loads(coverage_results),
-        cells=json.loads(grid_data.to_json(show_bbox=False, drop_id=True)),
+        **compute_coverage(
+            observations,
+            from_geojson(points),
+            from_geojson(cells, columns=["cell_id", "geometry"]),
+            epoch,
+            [track.name for track in tracks.tracks],
+        ),
+        tracks=tracks,
+        colors=assign_colors([track.name for track in tracks.tracks], colors),
     ).model_dump_json()

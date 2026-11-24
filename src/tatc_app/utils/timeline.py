@@ -1,0 +1,305 @@
+"""
+Compact, columnar representations of time-dynamic analysis results used to
+animate results in a client: timelines of events (observations, contacts,
+data latencies) between targets and satellites, and orbit tracks of
+satellites.
+
+Times are seconds since a common `epoch` to keep payloads small, compared to
+one GeoJSON feature per event or position.
+
+@author: Paul T. Grogan <paul.grogan@asu.edu>
+"""
+
+from datetime import datetime, timedelta
+from typing import List, Optional, Sequence, Tuple
+
+import numpy as np
+import pandas as pd
+from pydantic import AwareDatetime, BaseModel, Field
+from shapely.geometry import MultiPolygon, Polygon
+from shapely.geometry.base import BaseGeometry
+
+# tolerance (degrees) to simplify footprints, and decimals to round coordinates
+FOOTPRINT_TOLERANCE = 0.01
+FOOTPRINT_DECIMALS = 4
+
+
+class Timeline(BaseModel):
+    """
+    Events between targets (for example, points or ground stations) and
+    members (satellites), each spanning a `start` and (optional) `end` time.
+    """
+
+    epoch: AwareDatetime = Field(..., description="Reference time (t=0).")
+    targets: List[str] = Field(
+        ..., description="Target identifiers (for example, `target_hash`)."
+    )
+    members: List[str] = Field(..., description="Member satellite names.")
+    target: List[int] = Field(..., description="Target index of each event.")
+    member: List[int] = Field(..., description="Member index of each event.")
+    start: List[float] = Field(..., description="Event start (seconds since epoch).")
+    end: List[Optional[float]] = Field(
+        ..., description="Event end (seconds since epoch), or null if none."
+    )
+
+
+def _seconds_since(times: pd.Series, epoch: datetime) -> List[Optional[float]]:
+    seconds = (
+        pd.to_datetime(times, utc=True) - pd.Timestamp(epoch).tz_convert("UTC")
+    ).dt.total_seconds()
+    return [None if np.isnan(s) else round(float(s), 3) for s in seconds]
+
+
+def build_timeline(
+    events: pd.DataFrame,
+    epoch: datetime,
+    targets: Sequence[str],
+    members: Sequence[str],
+    target_column: str = "target_hash",
+    member_column: str = "satellite",
+    start_column: str = "start",
+    end_column: str = "end",
+) -> Timeline:
+    """
+    Builds a timeline from a data frame of events, sorted by start time.
+    Events with an unknown target or member are dropped; events attributed
+    to several members (as by `tatc.analysis.aggregate_observations`, which
+    merges overlapping observations) are attributed to the first.
+
+    Args:
+        events (pandas.DataFrame): The events.
+        epoch (datetime.datetime): The reference time.
+        targets (Sequence[str]): The target identifiers.
+        members (Sequence[str]): The member names.
+        target_column (str): The column identifying the target of an event.
+        member_column (str): The column identifying the member of an event.
+        start_column (str): The column of event start times.
+        end_column (str): The column of event end times.
+
+    Returns:
+        Timeline: The timeline.
+    """
+    targets = list(targets)
+    members = list(members)
+    if events is None or events.empty:
+        return Timeline(
+            epoch=epoch,
+            targets=targets,
+            members=members,
+            target=[],
+            member=[],
+            start=[],
+            end=[],
+        )
+    target = pd.Categorical(events[target_column], categories=targets).codes
+    # aggregated observations name all overlapping satellites ("a, b"):
+    # attribute them to the first
+    member = pd.Categorical(
+        events[member_column].astype(str).str.split(", ").str[0],
+        categories=members,
+    ).codes
+    frame = pd.DataFrame(
+        {
+            "target": target,
+            "member": member,
+            "start": pd.to_datetime(events[start_column], utc=True).values,
+            "end": pd.to_datetime(events[end_column], utc=True).values,
+        }
+    )
+    frame = frame[(frame.target >= 0) & (frame.member >= 0)].sort_values("start")
+    return Timeline(
+        epoch=epoch,
+        targets=targets,
+        members=members,
+        target=frame.target.astype(int).tolist(),
+        member=frame.member.astype(int).tolist(),
+        start=_seconds_since(frame.start, epoch),
+        end=_seconds_since(frame.end, epoch),
+    )
+
+
+class InstrumentTrack(BaseModel):
+    """
+    Swath widths (and, optionally, footprints) of one instrument of a member
+    satellite.
+    """
+
+    name: str = Field(..., description="Instrument name.")
+    swath_widths: List[float] = Field(
+        ...,
+        description="Interleaved samples [t, swath width (m), ...] of the "
+        "instrument field of regard, with t in seconds since epoch.",
+    )
+    footprints: Optional[List[Tuple[float, List[List[List[float]]]]]] = Field(
+        None,
+        description="Samples [t, polygons] of the instrument footprint "
+        "computed by TAT-C (`tatc.analysis.collect_ground_track`), with t in "
+        "seconds since epoch and each polygon a list of rings (the exterior, "
+        "then any holes) of interleaved [longitude (deg), latitude (deg), ...] "
+        "coordinates (not closed); no polygons if the instrument does not "
+        "observe. If `null`, the footprint is the circle spanned by the swath "
+        "width.",
+    )
+    color: Optional[str] = Field(
+        None,
+        description="Display color (`#rrggbb`) of the instrument, or `null` "
+        "to derive it from the satellite color.",
+    )
+
+
+class MemberTrack(BaseModel):
+    """
+    Orbit track of a member satellite.
+    """
+
+    name: str = Field(..., description="Member satellite name.")
+    positions: List[float] = Field(
+        ...,
+        description="Interleaved samples [t, longitude (deg), latitude (deg), "
+        "altitude (m), ...] with t in seconds since epoch.",
+    )
+    instruments: List[InstrumentTrack] = Field(
+        [], description="Swath widths of each instrument (in order)."
+    )
+
+
+class OrbitTracks(BaseModel):
+    """
+    Orbit tracks of member satellites.
+    """
+
+    epoch: AwareDatetime = Field(..., description="Reference time (t=0).")
+    tracks: List[MemberTrack] = Field([], description="Member satellite tracks.")
+
+    def get_end(self) -> datetime:
+        """
+        Gets the latest time of any track (or the epoch, if none).
+
+        Returns:
+            datetime.datetime: The end time.
+        """
+        return self.epoch + timedelta(
+            seconds=max(
+                (track.positions[-4] for track in self.tracks if track.positions),
+                default=0,
+            )
+        )
+
+
+def _footprint_polygons(geometry: Optional[BaseGeometry]) -> List[List[List[float]]]:
+    """
+    Converts a footprint to a list of polygons, each a list of rings of
+    interleaved coordinates (see `InstrumentTrack.footprints`), simplified
+    and rounded to keep payloads small.
+    """
+    if geometry is None or geometry.is_empty:
+        return []
+    geometry = geometry.simplify(FOOTPRINT_TOLERANCE, preserve_topology=True)
+    if isinstance(geometry, Polygon):
+        parts = [geometry]
+    elif isinstance(geometry, MultiPolygon):
+        parts = list(geometry.geoms)
+    else:
+        parts = [g for g in getattr(geometry, "geoms", []) if isinstance(g, Polygon)]
+    return [
+        [
+            [
+                round(float(v), FOOTPRINT_DECIMALS)
+                for x, y, *_ in ring.coords[:-1]
+                for v in (x, y)
+            ]
+            for ring in [part.exterior, *part.interiors]
+        ]
+        for part in parts
+        if not part.is_empty
+    ]
+
+
+def build_footprints(
+    ground_track: pd.DataFrame, epoch: datetime
+) -> List[Tuple[float, List[List[List[float]]]]]:
+    """
+    Builds the footprint samples of one instrument from its ground track
+    results (`tatc.analysis.collect_ground_track`), with no polygons when
+    the instrument does not observe (`valid_obs` is false).
+
+    Args:
+        ground_track (geopandas.GeoDataFrame): The ground track.
+        epoch (datetime.datetime): The reference time.
+
+    Returns:
+        List[Tuple[float, List[List[List[float]]]]]: The footprint samples.
+    """
+    times = _seconds_since(ground_track["time"], epoch)
+    valid = (
+        ground_track["valid_obs"]
+        if "valid_obs" in ground_track
+        else pd.Series(True, index=ground_track.index)
+    )
+    return [
+        (t, _footprint_polygons(geometry) if bool(ok) else [])
+        for t, geometry, ok in zip(times, ground_track.geometry, valid)
+        if t is not None
+    ]
+
+
+def build_member_track(
+    orbit_tracks: Sequence[pd.DataFrame],
+    epoch: datetime,
+    ground_tracks: Optional[Sequence[Optional[pd.DataFrame]]] = None,
+) -> MemberTrack:
+    """
+    Builds the track of one member satellite from its orbit track results
+    (`tatc.analysis.collect_orbit_track`, for one satellite and each of its
+    instruments, in order). Positions are taken from the first instrument.
+
+    Args:
+        orbit_tracks (Sequence[geopandas.GeoDataFrame]): The orbit track of
+            each instrument.
+        epoch (datetime.datetime): The reference time.
+        ground_tracks (Optional[Sequence[Optional[geopandas.GeoDataFrame]]]):
+            The ground track (`tatc.analysis.collect_ground_track`) of each
+            instrument, or `None` for an instrument (or all) whose footprint
+            is the circle spanned by its swath width.
+
+    Returns:
+        MemberTrack: The member track.
+    """
+    positions = []
+    instruments = []
+    ground_tracks = list(ground_tracks or [])
+    for i, orbit_track in enumerate(orbit_tracks):
+        times = _seconds_since(orbit_track["time"], epoch)
+        if i == 0:
+            for t, geometry in zip(times, orbit_track.geometry):
+                positions.extend(
+                    [
+                        t,
+                        round(geometry.x, 6),
+                        round(geometry.y, 6),
+                        round(geometry.z, 1),
+                    ]
+                )
+        swath_widths = []
+        for t, width in zip(times, orbit_track["swath_width"]):
+            swath_widths.extend([t, 0.0 if np.isnan(width) else round(float(width), 1)])
+        ground_track = ground_tracks[i] if i < len(ground_tracks) else None
+        instruments.append(
+            InstrumentTrack(
+                name=str(orbit_track["instrument"].iloc[0]) if len(orbit_track) else "",
+                swath_widths=swath_widths,
+                footprints=(
+                    build_footprints(ground_track, epoch)
+                    if ground_track is not None
+                    else None
+                ),
+            )
+        )
+    first = orbit_tracks[0] if len(orbit_tracks) else None
+    return MemberTrack(
+        name=(
+            str(first["satellite"].iloc[0]) if first is not None and len(first) else ""
+        ),
+        positions=positions,
+        instruments=instruments,
+    )

@@ -4,13 +4,20 @@ Schema specifications for generation endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Annotated, Optional, Union
 
+import pandas as pd
 from geojson_pydantic import Polygon
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 from pydantic.alias_generators import to_camel
 from shapely.geometry import box, mapping
 
@@ -128,18 +135,21 @@ class TimeGenerator(BaseModel):
     model_config = ConfigDict(
         from_attributes=True, populate_by_name=True, alias_generator=to_camel
     )
-    start: datetime = Field(
+    start: AwareDatetime = Field(
         ...,
         description="Start date time of the observation period.",
         examples=[datetime.fromisoformat("2021-01-01T00:00:00+00:00")],
     )
-    end: datetime = Field(
+    end: AwareDatetime = Field(
         ...,
         description="End date time of the observation period.",
         examples=[datetime.fromisoformat("2021-01-01T01:00:00+00:00")],
     )
     delta: timedelta = Field(
-        ..., description="Time step duration.", examples=[timedelta(seconds=30)]
+        ...,
+        gt=timedelta(0),
+        description="Time step duration.",
+        examples=[timedelta(seconds=30)],
     )
 
     @model_validator(mode="after")
@@ -150,6 +160,25 @@ class TimeGenerator(BaseModel):
         if self.start is not None and self.end is not None and self.end < self.start:
             raise ValueError("Invalid end: start must precede end.")
         return self
+
+    def to_index(self, max_count: int = 100000) -> "pd.DatetimeIndex":
+        """
+        Generates the time series (in UTC).
+
+        Args:
+            max_count (int): Maximum number of times allowed.
+
+        Raises:
+            ValueError: if the series would exceed `max_count` times.
+
+        Returns:
+            pandas.DatetimeIndex: The times.
+        """
+        if (self.end - self.start) / self.delta >= max_count:
+            raise ValueError(
+                f"Too many time steps: (end - start) / delta must be less than {max_count}."
+            )
+        return pd.date_range(self.start, self.end, freq=self.delta).tz_convert("UTC")
 
     @model_validator(mode="after")
     def validate_delta(self) -> "TimeGenerator":

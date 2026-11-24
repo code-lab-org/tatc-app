@@ -4,39 +4,22 @@ Schema specifications for coverage analysis endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from datetime import datetime
-from typing import List, Union
+from typing import Dict, List, Union
 
 from geojson_pydantic import FeatureCollection
-from pydantic import BaseModel, ConfigDict, Field
-from pydantic.alias_generators import to_camel
+from pydantic import BaseModel, Field
 from tatc.schemas import Point
 
 from ..generation.schemas import Cell, CellGenerator, PointGenerator
-from ..satellites import SpaceSystemInput
+from ..utils.analysis import AnalysisRequest
+from ..utils.timeline import OrbitTracks, Timeline
 
 
-class CoverageAnalysisRequest(BaseModel):
+class CoverageAnalysisRequest(AnalysisRequest):
     """
     User request to perform coverage analysis.
     """
 
-    model_config = ConfigDict(
-        from_attributes=True, populate_by_name=True, alias_generator=to_camel
-    )
-    satellites: List[SpaceSystemInput] = Field(
-        ..., description="Satellites from which to observe."
-    )
-    start: datetime = Field(
-        ...,
-        description="Start date time of the observation period.",
-        examples=[datetime.fromisoformat("2021-01-01T00:00:00+00:00")],
-    )
-    end: datetime = Field(
-        ...,
-        description="End date time of the observation period.",
-        examples=[datetime.fromisoformat("2021-01-02T00:00:00+00:00")],
-    )
     points: Union[List[Point], PointGenerator] = Field(
         ..., description="Points from which to collect observations."
     )
@@ -50,10 +33,21 @@ class CoverageAnalysisResult(BaseModel):
     Response to provide coverage analysis results.
     """
 
-    model_config = ConfigDict(
-        from_attributes=True, populate_by_name=True, alias_generator=to_camel
-    )
     points: FeatureCollection = Field(
-        ..., description="Point-level coverage statistics."
+        ...,
+        description="Point-level coverage statistics (`target_hash`, `samples`, "
+        "mean `access` and `revisit` in seconds), for every point.",
     )
-    cells: FeatureCollection = Field(..., description="Cell-level coverage statistics.")
+    cells: FeatureCollection = Field(
+        ...,
+        description="Cell-level coverage statistics (`cell_id`, `samples`, "
+        "mean `access` and `revisit` in seconds), for every cell.",
+    )
+    timeline: Timeline = Field(
+        ..., description="Observations of points (in the order of `points`)."
+    )
+    cell_targets: Dict[str, List[int]] = Field(
+        {}, description="Indices of the points within each cell, by `cell_id`."
+    )
+    tracks: OrbitTracks = Field(..., description="Orbit tracks of satellites.")
+    colors: Dict[str, str] = Field({}, description="Display color of satellites.")

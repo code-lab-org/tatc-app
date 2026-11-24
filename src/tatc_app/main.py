@@ -4,17 +4,17 @@ TAT-C application configuration.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-
 import os
-from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from msgpack_asgi import MessagePackMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 from tatc_app import __version__
+from tatc_app.auth import authenticator, current_user
 from tatc_app.celery.router import router as celery_router
 from tatc_app.celestrak.router import router as celestrak_router
 from tatc_app.cesium.router import get_cesium_router
@@ -22,111 +22,97 @@ from tatc_app.coverage.router import router as coverage_router
 from tatc_app.generation.router import router as generation_router
 from tatc_app.latency.router import router as latency_router
 from tatc_app.overflight.router import router as overflight_router
+from tatc_app.system_catalog.router import router as system_catalog_router
 from tatc_app.tracking.router import router as tracking_router
-from tatc_app.utils.db import create_db_and_tables
-from tatc_app.utils.schemas import UserCreate, UserRead, UserUpdate
-from tatc_app.utils.users import (
-    cookie_backend,
-    create_user,
-    current_active_user,
-    current_superuser,
-    fastapi_users,
-    jwt_backend,
-)
+from tatc_app.validation.router import router as validation_router
 
 # Load environment variables from the .env file
 load_dotenv()
-ADMIN_EMAIL = os.getenv("TATC_ADMIN_EMAIL", "admin@example.com")
-ADMIN_PASSWORD = os.getenv("TATC_ADMIN_PASSWORD", "admin")
 CESIUM_TOKEN = os.getenv("TATC_CESIUM_TOKEN", "")
-
-
-# connect to the database and try to create admin user on startup
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await create_db_and_tables()
-    await create_user(ADMIN_EMAIL, ADMIN_PASSWORD, True)
-    yield
-
+SECRET = os.getenv("TATC_SECRET", "change me")
+if authenticator.mode == "oidc" and SECRET == "change me":
+    raise ValueError("Set TATC_SECRET to a random secret to sign user sessions.")
 
 # Create the FastAPI app
 app = FastAPI(
     title="Tradespace Analysis Tool for Constellations (TAT-C)",
     description="Modeling tool for pre-Phase A architecture analysis for Earth science space missions.",
     version=__version__,
-    lifespan=lifespan,
 )
 # Add MessagePack middleware to allow application/msgpack responses
 app.add_middleware(MessagePackMiddleware)
 # Add GZip middleware to allow compressed responses
 app.add_middleware(GZipMiddleware)
-# include the routers for authentication
-app.include_router(
-    fastapi_users.get_auth_router(cookie_backend), prefix="", tags=["auth"]
+# Add signed session cookies for users signed in with the OIDC provider
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SECRET,
+    session_cookie="tatc_session",
+    max_age=authenticator.session_lifetime,
+    same_site="lax",
+    https_only=(authenticator.public_url or "").startswith("https://"),
 )
-app.include_router(
-    fastapi_users.get_auth_router(jwt_backend), prefix="/auth", tags=["auth"]
-)
-# include the router for user management
-app.include_router(
-    fastapi_users.get_users_router(UserRead, UserUpdate),
-    prefix="/users",
-    tags=["users"],
-)
-# include the router for user registration
-app.include_router(
-    fastapi_users.get_register_router(UserRead, UserCreate),
-    prefix="/auth",
-    tags=["auth"],
-    dependencies=[Depends(current_superuser)],
-)
+# include the router for authentication
+app.include_router(authenticator.router, prefix="/auth", tags=["auth"])
 # Include the router for the /tasks route
 app.include_router(
     celery_router,
     prefix="/tasks",
-    dependencies=[Depends(current_active_user)],
+    dependencies=[Depends(current_user)],
 )
 # Include the router for the /celestrak route
 app.include_router(
     celestrak_router,
     prefix="/celestrak",
-    dependencies=[Depends(current_active_user)],
+    dependencies=[Depends(current_user)],
+)
+# Include the router for the /catalog route
+app.include_router(
+    system_catalog_router,
+    prefix="/catalog",
+    dependencies=[Depends(current_user)],
 )
 # Include the router for the /cesium route
 app.include_router(
     get_cesium_router(CESIUM_TOKEN),
     prefix="/cesium",
-    dependencies=[Depends(current_active_user)],
+    dependencies=[Depends(current_user)],
 )
 # Include the router for the /generate route
 app.include_router(
     generation_router,
     prefix="/generate",
-    dependencies=[Depends(current_active_user)],
+    dependencies=[Depends(current_user)],
+)
+# Include the router for the /validate route
+app.include_router(
+    validation_router,
+    prefix="/validate",
+    dependencies=[Depends(current_user)],
 )
 # Include the router for the /analyze route
 app.include_router(
     overflight_router,
     prefix="/analyze",
-    dependencies=[Depends(current_active_user)],
+    dependencies=[Depends(current_user)],
 )
 # Include the router for the /analyze route
 app.include_router(
     tracking_router,
     prefix="/analyze",
-    dependencies=[Depends(current_active_user)],
+    dependencies=[Depends(current_user)],
 )
 # Include the router for the /analyze route
 app.include_router(
     coverage_router,
     prefix="/analyze",
-    dependencies=[Depends(current_active_user)],
+    dependencies=[Depends(current_user)],
 )
 # Include the router for the /analyze route
 app.include_router(
     latency_router,
     prefix="/analyze",
-    dependencies=[Depends(current_active_user)],
+    dependencies=[Depends(current_user)],
 )
 
 # Mount a static directory to the root (/) route for any other requests

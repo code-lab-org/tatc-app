@@ -24,12 +24,14 @@ RUN python -m pip install --no-cache-dir .
 COPY src src
 RUN python -m pip install --no-cache-dir .
 
-# Run as a dedicated non-root user. The data directory is created (and
-# owned by that user) here so its ownership is propagated to the
-# `tatc-data` volume the first time it is mounted over that path.
+# Run as a dedicated non-root user. TAT-C compiles functions with numba,
+# which caches compiled code next to the source files by default; since the
+# installed packages are not writable by this user, the cache is placed in a
+# directory it owns instead.
+ENV NUMBA_CACHE_DIR=/var/tatc-app/.numba-cache
 RUN groupadd --system tatc \
     && useradd --system --gid tatc --no-create-home --shell /usr/sbin/nologin tatc \
-    && mkdir -p /var/tatc-app/data \
+    && mkdir -p "$NUMBA_CACHE_DIR" \
     && chown -R tatc:tatc /var/tatc-app
 USER tatc
 

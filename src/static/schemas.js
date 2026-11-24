@@ -1,0 +1,456 @@
+// Declarative specifications of the space-domain schemas of the TAT-C library
+// (version 3.7): satellites and constellations, orbits, and instruments, with
+// the units of form fields and their conversion to the library's SI units.
+//
+// Field properties:
+//   key:      property path in the schema object (e.g. "ascending_node.time")
+//   label:    form label
+//   type:     number | integer | text | select | checkbox | datetime | time |
+//             duration | tle | note
+//   unit:     unit displayed in the form
+//   scale:    SI value per form unit (default 1), e.g. 1000 for km -> m
+//   min, max, step: input constraints (form units)
+//   default:  default value (SI units), or a function returning it
+//   optional: if true, a blank input removes the property (library default)
+//   options:  for selects, a list of {value, label} (values may be any JSON)
+//   showIf:   optional function(object) to show the field conditionally
+//   help:     optional tooltip
+
+const EARTH_MEAN_RADIUS = 6371008.771415059;
+const DEFAULT_TLE = [
+  "1 25544U 98067A   21156.30527927  .00003432  00000-0  70541-4 0  9993",
+  "2 25544  51.6455  41.4969 0003508  68.0432  78.3395 15.48957534286754"
+];
+
+function defaultEpoch() {
+  const date = new Date();
+  date.setUTCHours(0, 0, 0, 0);
+  return date.toISOString();
+}
+
+const ANGLE = { unit: "°", step: "any" };
+const SUNLIT_OPTIONS = [
+  { value: null, label: "(Any)" },
+  { value: true, label: "Sunlit" },
+  { value: false, label: "Eclipse" }
+];
+
+const EPOCH_FIELD = { key: "epoch", label: "Epoch (UTC)", type: "datetime", default: defaultEpoch };
+const RAAN_FIELD = _.assign({ key: "right_ascension_ascending_node", label: "RAAN", type: "number", min: 0, max: 360, default: 0, help: "Right ascension of the ascending node" }, ANGLE);
+const TA_FIELD = _.assign({ key: "true_anomaly", label: "True anomaly", type: "number", min: 0, max: 360, default: 0 }, ANGLE);
+const INCLINATION_FIELD = _.assign({ key: "inclination", label: "Inclination", type: "number", min: 0, max: 180, default: 0 }, ANGLE);
+
+const ORBIT_SPECS = {
+  tle: {
+    label: "Two Line Elements (TLE)",
+    fields: [{ key: "tle", label: "Two line elements", type: "tle", default: function() { return DEFAULT_TLE.slice(); } }]
+  },
+  circular: {
+    label: "Circular",
+    fields: [
+      EPOCH_FIELD,
+      { key: "mean_altitude", label: "Altitude", type: "number", unit: "km", scale: 1000, min: 0, step: "any", default: 500e3 },
+      INCLINATION_FIELD,
+      RAAN_FIELD,
+      TA_FIELD
+    ]
+  },
+  sso: {
+    label: "Sun Synchronous",
+    fields: [
+      EPOCH_FIELD,
+      { key: "mean_altitude", label: "Altitude", type: "number", unit: "km", scale: 1000, min: 0, max: 5980, step: "any", default: 705e3 },
+      { key: "equator_crossing_time", label: "Equator crossing", type: "time", default: "10:30:00", help: "Local solar time of the equator crossing" },
+      { key: "equator_crossing_ascending", label: "Direction", type: "select", default: false, options: [{ value: true, label: "Ascending" }, { value: false, label: "Descending" }] },
+      TA_FIELD
+    ]
+  },
+  keplerian: {
+    label: "Keplerian",
+    fields: [
+      EPOCH_FIELD,
+      { key: "semimajor_axis", label: "Semimajor axis", type: "number", unit: "km", scale: 1000, min: 6378, step: "any", default: 7000e3 },
+      { key: "eccentricity", label: "Eccentricity", type: "number", min: 0, max: 0.999999, step: "any", default: 0 },
+      INCLINATION_FIELD,
+      _.assign({ key: "perigee_argument", label: "Perigee argument", type: "number", min: 0, max: 360, default: 0 }, ANGLE),
+      RAAN_FIELD,
+      TA_FIELD
+    ]
+  },
+  geosynchronous: {
+    label: "Geosynchronous",
+    fields: [
+      EPOCH_FIELD,
+      _.assign({ key: "longitude", label: "Longitude", type: "number", min: -180, max: 180, default: -75 }, ANGLE),
+      INCLINATION_FIELD
+    ]
+  },
+  molniya: {
+    label: "Molniya",
+    fields: [
+      EPOCH_FIELD,
+      { key: "perigee_altitude", label: "Perigee altitude", type: "number", unit: "km", scale: 1000, min: 0, step: "any", default: 600e3 },
+      { key: "northern_coverage", label: "Northern coverage", type: "checkbox", default: true },
+      _.assign({ key: "inclination", label: "Inclination", type: "number", min: 0, max: 180, optional: true, help: "Blank for the critical inclination" }, ANGLE),
+      RAAN_FIELD,
+      TA_FIELD
+    ]
+  },
+  tundra: {
+    label: "Tundra",
+    fields: [
+      EPOCH_FIELD,
+      { key: "perigee_altitude", label: "Perigee altitude", type: "number", unit: "km", scale: 1000, min: 0, step: "any", default: 25000e3 },
+      { key: "northern_coverage", label: "Northern coverage", type: "checkbox", default: true },
+      _.assign({ key: "inclination", label: "Inclination", type: "number", min: 0, max: 180, optional: true, help: "Blank for the critical inclination" }, ANGLE),
+      RAAN_FIELD,
+      TA_FIELD
+    ]
+  },
+  repeat: {
+    label: "Repeat Ground Track",
+    fields: [
+      { key: "revolutions", label: "Revolutions", type: "integer", min: 1, default: 233, help: "Orbital revolutions per repeat cycle" },
+      { key: "days", label: "Days", type: "integer", min: 1, default: 16, help: "Days per repeat cycle" },
+      _.assign({ key: "inclination", label: "Inclination", type: "number", min: 0, max: 180, optional: true, help: "Blank for a sun-synchronous orbit" }, ANGLE),
+      { key: "ascending_node.time", label: "Node time (UTC)", type: "datetime", default: defaultEpoch, help: "Time of an ascending node" },
+      _.assign({ key: "ascending_node.longitude", label: "Node longitude", type: "number", min: -180, max: 180, default: 0 }, ANGLE)
+    ]
+  },
+  gp: {
+    label: "General Perturbations (GP)",
+    jsonOnly: true,
+    fields: [{ type: "note", label: "Edit the elements of general perturbations orbits in the JSON tab." }]
+  }
+};
+const ALL_ORBITS = ["tle", "circular", "sso", "keplerian", "geosynchronous", "molniya", "tundra", "repeat", "gp"];
+
+const PLATFORM_SPECS = {
+  satellite: { label: "Satellite", orbits: ALL_ORBITS, fields: [] },
+  walker: {
+    label: "Walker Constellation",
+    orbits: ALL_ORBITS,
+    fields: [
+      { key: "configuration", label: "Configuration", type: "select", default: "delta", options: [{ value: "delta", label: "Delta" }, { value: "star", label: "Star" }] },
+      { key: "number_satellites", label: "Satellites", type: "integer", min: 1, default: 4 },
+      { key: "number_planes", label: "Planes", type: "integer", min: 1, default: 2 },
+      { key: "relative_spacing", label: "Relative spacing", type: "integer", min: 0, default: 0, help: "Walker phasing parameter (less than the number of planes)" },
+      _.assign({ key: "seam_spacing", label: "Seam spacing", type: "number", min: 0, max: 180, optional: true, showIf: function(o) { return o.configuration == "star"; }, help: "Blank for uniform spacing" }, ANGLE)
+    ]
+  },
+  train: {
+    label: "Train Constellation",
+    orbits: ALL_ORBITS,
+    fields: [
+      { key: "number_satellites", label: "Satellites", type: "integer", min: 1, default: 2 },
+      { key: "interval", label: "Interval", type: "duration", unit: "min", scale: 60, min: 0, step: "any", default: 600 },
+      { key: "repeat_ground_track", label: "Repeat ground track", type: "checkbox", default: true }
+    ]
+  },
+  mog: {
+    label: "MOG Constellation",
+    orbits: ["circular"],
+    fields: [
+      { key: "number_satellites", label: "Satellites", type: "integer", min: 1, default: 2 },
+      { key: "parallel_axis", label: "Parallel axis", type: "number", unit: "km", scale: 1000, min: 0, step: "any", default: 50e3 },
+      { key: "transverse_axis", label: "Transverse axis", type: "number", unit: "km", scale: 1000, min: 0, step: "any", default: 25e3 },
+      { key: "clockwise", label: "Clockwise", type: "checkbox", default: true }
+    ]
+  },
+  soc: {
+    label: "Streets of Coverage (SOC) Constellation",
+    orbits: ["circular"],
+    fields: [
+      { key: "swath_width", label: "Swath width", type: "number", unit: "km", scale: 1000, min: 0, step: "any", default: 2000e3 },
+      { key: "packing_distance", label: "Packing distance", type: "number", min: 0.01, max: 1, step: "any", default: 1, help: "Fraction of the footprint diameter between satellites" },
+      { key: "polar", label: "Pattern", type: "select", default: null, options: [{ value: null, label: "Automatic" }, { value: true, label: "Polar" }, { value: false, label: "Inclined" }] }
+    ]
+  }
+};
+
+const COMMON_INSTRUMENT_FIELDS = [
+  { key: "min_access_time", label: "Min. access", type: "duration", unit: "s", min: 0, step: "any", default: 0 },
+  { key: "req_target_sunlit", label: "Target", type: "select", default: null, options: SUNLIT_OPTIONS },
+  { key: "req_self_sunlit", label: "Satellite", type: "select", default: null, options: SUNLIT_OPTIONS },
+  _.assign({ key: "min_target_solar_elevation", label: "Min. solar elev.", type: "number", min: -90, max: 90, optional: true }, ANGLE),
+  _.assign({ key: "max_target_solar_elevation", label: "Max. solar elev.", type: "number", min: -90, max: 90, optional: true }, ANGLE)
+];
+
+const INSTRUMENT_SPECS = {
+  instrument: {
+    label: "Simple (field of regard)",
+    fields: [
+      _.assign({ key: "field_of_regard", label: "Field of regard", type: "number", min: 0, max: 360, default: 180 }, ANGLE)
+    ].concat(COMMON_INSTRUMENT_FIELDS)
+  },
+  pointed: {
+    label: "Pointed (field of view)",
+    fields: [
+      _.assign({ key: "cross_track_field_of_view", label: "Cross-track FOV", type: "number", min: 0, max: 180, default: 30 }, ANGLE),
+      _.assign({ key: "along_track_field_of_view", label: "Along-track FOV", type: "number", min: 0, max: 180, default: 1 }, ANGLE),
+      _.assign({ key: "roll_angle", label: "Roll", type: "number", min: -180, max: 180, default: 0 }, ANGLE),
+      _.assign({ key: "pitch_angle", label: "Pitch", type: "number", min: -180, max: 180, default: 0 }, ANGLE),
+      { key: "is_rectangular", label: "Rectangular", type: "checkbox", default: false },
+      _.assign({ key: "field_of_regard", label: "Field of regard", type: "number", min: 0, max: 360, optional: true, help: "Blank for the default" }, ANGLE)
+    ].concat(COMMON_INSTRUMENT_FIELDS)
+  },
+  conical: {
+    label: "Conical scan",
+    fields: [
+      _.assign({ key: "cone_angle", label: "Cone angle", type: "number", min: 0, max: 90, default: 45 }, ANGLE),
+      _.assign({ key: "along_track_field_of_view", label: "Along-track FOV", type: "number", min: 0, max: 180, default: 1 }, ANGLE),
+      _.assign({ key: "scan_center_azimuth", label: "Scan center", type: "number", min: -180, max: 180, default: 0 }, ANGLE),
+      _.assign({ key: "scan_half_width", label: "Scan half-width", type: "number", min: 0, max: 180, default: 180 }, ANGLE),
+      _.assign({ key: "field_of_regard", label: "Field of regard", type: "number", min: 0, max: 360, optional: true, help: "Blank for the default" }, ANGLE)
+    ].concat(COMMON_INSTRUMENT_FIELDS)
+  }
+};
+
+const STATION_FIELDS = [
+  { key: "name", label: "Name", type: "text", default: "Station" },
+  _.assign({ key: "latitude", label: "Latitude", type: "number", min: -90, max: 90, default: 0 }, ANGLE),
+  _.assign({ key: "longitude", label: "Longitude", type: "number", min: -180, max: 180, default: 0 }, ANGLE),
+  _.assign({ key: "min_elevation_angle", label: "Min. elevation", type: "number", min: 0, max: 90, default: 5 }, ANGLE),
+  { key: "min_access_time", label: "Min. access", type: "duration", unit: "s", min: 0, step: "any", default: 0 }
+];
+
+// --- Values ---
+
+// Parses a duration (seconds, or an ISO 8601 duration such as "PT1H30M").
+function parseDuration(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  if (typeof value === "number") {
+    return value;
+  }
+  const match = /^(-)?P(?:(\d+(?:\.\d+)?)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/.exec(value);
+  if (!match) {
+    return Number(value);
+  }
+  const seconds = 86400 * Number(match[2] || 0) + 3600 * Number(match[3] || 0)
+    + 60 * Number(match[4] || 0) + Number(match[5] || 0);
+  return match[1] ? -seconds : seconds;
+}
+
+function resolveDefault(field) {
+  return _.isFunction(field.default) ? field.default() : _.cloneDeep(field.default);
+}
+
+// Creates an object of a type with default values.
+function createDefault(spec, type) {
+  const object = { type: type };
+  _.forEach(spec.fields, function(field) {
+    if (field.key && field.default !== undefined) {
+      _.set(object, field.key, resolveDefault(field));
+    }
+  });
+  return object;
+}
+
+// Converts a schema (SI) value to a form value.
+function toFormValue(field, value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  const scale = field.scale || 1;
+  switch (field.type) {
+    case "number":
+    case "integer":
+      return Number((value / scale).toPrecision(12));
+    case "duration":
+      return Number((parseDuration(value) / scale).toPrecision(12));
+    case "datetime":
+      return toDateTimeInput(value);
+    case "time":
+      return String(value).substring(0, 8);
+    case "tle":
+      return _.isArray(value) ? value.join("\n") : String(value);
+    default:
+      return value;
+  }
+}
+
+// Converts a form value to a schema (SI) value (`undefined` for blank).
+function fromFormValue(field, value) {
+  const scale = field.scale || 1;
+  switch (field.type) {
+    case "number":
+    case "integer":
+    case "duration":
+      if (value === "" || value === null) {
+        return undefined;
+      }
+      return field.type == "integer" ? Math.round(Number(value)) : Number(value) * scale;
+    case "datetime":
+      return value ? fromDateTimeInput(value).toISOString() : undefined;
+    case "time":
+      return value ? (value.length == 5 ? value + ":00" : value) : undefined;
+    case "tle":
+      return _.filter(_.map(String(value).split(/\r?\n/), _.trim), function(line) { return line.length > 0; });
+    case "text":
+      return value;
+    default:
+      return value;
+  }
+}
+
+// --- Rendering ---
+
+// Renders form fields for an object into a container (two fields per row).
+// Calls `onChange(key)` after each change is written to the object.
+function renderFields(container, fields, object, onChange) {
+  container.empty();
+  let row = null;
+  let count = 0;
+  _.forEach(fields, function(field) {
+    if (field.showIf && !field.showIf(object)) {
+      return;
+    }
+    if (field.type == "note") {
+      container.append($("<p>").addClass("small text-muted").text(field.label));
+      return;
+    }
+    const id = "field-" + _.uniqueId();
+    const wide = field.type == "tle" || field.type == "text";
+    if (!row || wide || count % 2 == 0) {
+      row = $("<div>").addClass("form-row");
+      container.append(row);
+      count = 0;
+    }
+    const group = $("<div>").addClass("form-group mb-2").addClass(wide ? "col-12" : "col-sm-6");
+    const label = $("<label>").attr("for", id).addClass("small mb-0").text(field.label);
+    if (field.help) {
+      label.attr("title", field.help).append(" ", $("<i>").addClass("far fa-question-circle text-muted"));
+    }
+    let input;
+    const value = _.get(object, field.key);
+    if (field.type == "select") {
+      input = $("<select>").addClass("form-control form-control-sm");
+      _.forEach(field.options, function(option) {
+        input.append($("<option>").val(JSON.stringify(option.value)).text(option.label));
+      });
+      input.val(JSON.stringify(value === undefined ? null : value));
+      input.on("change", function() {
+        _.set(object, field.key, JSON.parse(input.val()));
+        onChange(field.key);
+      });
+    } else if (field.type == "checkbox") {
+      input = $("<input type='checkbox'>").addClass("form-check-input");
+      input.prop("checked", !!value);
+      input.on("change", function() {
+        _.set(object, field.key, input.is(":checked"));
+        onChange(field.key);
+      });
+      group.addClass("pt-3");
+      group.append($("<div>").addClass("form-check").append(input.attr("id", id), label.addClass("form-check-label")));
+      row.append(group);
+      count += wide ? 2 : 1;
+      return;
+    } else if (field.type == "tle") {
+      input = $("<textarea rows='2' spellcheck='false'>").addClass("form-control form-control-sm mono");
+      input.val(toFormValue(field, value));
+    } else {
+      const types = { number: "number", integer: "number", duration: "number", datetime: "datetime-local", time: "time", text: "text" };
+      input = $("<input>").attr("type", types[field.type] || "text").addClass("form-control form-control-sm");
+      if (field.type == "integer") {
+        input.attr("step", 1);
+      } else if (field.step !== undefined) {
+        input.attr("step", field.step);
+      }
+      if (field.type == "datetime" || field.type == "time") {
+        input.attr("step", 1);
+      }
+      if (field.min !== undefined) { input.attr("min", field.min); }
+      if (field.max !== undefined) { input.attr("max", field.max); }
+      if (field.optional) { input.attr("placeholder", "(default)"); }
+      input.val(toFormValue(field, value));
+    }
+    if (field.type != "select") {
+      input.on("change", function() {
+        const converted = fromFormValue(field, input.val());
+        if (converted === undefined) {
+          if (field.optional) {
+            _.unset(object, field.key);
+          } else {
+            input.val(toFormValue(field, _.get(object, field.key)));
+            return;
+          }
+        } else {
+          _.set(object, field.key, converted);
+        }
+        onChange(field.key);
+      });
+    }
+    input.attr("id", id);
+    if (field.unit) {
+      group.append(label, $("<div>").addClass("input-group input-group-sm").append(
+        input,
+        $("<div>").addClass("input-group-append").append($("<span>").addClass("input-group-text").text(field.unit))
+      ));
+    } else {
+      group.append(label, input);
+    }
+    row.append(group);
+    count += wide ? 2 : 1;
+  });
+}
+
+// Keys of an object type (to remove when the type changes).
+function specKeys(spec) {
+  return _.uniq(_.compact(_.map(spec.fields, function(field) {
+    return field.key ? field.key.split(".")[0] : null;
+  })));
+}
+
+// Changes the type of an object in place, removing the properties of the
+// former type and adding defaults of the new type, while keeping shared
+// properties (such as `name`) and properties edited in JSON.
+function changeType(object, specs, type) {
+  const former = specs[object.type || "satellite"];
+  const next = specs[type];
+  const keep = specKeys(next);
+  if (former) {
+    _.forEach(specKeys(former), function(key) {
+      if (!_.includes(keep, key)) {
+        delete object[key];
+      }
+    });
+  }
+  const defaults = createDefault(next, type);
+  _.forEach(defaults, function(value, key) {
+    if (object[key] === undefined || key == "type") {
+      object[key] = value;
+    }
+  });
+  return object;
+}
+
+// Creates an instrument of a type, keeping the name and shared settings.
+function changeInstrumentType(instrument, type) {
+  const next = createDefault(INSTRUMENT_SPECS[type], type);
+  next.name = instrument.name || "Default";
+  _.forEach(specKeys(INSTRUMENT_SPECS[type]), function(key) {
+    if (instrument[key] !== undefined && _.find(COMMON_INSTRUMENT_FIELDS, { key: key })) {
+      next[key] = instrument[key];
+    }
+  });
+  return next;
+}
+
+function createInstrument(name) {
+  return _.assign({ name: name || "Default" }, createDefault(INSTRUMENT_SPECS.instrument, "instrument"));
+}
+
+function createSatellite(name) {
+  return {
+    type: "satellite",
+    name: name || "New Satellite",
+    orbit: createDefault(ORBIT_SPECS.circular, "circular"),
+    instruments: [createInstrument()]
+  };
+}
+
+function createStation(name) {
+  return _.assign(createDefault({ fields: STATION_FIELDS }, undefined), { name: name || "Station" });
+}

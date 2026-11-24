@@ -6,107 +6,222 @@ Task specifications for latency analysis endpoints.
 
 import json
 from datetime import datetime
+from typing import List, Optional
 
 import geopandas as gpd
-from tatc.analysis.coverage import collect_multi_observations
-from tatc.analysis.latency import (
+from tatc.analysis import (
     collect_downlinks,
+    collect_observations,
     compute_latencies,
     grid_latencies,
     reduce_latencies,
 )
-from tatc.schemas import GroundStation, Point, Satellite
+from tatc.schemas import GroundStation, Satellite
 
+from ..coverage.tasks import get_cell_targets
+from ..czml import assign_colors
+from ..tracking.tasks import combine_tracks
+from ..utils.analysis import tag, untag
+from ..utils.serialization import concat, from_geojson, to_geojson
+from ..utils.timeline import build_timeline
 from ..worker import app
 from .schemas import LatencyAnalysisResult
 
+LATENCY_COLUMNS = [
+    "target_hash",
+    "satellite",
+    "instrument",
+    "ground_station",
+    "observed",
+    "downlinked",
+    "latency",
+    "geometry",
+]
+CONTACT_COLUMNS = ["ground_station", "satellite", "start", "end", "geometry"]
 
-@app.task
-def collect_downlinks_task(stations: list, satellite: str, start: str, end: str) -> str:
+
+def _empty(columns: List[str]) -> gpd.GeoDataFrame:
+    return gpd.GeoDataFrame(columns=columns, geometry="geometry", crs="EPSG:4326")
+
+
+def collect_latencies(
+    points: gpd.GeoDataFrame,
+    satellite: Satellite,
+    stations: List[GroundStation],
+    start: datetime,
+    end: datetime,
+    during_contact: str = "end",
+) -> tuple:
     """
-    Task to collect downlinks for latency analysis.
+    Collects the latencies of observations of points by all instruments of a
+    satellite, downlinked to ground stations.
 
     Args:
-        stations (str): List of JSON serialized :class:`tatc.schemas.GroundStation` objects.
-        satellite (str): JSON serialized :class:`tatc.schemas.Satellite` object.
-        start (str): ISO 8601 serialized start time.
-        end (str): ISO 8601 serialized end time.
+        points (geopandas.GeoDataFrame): The points.
+        satellite (tatc.schemas.Satellite): The satellite.
+        stations (List[tatc.schemas.GroundStation]): The ground stations.
+        start (datetime.datetime): The start of the analysis period.
+        end (datetime.datetime): The end of the analysis period.
+        during_contact (str): The downlink of observations during a contact.
+
+    Returns:
+        tuple: The latencies of observations and the downlink contacts.
     """
-    # call analysis function, parsing the serialized arguments
-    results = collect_downlinks(
-        [GroundStation.model_validate_json(station) for station in stations],
-        Satellite.model_validate_json(satellite),
-        datetime.fromisoformat(start),
-        datetime.fromisoformat(end),
+    downlinks = collect_downlinks(stations, [satellite], start, end)
+    contacts = (
+        _empty(CONTACT_COLUMNS) if downlinks.empty else downlinks[CONTACT_COLUMNS]
     )
-    # re-serialize constituent data
-    results["start"] = results["start"].apply(lambda t: t.isoformat())
-    results["epoch"] = results["epoch"].apply(lambda t: t.isoformat())
-    results["end"] = results["end"].apply(lambda t: t.isoformat())
-    return results.to_json(show_bbox=False, drop_id=True)
+    observations = collect_observations(
+        points, [satellite], start, end, instrument_index=None
+    )
+    if observations.empty:
+        return _empty(LATENCY_COLUMNS), contacts
+    latencies = compute_latencies(
+        observations, downlinks, during_contact=during_contact
+    )
+    return latencies[LATENCY_COLUMNS], contacts
 
 
 @app.task
-def run_latency_analysis_task(
-    downlinks: str, point: str, satellites: list, start: str, end: str
+def collect_latencies_task(
+    points: str,
+    satellite: str,
+    stations: list,
+    start: str,
+    end: str,
+    during_contact: str,
+    include_contacts: bool,
+) -> dict:
+    """
+    Task to collect latencies of observations of a chunk of points by one
+    satellite.
+
+    Args:
+        points (str): GeoJSON serialized points.
+        satellite (str): JSON serialized :class:`tatc.schemas.Satellite` object.
+        stations (list): List of JSON serialized :class:`tatc.schemas.GroundStation` objects.
+        start (str): ISO 8601 serialized start time.
+        end (str): ISO 8601 serialized end time.
+        during_contact (str): The downlink of observations during a contact.
+        include_contacts (bool): `True`, to include downlink contacts.
+
+    Returns:
+        dict: Tagged (`lat`) GeoJSON serialized latencies and contacts.
+    """
+    latencies, contacts = collect_latencies(
+        from_geojson(points),
+        Satellite.model_validate_json(satellite),
+        [GroundStation.model_validate_json(station) for station in stations],
+        datetime.fromisoformat(start),
+        datetime.fromisoformat(end),
+        during_contact,
+    )
+    return tag(
+        "lat",
+        {
+            "latencies": to_geojson(latencies),
+            "contacts": to_geojson(contacts) if include_contacts else None,
+        },
+    )
+
+
+def compute_latency(
+    latencies: gpd.GeoDataFrame,
+    contacts: gpd.GeoDataFrame,
+    points: gpd.GeoDataFrame,
+    cells: gpd.GeoDataFrame,
+    stations: List[GroundStation],
+    epoch: datetime,
+    members: Optional[List[str]] = None,
+) -> dict:
+    """
+    Reduces latencies of observations to statistics of points and cells, and
+    timelines of observations and contacts.
+
+    Args:
+        latencies (geopandas.GeoDataFrame): The latencies of observations.
+        contacts (geopandas.GeoDataFrame): The downlink contacts.
+        points (geopandas.GeoDataFrame): The points.
+        cells (geopandas.GeoDataFrame): The cells.
+        stations (List[tatc.schemas.GroundStation]): The ground stations.
+        epoch (datetime.datetime): The reference time.
+        members (Optional[List[str]]): The member satellite names.
+
+    Returns:
+        dict: The `points`, `cells`, `timeline`, `contacts`, `stations`, and
+            `cell_targets`.
+    """
+    members = members or sorted(set(latencies["satellite"]))
+    reduced = reduce_latencies(latencies, targets=points).reset_index(drop=True)
+    gridded = grid_latencies(reduced, cells)
+    return {
+        "points": json.loads(to_geojson(reduced)),
+        "cells": json.loads(to_geojson(gridded)),
+        "timeline": build_timeline(
+            latencies,
+            epoch,
+            reduced["target_hash"].tolist(),
+            members,
+            start_column="observed",
+            end_column="downlinked",
+        ),
+        "contacts": build_timeline(
+            contacts,
+            epoch,
+            [station.name for station in stations],
+            members,
+            target_column="ground_station",
+        ),
+        "stations": stations,
+        "cell_targets": get_cell_targets(reduced, cells),
+    }
+
+
+@app.task
+def combine_latency_task(
+    results: list, points: str, cells: str, stations: list, start: str, colors: dict
 ) -> str:
     """
-    Task to run latency analysis.
+    Task to combine latencies of observations into latency statistics.
 
     Args:
-        downlinks (str): GeoJSON serialized `FeatureCollection` containing downlink results.
-        point (str): JSON serialized :class:`tatc.schemas.Point` object.
-        satellites (list): List of JSON serialized :class:`tatc.schemas.Satellite` objects.
-        start (str): ISO 8601 serialized start time.
-        end (str): ISO 8601 serialized end time.
+        results (list): Tagged results of parallel tasks.
+        points (str): GeoJSON serialized points.
+        cells (str): GeoJSON serialized cells.
+        stations (list): List of JSON serialized :class:`tatc.schemas.GroundStation` objects.
+        start (str): ISO 8601 serialized start time (reference time).
+        colors (dict): Display colors by member satellite name.
 
     Returns:
-        str: GeoJSON serialized `FeatureCollection` containing latency analysis results.
+        str: JSON serialized `LatencyAnalysisResult`.
     """
-    # parse downlinks
-    downlinks = gpd.GeoDataFrame.from_features(json.loads(downlinks), crs="EPSG:4326")
-    # coerce types for constituent data
-    downlinks["start"] = downlinks["start"].astype("datetime64[ns, utc]")
-    downlinks["epoch"] = downlinks["epoch"].astype("datetime64[ns, utc]")
-    downlinks["end"] = downlinks["end"].astype("datetime64[ns, utc]")
-    # call analysis function, parsing the serialized arguments
-    observations = collect_multi_observations(
-        Point.model_validate_json(point),
-        [Satellite.model_validate_json(satellite) for satellite in satellites],
-        datetime.fromisoformat(start),
-        datetime.fromisoformat(end),
+    epoch = datetime.fromisoformat(start)
+    data = untag(results, "lat")
+    latencies = concat(
+        from_geojson(
+            d["latencies"],
+            datetimes=["observed", "downlinked"],
+            timedeltas=["latency"],
+            columns=LATENCY_COLUMNS,
+        )
+        for d in data
     )
-    # compute latencies
-    results = reduce_latencies(compute_latencies(observations, downlinks))
-    # re-serialize constituent data
-    results["latency"] = results["latency"].apply(lambda t: t.value)
-    return results.to_json(show_bbox=False, drop_id=True)
-
-
-@app.task
-def grid_latency_analysis_task(latency_results: str, cells: str) -> str:
-    """
-    Task to grid latency analysis over specified cells.
-
-    Args:
-        latency_results (str): GeoJSON serialized `FeatureCollection` containing latency analysis results.
-        cells (str): GeoJSON serialized `FeatureCollection` containing cell polygons.
-
-    Returns:
-        str: JSON serialized `LatencyAnalysisResult` containing latency analysis results.
-    """
-    # deserialize the coverage statistics
-    gdf = gpd.GeoDataFrame.from_features(json.loads(latency_results), crs="EPSG:4326")
-    # de-serialize constituent data
-    gdf["latency"] = gdf["latency"].astype("timedelta64[ns]")
-    # deserialize the cells
-    grid_cells = gpd.GeoDataFrame.from_features(json.loads(cells), crs="EPSG:4326")
-    # grid the results
-    grid_data = grid_latencies(gdf, grid_cells)
-    # re-serialize the constituent data
-    grid_data["latency"] = grid_data["latency"].apply(lambda t: t.value)
-    # return the results object in json format
+    contacts = concat(
+        from_geojson(d["contacts"], datetimes=["start", "end"], columns=CONTACT_COLUMNS)
+        for d in data
+        if d["contacts"] is not None
+    )
+    tracks = combine_tracks(results, epoch)
     return LatencyAnalysisResult(
-        points=json.loads(latency_results),
-        cells=json.loads(grid_data.to_json(show_bbox=False, drop_id=True)),
+        **compute_latency(
+            latencies,
+            contacts,
+            from_geojson(points),
+            from_geojson(cells, columns=["cell_id", "geometry"]),
+            [GroundStation.model_validate_json(station) for station in stations],
+            epoch,
+            [track.name for track in tracks.tracks],
+        ),
+        tracks=tracks,
+        colors=assign_colors([track.name for track in tracks.tracks], colors),
     ).model_dump_json()

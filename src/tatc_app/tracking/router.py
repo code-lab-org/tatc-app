@@ -4,33 +4,71 @@ Router specifications for tracking analysis endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import json
 import logging
-from datetime import timezone
+from typing import List
 from uuid import UUID
 
 import numpy as np
-import pandas as pd
-from celery import chain, group
-from celery.result import GroupResult
-from fastapi import APIRouter, HTTPException
+from celery import chord, group
+from fastapi import APIRouter
 from geojson_pydantic import FeatureCollection
 
 from ..celery.schemas import CeleryTask
-from ..celery.utils import log_task_failure
-from ..generation.schemas import TimeGenerator
-from ..satellites import generate_members
+from ..celery.utils import enqueue, get_task_result
+from ..czml import document_packet, satellite_packets, swath_packets
+from ..satellites import expand_members
+from ..utils.analysis import serialize_members
+from ..utils.serialization import from_geojson
 from ..utils.tasks import merge_feature_collections_task
-from ..worker import app as celery_app
-from .schemas import GroundTrackAnalysisRequest, OrbitTrackAnalysisRequest
-from .tasks import collect_ground_track_task, collect_orbit_track_task
+from .schemas import (
+    GroundTrackAnalysisRequest,
+    OrbitTrackAnalysisRequest,
+    SwathAnalysisRequest,
+    SwathAnalysisResult,
+)
+from .tasks import (
+    collect_ground_track_task,
+    collect_orbit_track_task,
+    collect_swaths_task,
+    combine_swaths_task,
+    member_track_signatures,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# number of times analyzed by each parallel task
+TRACK_CHUNK_SIZE = 100
+
+
+def _enqueue_track(task, request: OrbitTrackAnalysisRequest) -> dict:
+    times = request.get_times()
+    members = expand_members([request.satellite])
+    mask = request.model_dump(mode="json").get("mask", None)
+    return enqueue(
+        chord(
+            group(
+                task.s(
+                    satellite,
+                    request.instrument_index,
+                    [time.isoformat() for time in chunk],
+                    request.elevation,
+                    mask,
+                )
+                for chunk in np.array_split(
+                    times, max(1, len(times) // TRACK_CHUNK_SIZE)
+                )
+                for satellite in serialize_members(members)
+            ),
+            merge_feature_collections_task.s(),
+        )
+    )
+
 
 @router.post("/orbit-track", response_model=CeleryTask)
-async def enqueue_orbit_track_analysis(request: OrbitTrackAnalysisRequest):
+def enqueue_orbit_track_analysis(request: OrbitTrackAnalysisRequest):
     """
     Endpoint to enqueue a task to perform orbit track analysis.
 
@@ -40,50 +78,20 @@ async def enqueue_orbit_track_analysis(request: OrbitTrackAnalysisRequest):
     Returns:
         CeleryTask: Queued task.
     """
-    if isinstance(request.times, TimeGenerator):
-        times = pd.date_range(
-            request.times.start, request.times.end, freq=request.times.delta
-        ).tz_convert(timezone.utc)
-    else:
-        times = pd.DatetimeIndex(request.times).tz_convert(timezone.utc)
-    task = chain(
-        group(
-            collect_orbit_track_task.s(
-                satellite.model_dump_json(),
-                (
-                    satellite.instruments[request.instrument].model_dump_json()
-                    if isinstance(request.instrument, int)
-                    else (
-                        request.instrument.model_dump_json()
-                        if request.instrument is not None
-                        else None
-                    )
-                ),
-                [time.isoformat() for time in times],
-                request.elevation,
-                request.model_dump().get("mask", None),
-            )
-            for times in np.array_split(times, max(1, len(times) // 100))
-            for satellite in generate_members(request.satellite)
-        ),
-        merge_feature_collections_task.s(),
-    )()
-    if isinstance(task.parent, GroupResult):
-        task.parent.save()
-        return {"task_id": task.id, "group_id": task.parent.id}
-    else:
-        return {"task_id": task.id}
+    return _enqueue_track(collect_orbit_track_task, request)
 
 
 @router.get(
     "/orbit-track/{task_id}",
     response_model=FeatureCollection,
     response_model_exclude_none=True,
-    responses={"200": {"content": {"application/x-msgpack": {}}}},
+    responses={
+        "200": {"content": {"application/json": {}, "application/x-msgpack": {}}}
+    },
 )
-async def retrieve_orbit_track_analysis(task_id: UUID):
+def retrieve_orbit_track_analysis(task_id: UUID):
     """
-    Endpoint to retrieve orbit track analysis results.
+    Endpoint to retrieve results of a completed orbit track analysis task.
 
     Args:
         task_id (UUID): Task unique identifier.
@@ -91,21 +99,11 @@ async def retrieve_orbit_track_analysis(task_id: UUID):
     Returns:
         FeatureCollection: Orbit track analysis results.
     """
-    task = celery_app.AsyncResult(str(task_id))
-    if task is None:
-        raise HTTPException(status_code=404, detail="Task not found.")
-    if not task.ready():
-        raise HTTPException(status_code=409, detail="Results not ready.")
-    try:
-        results = task.get()
-    except Exception as exc:
-        log_task_failure(logger, "Orbit track analysis", str(task_id), task)
-        raise HTTPException(status_code=500, detail=f"Task failed: {exc}") from exc
-    return FeatureCollection.model_validate_json(results)
+    return json.loads(get_task_result(task_id, "Orbit track analysis", logger))
 
 
 @router.post("/ground-track", response_model=CeleryTask)
-async def enqueue_ground_track_analysis(request: GroundTrackAnalysisRequest):
+def enqueue_ground_track_analysis(request: GroundTrackAnalysisRequest):
     """
     Endpoint to enqueue a task to perform ground track analysis.
 
@@ -115,50 +113,20 @@ async def enqueue_ground_track_analysis(request: GroundTrackAnalysisRequest):
     Returns:
         CeleryTask: Queued task.
     """
-    if isinstance(request.times, TimeGenerator):
-        times = pd.date_range(
-            request.times.start, request.times.end, freq=request.times.delta
-        ).tz_convert(timezone.utc)
-    else:
-        times = pd.DatetimeIndex(request.times).tz_convert(timezone.utc)
-    task = chain(
-        group(
-            collect_ground_track_task.s(
-                satellite.model_dump_json(),
-                (
-                    satellite.instruments[request.instrument].model_dump_json()
-                    if isinstance(request.instrument, int)
-                    else (
-                        request.instrument.model_dump_json()
-                        if request.instrument is not None
-                        else None
-                    )
-                ),
-                [time.isoformat() for time in times],
-                request.elevation,
-                request.model_dump().get("mask", None),
-            )
-            for times in np.array_split(times, max(1, len(times) // 100))
-            for satellite in generate_members(request.satellite)
-        ),
-        merge_feature_collections_task.s(),
-    )()
-    if isinstance(task.parent, GroupResult):
-        task.parent.save()
-        return {"task_id": task.id, "group_id": task.parent.id}
-    else:
-        return {"task_id": task.id}
+    return _enqueue_track(collect_ground_track_task, request)
 
 
 @router.get(
     "/ground-track/{task_id}",
     response_model=FeatureCollection,
     response_model_exclude_none=True,
-    responses={"200": {"content": {"application/x-msgpack": {}}}},
+    responses={
+        "200": {"content": {"application/json": {}, "application/x-msgpack": {}}}
+    },
 )
-async def retrieve_ground_track_progress(task_id: UUID):
+def retrieve_ground_track_analysis(task_id: UUID):
     """
-    Endpoint to retrieve ground track analysis results.
+    Endpoint to retrieve results of a completed ground track analysis task.
 
     Args:
         task_id (UUID): Task unique identifier.
@@ -166,14 +134,111 @@ async def retrieve_ground_track_progress(task_id: UUID):
     Returns:
         FeatureCollection: Ground track analysis results.
     """
-    task = celery_app.AsyncResult(str(task_id))
-    if task is None:
-        raise HTTPException(status_code=404, detail="Task not found.")
-    if not task.ready():
-        raise HTTPException(status_code=409, detail="Results not ready.")
-    try:
-        results = task.get()
-    except Exception as exc:
-        log_task_failure(logger, "Ground track analysis", str(task_id), task)
-        raise HTTPException(status_code=500, detail=f"Task failed: {exc}") from exc
-    return FeatureCollection.model_validate_json(results)
+    return json.loads(get_task_result(task_id, "Ground track analysis", logger))
+
+
+@router.post("/swaths", response_model=CeleryTask)
+def enqueue_swath_analysis(request: SwathAnalysisRequest):
+    """
+    Endpoint to enqueue a task to analyze instrument swaths (and orbit
+    tracks) of satellites and constellations, in parallel by member
+    satellite.
+
+    Args:
+        request (SwathAnalysisRequest): User request.
+
+    Returns:
+        CeleryTask: Queued task.
+    """
+    members = serialize_members(request.get_members())
+    times = [time.isoformat() for time in request.get_display_times()]
+    tasks = member_track_signatures(members, request)
+    if request.segment is not None:
+        tasks += [
+            collect_swaths_task.s(
+                member,
+                times,
+                request.instrument_index,
+                request.step.total_seconds(),
+                request.segment.total_seconds(),
+            )
+            for member in members
+        ]
+    return enqueue(
+        chord(
+            group(tasks),
+            combine_swaths_task.s(
+                request.start.isoformat(),
+                request.get_member_colors(),
+                request.get_member_systems(),
+            ),
+        )
+    )
+
+
+def _get_swath_result(task_id: UUID) -> SwathAnalysisResult:
+    return SwathAnalysisResult.model_validate_json(
+        get_task_result(task_id, "Swath analysis", logger)
+    )
+
+
+@router.get(
+    "/swaths/{task_id}",
+    response_model=SwathAnalysisResult,
+    response_model_exclude_none=True,
+    responses={
+        "200": {"content": {"application/json": {}, "application/x-msgpack": {}}}
+    },
+)
+def retrieve_swath_analysis(task_id: UUID):
+    """
+    Endpoint to retrieve results of a completed swath analysis task.
+
+    Args:
+        task_id (UUID): Task unique identifier.
+
+    Returns:
+        SwathAnalysisResult: Swath analysis results.
+    """
+    return _get_swath_result(task_id)
+
+
+@router.get("/swaths/{task_id}/czml", response_model=List[dict])
+def retrieve_swath_analysis_czml(task_id: UUID):
+    """
+    Endpoint to retrieve results of a completed swath analysis task as a
+    CZML document, animating satellites, their footprints, and swath
+    segments that accumulate over time.
+
+    Args:
+        task_id (UUID): Task unique identifier.
+
+    Returns:
+        List[dict]: CZML packets.
+    """
+    result = _get_swath_result(task_id)
+    tracks = result.tracks
+    start = tracks.epoch
+    end = tracks.get_end()
+    swaths = from_geojson(
+        result.swaths.model_dump_json(),
+        datetimes=["start", "end"],
+        columns=["satellite", "instrument", "start", "end", "geometry"],
+    )
+    return (
+        [document_packet("Swath analysis", start, end)]
+        + satellite_packets(tracks, result.colors)
+        + swath_packets(
+            swaths,
+            end,
+            result.colors,
+            instruments={
+                track.name: [instrument.name for instrument in track.instruments]
+                for track in tracks.tracks
+            },
+            instrument_colors={
+                track.name: [instrument.color for instrument in track.instruments]
+                for track in tracks.tracks
+            },
+        )
+    )

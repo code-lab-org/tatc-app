@@ -75,6 +75,26 @@ def load_known_shape(shape: KnownShape):
         )
 
 
+def resolve_mask(mask):
+    """
+    Resolves a mask specification to a geometry.
+
+    Args:
+        mask (Union[dict, str, None]): A GeoJSON geometry, a known shape name
+            (see `KnownShape`), an ISO 3166-1 alpha-3 country code, or `None`.
+
+    Returns:
+        Union[Polygon, MultiPolygon, geopandas.GeoSeries, None]: The mask.
+    """
+    if isinstance(mask, str):
+        if mask in KnownShape.__members__:
+            return load_known_shape(KnownShape(mask))
+        if len(mask) == 3:
+            return load_country_mask(mask)
+        raise ValueError(f"Unknown mask: {mask}")
+    return shape(mask) if mask is not None else None
+
+
 @app.task
 def generate_equally_spaced_points_task(
     distance: float, elevation: float, mask: str = None
@@ -93,15 +113,7 @@ def generate_equally_spaced_points_task(
     return generate_points_uniform_spacing(
         distance,
         elevation,
-        (
-            load_country_mask(mask)
-            if isinstance(mask, str) and len(mask) == 3
-            else (
-                load_known_shape(mask)
-                if isinstance(mask, str) and mask in KnownShape.__members__
-                else shape(mask) if mask is not None else None
-            )
-        ),
+        resolve_mask(mask),
     ).to_json(show_bbox=False, drop_id=True)
 
 
@@ -123,15 +135,7 @@ def generate_fibonacci_lattice_points_task(
     return generate_points_fibonacci_lattice(
         distance,
         elevation,
-        (
-            load_country_mask(mask)
-            if isinstance(mask, str) and len(mask) == 3
-            else (
-                load_known_shape(mask)
-                if isinstance(mask, str) and mask in KnownShape.__members__
-                else shape(mask) if mask is not None else None
-            )
-        ),
+        resolve_mask(mask),
     ).to_json(show_bbox=False, drop_id=True)
 
 
@@ -154,14 +158,6 @@ def generate_equally_spaced_cells_task(
     return generate_cells_uniform_spacing(
         distance,
         elevation,
-        (
-            load_country_mask(mask)
-            if isinstance(mask, str) and len(mask) == 3
-            else (
-                load_known_shape(mask)
-                if isinstance(mask, str) and mask in KnownShape.__members__
-                else shape(mask) if mask is not None else None
-            )
-        ),
+        resolve_mask(mask),
         strips,
     ).to_json(show_bbox=False, drop_id=True)

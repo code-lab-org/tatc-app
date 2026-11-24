@@ -1,7 +1,6 @@
 import json
 
 import geopandas as gpd
-
 from tatc.generation import generate_cells_uniform_spacing
 
 from .base import TatcTestCase

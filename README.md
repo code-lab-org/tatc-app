@@ -15,6 +15,44 @@ The TAT-C web application contains four major components:
 
 The web application is configured to support the RabbitMQ Broker and Redis Backend.
 
+The application requires TAT-C version 3.7 and accepts all of its space-domain
+platforms: satellites and Walker, train, MOG, and streets-of-coverage (SOC)
+constellations, with every orbit type (including two line elements and repeat
+ground track orbits), instrument type (simple, pointed, and conical), and
+attitude. It supports the following analyses, each split into parallel worker
+tasks and visualized with animated results (CZML) in the GUI:
+ * Coverage and revisit (`/analyze/coverage`): observations of a grid of points and cells.
+ * Ground track swaths (`/analyze/swaths`): instrument swaths that accumulate over time.
+ * Data latency (`/analyze/latency`): latency to downlink observations at ground stations.
+ * Point access (`/analyze/overflight`): access windows of satellites to target points.
+
+Each analysis has endpoints to enqueue it (`POST`), retrieve its results
+(`GET .../{task_id}`), and retrieve an animated CZML document
+(`GET .../{task_id}/czml`). `POST /validate/space-system` validates a satellite
+or constellation and summarizes its members.
+
+Satellites of past and present programs can be loaded from the TAT-C system
+catalog (`tatc.catalog`): `GET /catalog/systems` lists its satellite systems,
+and `POST /catalog/systems/{system_id}/build` builds the selected spacecraft
+with their cataloged instruments. The catalog's orbits are idealized (orbit
+planes, repeat ground tracks, and geostationary slots), so each spacecraft's
+orbit is replaced by its current general perturbations (GP) elements from
+CelesTrak, which coordinates satellites across systems. Elements come from
+the cached CelesTrak group (see `TATC_CELESTRAK_GROUP` below) or, for a
+spacecraft outside of it, a query for that one object. Each query result,
+including "no data" for decayed objects, is cached for two hours. Spacecraft
+without GP elements keep their cataloged orbits, with a warning.
+
+Instruments of the TAT-C instrument catalog can also be added to any
+satellite or constellation: `GET /catalog/instruments` lists the instruments
+whose views TAT-C analyzes (not limb sounders or radio occultation receivers),
+and `POST /catalog/instruments/{entry_id}/add` adds a configuration to a
+satellite or constellation. Each configuration is built for the satellite's
+orbit, the analysis time step, and (for scheduled tilts) the analysis period.
+It also sets the satellite's attitude to the validated one, which orients the
+satellite's other instruments too, so the response reports when the attitude
+changes.
+
 ## Configuration
 
 For the Manual Docker Containers and Python development methods (see
@@ -39,20 +77,37 @@ TATC_CESIUM_TOKEN=your alphanumeric access token here
 ### Environment Variables
 
 The web application references the following environment variables. Unless
-installing via the "Docker Compose" method, you must set `TATC_BROKER` and
-`TATC_BACKEND` to identify the protocol, credentials (if required), domain
-name/URL, and port number of the broker and backend components.
+installing via the "Docker Compose" method, set `TATC_BROKER` and
+`TATC_BACKEND` if the broker and backend do not run at their defaults, to
+identify the protocol, credentials (if required), domain name/URL, and port
+number of the broker and backend components.
 
- * `TATC_BROKER`: broker connection string (default: `amqp://guest:guest@broker:5672//`, assuming a local broker)
- * `TATC_BACKEND`: backend connection string (default: `redis://backend:6379/`, assuming a local backend)
- * `TATC_DATABASE_URL`: server user-account database connection string (default: `sqlite+aiosqlite:///data.db`,
-   a SQLite file in the working directory); the Docker Compose methods below override this to store the
-   file in the `tatc-data` volume so accounts persist across container restarts
+ * `TATC_BROKER`: broker connection string (default: `amqp://localhost:5672//`
+   when running with Python, assuming a broker on the same machine;
+   `amqp://guest:guest@broker:5672//` in the Docker images, assuming a
+   container named `broker`)
+ * `TATC_BACKEND`: backend connection string (default: `redis://localhost:6379/`
+   when running with Python, assuming a backend on the same machine;
+   `redis://backend:6379/` in the Docker images, assuming a container named
+   `backend`)
+ * `TATC_AUTH`: authentication mode (default: `oidc`): `oidc` requires users to
+   sign in with an OpenID Connect provider such as Dex (see
+   [Authentication](#authentication)); `none` disables authentication for
+   **local development only**
+ * `TATC_OIDC_ISSUER`: OpenID Connect issuer URL (required for `oidc`), e.g. `https://example.com/dex`
+ * `TATC_OIDC_CLIENT_ID`: OpenID Connect client identifier (default: `tatc-app`)
+ * `TATC_OIDC_CLIENT_SECRET`: OpenID Connect client secret (required for `oidc`)
+ * `TATC_PUBLIC_URL`: public base URL of the server, used to build the sign-in
+   redirect URI `<TATC_PUBLIC_URL>/auth/callback` (default: inferred from requests)
  * `TATC_LOGIN_LIFETIME_SECONDS`: time until reauthentication required (default: `7200` seconds)
- * `TATC_SECRET`: cryptographic security secret phrase (default: `change me`)
- * `TATC_ADMIN_EMAIL`: administrator account email (default: `admin@example.com`)
- * `TATC_ADMIN_PASSWORD`: administrator account password (default: `admin`)
+ * `TATC_SECRET`: secret used to sign session cookies (required for `oidc`)
  * `TATC_CESIUM_TOKEN`: Cesium access token
+ * `TATC_CELESTRAK_GROUP`: CelesTrak group searched for orbital elements
+   (default: `active`); the server downloads it at most once every two hours,
+   per [CelesTrak's usage policy](https://celestrak.org/NORAD/documentation/gp-data-formats.php)
+ * `TATC_CELESTRAK_CACHE_DIR`: directory in which the CelesTrak group (and
+   objects queried by catalog number) are cached so restarts do not download
+   them again (default: `tatc-app` in the system's temporary directory)
 
 ## Development
 
@@ -129,7 +184,8 @@ The worker will connect to the broker and wait for new tasks to process.
 
 To use Python directly for the server and worker, the broker and backend
 components must already be running (e.g., see Manual Docker Containers above).
-Specify the connection strings for both in the `.env` file as described above.
+If they do not run on the same machine at their default ports, specify the
+connection strings for both in the `.env` file as described above.
 
 This requires Python 3.11 or later. Install the web application and its
 dependencies, including [TAT-C](https://github.com/code-lab-org/tatc), from
@@ -138,7 +194,9 @@ the project root:
 pip install -e .
 ```
 
-To start the TAT-C server application, run the command:
+For local development without sign in, set `TATC_AUTH=none` in the `.env`
+file (`compose.dev.yml` does this for the Docker Compose method). To start the
+TAT-C server application, run the command:
 ```shell
 uvicorn tatc_app.main:app --reload --reload-dir tatc_app
 ```
@@ -170,6 +228,11 @@ project root:
 pip install -e ".[dev]"
 pytest
 ```
+
+By default, tests run Celery tasks eagerly (in-process) with an in-memory
+result backend, so they do not require a broker, backend, or worker (see
+`tests/conftest.py`). To instead run tests against running components
+configured by `TATC_BROKER` and `TATC_BACKEND`, set `TATC_TEST_LIVE=1`.
 
 ### Code Style
 
@@ -223,10 +286,14 @@ the GUI/API, broker, and backend. It requires:
  * `BACKEND_USER` / `BACKEND_PASSWORD`: credentials for the Redis backend;
    these must match an enabled user in `redis.acl` (see below) and are used
    to build the server's `TATC_BACKEND` connection string
- * `TATC_SECRET`: cryptographic secret used to sign session/authentication
-   tokens — set this to a long, random value
- * `TATC_ADMIN_EMAIL` / `TATC_ADMIN_PASSWORD`: initial administrator account
-   credentials
+ * `TATC_SECRET`: secret used to sign session cookies — set this to a long,
+   random value
+ * `TATC_OIDC_CLIENT_SECRET`: secret shared by the server and Dex to
+   authenticate the server as a Dex client — set this to a long, random value
+ * `TATC_ADMIN_EMAIL` / `TATC_ADMIN_PASSWORD_HASH`: email and bcrypt password
+   hash of a user who signs in with Dex (see [Authentication](#authentication))
+ * `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`: credentials of a GitHub OAuth
+   app for users to sign in with GitHub (see [Authentication](#authentication))
  * `TATC_CESIUM_TOKEN`: Cesium access token (see
    [Cesium Access Token and Assets](#cesium-access-token-and-assets) above)
 
@@ -239,9 +306,43 @@ merge to `main`) rather than building them locally. Leave
 `.env` to a specific commit SHA for a reproducible, rollback-able deploy that
 auto-deploy will then keep redeploying rather than moving off of.
 
-The server's user-account database is stored in the `tatc-data` Docker
-volume; `compose.server.yml` sets `TATC_DATABASE_URL` to place it there
-automatically, so it persists across restarts without further configuration.
+### Authentication
+
+The server deployment authenticates users with [Dex](https://dexidp.io), an
+OpenID Connect provider that runs alongside the server (`compose.server.yml`)
+at `https://<TATC_DOMAIN>/dex` and is configured by `dex.yaml`. Users sign in
+through Dex with either:
+
+ * **Email and password** of users listed under `staticPasswords` in
+   `dex.yaml`. The template defines one user whose email and bcrypt password
+   hash come from `TATC_ADMIN_EMAIL` and `TATC_ADMIN_PASSWORD_HASH`. Create a
+   hash with, for example, `htpasswd -bnBC 10 "" 'your password' | tr -d ':\n'`
+   or `python -c "import bcrypt; print(bcrypt.hashpw(b'your password', bcrypt.gensalt()).decode())"`,
+   and wrap it in single quotes in `.env` (it contains `$` characters):
+   `TATC_ADMIN_PASSWORD_HASH='$2b$10$...'`. Add more users to `dex.yaml` in
+   the same way.
+ * **GitHub**, using a GitHub OAuth app (GitHub settings, Developer settings,
+   OAuth Apps) with the authorization callback URL
+   `https://<TATC_DOMAIN>/dex/callback`; set its credentials as
+   `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. To allow only members of
+   GitHub organizations, uncomment `orgs` in `dex.yaml`; to disable GitHub
+   sign in, remove its connector from `dex.yaml`.
+
+Any user who signs in through Dex can use the application. See the
+[Dex connectors](https://dexidp.io/docs/connectors/) to sign in with other
+identity providers (for example, an institutional OpenID Connect, SAML, or
+LDAP provider). Dex stores its state in the `tatc-dex-data` Docker volume.
+
+Signed-in users can choose **Copy API token** in the user menu to copy an ID
+token that authenticates programmatic API requests until it expires (8 hours),
+for example:
+```shell
+curl -H "Authorization: Bearer <token>" https://<TATC_DOMAIN>/auth/me
+```
+
+Previous versions stored user accounts in a SQLite database in the `tatc-data`
+Docker volume, which is no longer used and may be removed
+(`docker volume rm tatc-data`).
 
 A `redis.acl` file must also exist alongside `compose.server.yml` — see
 [Redis ACL File](#redis-acl-file) below.
@@ -250,9 +351,9 @@ A `redis.acl` file must also exist alongside `compose.server.yml` — see
 
 Run `docker compose -f compose.worker.yml up` on each additional host that
 should process tasks for a broker/backend already started by
-`compose.server.yml`. It requires only the connection credentials — not
-`TATC_SECRET`, `TATC_ADMIN_EMAIL`/`TATC_ADMIN_PASSWORD`, `TATC_CESIUM_TOKEN`,
-or `ACME_EMAIL`, none of which the worker uses:
+`compose.server.yml`. It requires only the connection credentials — none of
+the authentication settings, `TATC_CESIUM_TOKEN`, or `ACME_EMAIL`, which the
+worker does not use:
 
  * `TATC_DOMAIN`: same public domain name as the server deployment, used to
    reach the broker (AMQPS) and backend (TLS Redis) through Traefik

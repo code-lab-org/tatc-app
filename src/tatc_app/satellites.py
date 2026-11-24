@@ -1,163 +1,121 @@
 """
-Shared schemas and utilities to accept satellite/constellation requests that
-specify their orbit as two line elements (TLE), as commonly distributed by
-sources such as Celestrak.
+Shared schemas and utilities for space-domain platforms (satellites and
+constellations).
 
-tatc's own schemas no longer accept raw TLE lines directly: orbits
-propagated from TLEs are represented as a `GeneralPerturbationsOrbit`, whose
-wire format is a structured list of orbital elements rather than the two raw
-TLE lines a client would naturally have on hand. Since it isn't reasonable
-to ask a client to perform that conversion itself, `TwoLineElements` is
-accepted here as an additional orbit variant and converted into a
-`GeneralPerturbationsOrbit` on the backend, via `generate_members`, before
-any tatc analysis code sees it.
+The accepted platform types mirror the space objects of the `tatc` library
+(`tatc.schemas.AllSpaceObjects`): `Satellite`, `WalkerConstellation`,
+`TrainConstellation`, `MOGConstellation`, and `SOCConstellation`, each of
+which accepts every orbit type of `tatc.schemas.AllOrbits` (including two
+line elements, `{"type": "tle", "tle": [line1, line2]}`), instrument type of
+`tatc.schemas.AllInstruments`, and attitude, subject to the library's own
+validation. A request without a `type` is treated as a `Satellite`.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from typing import List, Literal, Union
+from typing import Annotated, Any, Iterable, List, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from fastapi import HTTPException
+from pydantic import Discriminator, Tag
 from tatc.schemas import (
-    CircularOrbit,
-    GeneralPerturbationsOrbit,
-    GeosynchronousOrbit,
-    KeplerianOrbit,
-    MolniyaOrbit,
+    MOGConstellation,
     Satellite,
-    SunSynchronousOrbit,
+    SOCConstellation,
     TrainConstellation,
-    TundraOrbit,
     WalkerConstellation,
 )
 
 
-class TwoLineElements(BaseModel):
+def _get_space_system_type(value: Any) -> str:
     """
-    Orbit specified as two line elements (TLE).
+    Gets the type discriminator of a space system, defaulting to `satellite`.
     """
-
-    type: Literal["tle"] = "tle"
-    tle: List[str] = Field(
-        ...,
-        min_length=2,
-        max_length=2,
-        description="Two line element (TLE) lines.",
-        examples=[
-            [
-                "1 25544U 98067A   21156.30527927  .00003432  00000-0  70541-4 0  9993",
-                "2 25544  51.6455  41.4969 0003508  68.0432  78.3395 15.48957534286754",
-            ]
-        ],
-    )
-
-    @field_validator("tle")
-    @classmethod
-    def valid_tle(cls, tle: List[str]) -> List[str]:
-        """
-        Validates the TLE lines can be parsed into a `GeneralPerturbationsOrbit`.
-        """
-        GeneralPerturbationsOrbit.from_tle(tle)
-        return tle
+    if isinstance(value, dict):
+        return value.get("type") or "satellite"
+    return getattr(value, "type", None) or "satellite"
 
 
-# orbit types accepted from a client, including tatc's native orbit types
-# (passed through as-is) in addition to `TwoLineElements`.
-OrbitInput = Union[
-    CircularOrbit,
-    GeneralPerturbationsOrbit,
-    GeosynchronousOrbit,
-    KeplerianOrbit,
-    MolniyaOrbit,
-    SunSynchronousOrbit,
-    TundraOrbit,
-    TwoLineElements,
+SpaceSystem = Union[
+    Satellite,
+    WalkerConstellation,
+    TrainConstellation,
+    MOGConstellation,
+    SOCConstellation,
+]
+
+SpaceSystemInput = Annotated[
+    Union[
+        Annotated[Satellite, Tag("satellite")],
+        Annotated[WalkerConstellation, Tag("walker")],
+        Annotated[TrainConstellation, Tag("train")],
+        Annotated[MOGConstellation, Tag("mog")],
+        Annotated[SOCConstellation, Tag("soc")],
+    ],
+    Discriminator(_get_space_system_type),
 ]
 
 
-class SatelliteInput(Satellite):
+def generate_members(system: SpaceSystem) -> List[Satellite]:
     """
-    A `Satellite` request that may specify its orbit as two line elements.
-    """
-
-    # accepts a native tatc `Satellite` instance directly, not only a
-    # dict/JSON payload, since it is otherwise a stricter (sub)type
-    model_config = ConfigDict(from_attributes=True)
-
-    orbit: OrbitInput
-
-
-class TrainConstellationInput(TrainConstellation):
-    """
-    A `TrainConstellation` request that may specify its orbit as two line
-    elements.
-    """
-
-    model_config = ConfigDict(from_attributes=True)
-
-    orbit: OrbitInput
-
-
-class WalkerConstellationInput(WalkerConstellation):
-    """
-    A `WalkerConstellation` request that may specify its orbit as two line
-    elements.
-    """
-
-    model_config = ConfigDict(from_attributes=True)
-
-    orbit: OrbitInput
-
-
-SpaceSystemInput = Union[
-    SatelliteInput, TrainConstellationInput, WalkerConstellationInput
-]
-
-_TATC_TYPES = {
-    SatelliteInput: Satellite,
-    TrainConstellationInput: TrainConstellation,
-    WalkerConstellationInput: WalkerConstellation,
-}
-
-
-def to_tatc_satellite(
-    satellite: SpaceSystemInput,
-) -> Union[Satellite, TrainConstellation, WalkerConstellation]:
-    """
-    Converts a satellite/constellation request into the corresponding tatc
-    schema, resolving a `TwoLineElements` orbit into a
-    `GeneralPerturbationsOrbit` along the way.
+    Expands a satellite or constellation into its member satellites. A plain
+    satellite is its own sole member.
 
     Args:
-        satellite (SpaceSystemInput): the requested satellite or constellation.
+        system (SpaceSystem): The satellite or constellation.
 
     Returns:
-        Union[Satellite, TrainConstellation, WalkerConstellation]: the
-            equivalent tatc satellite or constellation.
+        List[Satellite]: The member satellites.
     """
-    orbit = (
-        GeneralPerturbationsOrbit.from_tle(satellite.orbit.tle)
-        if isinstance(satellite.orbit, TwoLineElements)
-        else satellite.orbit
-    )
-    tatc_type = _TATC_TYPES[type(satellite)]
-    return tatc_type(**satellite.model_dump(exclude={"orbit", "type"}), orbit=orbit)
+    if isinstance(system, Satellite):
+        return [system]
+    return system.generate_members()
 
 
-def generate_members(satellite: SpaceSystemInput) -> List[Satellite]:
+def expand_members(systems: Iterable[SpaceSystem]) -> List[Satellite]:
     """
-    Expands a satellite/constellation request into its member satellites,
-    resolving a `TwoLineElements` orbit into a `GeneralPerturbationsOrbit`
-    along the way. A plain satellite (not a constellation) is treated as its
-    own sole member.
+    Expands satellites and constellations into the list of their member
+    satellites, in a stable order, checking that member names are unique (as
+    required by analyses that identify observations by satellite name).
 
     Args:
-        satellite (SpaceSystemInput): the requested satellite or constellation.
+        systems (Iterable[SpaceSystem]): The satellites and constellations.
+
+    Raises:
+        HTTPException: (422) if two members share a name.
 
     Returns:
-        List[Satellite]: the member satellites.
+        List[Satellite]: The member satellites.
     """
-    converted = to_tatc_satellite(satellite)
-    if isinstance(converted, Satellite):
-        return [converted]
-    return converted.generate_members()
+    members = [member for system in systems for member in generate_members(system)]
+    names = set()
+    for member in members:
+        if member.name in names:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Duplicate satellite name '{member.name}': "
+                "each satellite and constellation member must have a unique name.",
+            )
+        names.add(member.name)
+    return members
+
+
+def validate_instrument_index(systems: Iterable[SpaceSystem], index: Any) -> None:
+    """
+    Validates an instrument index is in bounds for each satellite or
+    constellation.
+
+    Args:
+        systems (Iterable[SpaceSystem]): The satellites and constellations.
+        index (Optional[int]): The instrument index, or `None` for all.
+
+    Raises:
+        ValueError: if the index is out of bounds for any system.
+    """
+    if index is None:
+        return
+    for system in systems:
+        if index >= len(system.instruments):
+            raise ValueError(
+                f"Instrument index {index} out of bounds for '{system.name}' "
+                f"({len(system.instruments)} instrument(s))."
+            )
