@@ -139,10 +139,13 @@ class CzmlTestCase(unittest.TestCase):
         # path trails one orbital period (about 95 minutes at 500 km)
         self.assertAlmostEqual(packet["path"]["trailTime"], 5677, delta=60)
         self.assertEqual(tracks.get_end(), EPOCH + timedelta(seconds=60))
-        # one translucent footprint per instrument (with a swath), following
-        # the satellite, in distinct colors
+        # one translucent footprint per instrument (with a swath), centered
+        # below the satellite (on the surface), in distinct colors
         self.assertEqual([first["id"], second["id"]], ["fp/s1/0", "fp/s1/1"])
-        self.assertEqual(first["position"], {"reference": "sat/s1#position"})
+        self.assertEqual(
+            first["position"]["cartographicDegrees"], [0, 0, 0, 0, 60, 3.8, 0, 0]
+        )
+        self.assertEqual(first["position"]["epoch"], packet["position"]["epoch"])
         self.assertEqual(first["ellipse"]["semiMajorAxis"]["number"], [0, 1e6, 60, 1e6])
         self.assertEqual(
             second["ellipse"]["semiMinorAxis"]["number"], [0, 250e3, 60, 250e3]

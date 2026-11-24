@@ -227,8 +227,26 @@ def _footprint_packets(
     """
     Builds packets for the footprint of each instrument of a satellite: the
     polygons computed by TAT-C, if any, or else the circle spanned by the
-    swath width, following the position of the satellite packet.
+    swath width, centered below the satellite.
+
+    Circles are centered on the surface (the sub-satellite point), not at
+    the satellite: Cesium sweeps the radius of an ellipse as an arc about
+    its center's distance from the Earth's center, which shrinks circles
+    centered at the satellite by its geocentric radius over the Earth's
+    (about 10% for low Earth orbits, and 6.6 times for geostationary ones).
     """
+    nadir = {
+        "epoch": iso(epoch),
+        "cartographicDegrees": [
+            v
+            for t, x, y in zip(
+                track.positions[0::4], track.positions[1::4], track.positions[2::4]
+            )
+            for v in (t, x, y, 0)
+        ],
+        "interpolationAlgorithm": "LAGRANGE",
+        "interpolationDegree": 5,
+    }
     packets = []
     for index, instrument in enumerate(track.instruments):
         fill = _instrument_fill(track, index, color)
@@ -257,7 +275,7 @@ def _footprint_packets(
                 "id": f"fp/{track.name}/{index}",
                 "name": f"{track.name} {instrument.name}",
                 "availability": interval(start, end),
-                "position": {"reference": f"sat/{track.name}#position"},
+                "position": nadir,
                 "ellipse": {
                     "semiMajorAxis": axis,
                     "semiMinorAxis": axis,
