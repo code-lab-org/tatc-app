@@ -9,10 +9,17 @@ the orbit track of one satellite) followed by one task that combines them.
 """
 
 from datetime import timedelta
-from typing import Dict, List, Optional
+from typing import Annotated, Dict, List, Optional
 
 import pandas as pd
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 from pydantic.alias_generators import to_camel
 from tatc.schemas import Satellite
 
@@ -23,6 +30,9 @@ from ..satellites import SpaceSystemInput, generate_members
 DEFAULT_DISPLAY_DURATION = timedelta(days=1)
 DEFAULT_DISPLAY_STEP = timedelta(seconds=60)
 MAX_DISPLAY_STEPS = 20000
+
+# a display color (`#rrggbb`)
+HexColor = Annotated[str, StringConstraints(pattern=r"^#[0-9a-fA-F]{6}$")]
 
 
 class AnalysisRequest(BaseModel):
@@ -41,6 +51,13 @@ class AnalysisRequest(BaseModel):
         None,
         description="Display colors (`#rrggbb`) of each satellite or "
         "constellation (applied to its members) in animated results.",
+    )
+    instrument_colors: Optional[List[Optional[List[Optional[HexColor]]]]] = Field(
+        None,
+        description="Display colors (`#rrggbb`) of the instruments (in order) "
+        "of each satellite or constellation (applied to its members) in "
+        "animated results; `null` derives an instrument's color from the "
+        "satellite color.",
     )
     start: AwareDatetime = Field(
         ...,
@@ -103,6 +120,28 @@ class AnalysisRequest(BaseModel):
             if color:
                 for member in generate_members(system):
                     colors[member.name] = color
+        return colors
+
+    def get_member_instrument_colors(self) -> Dict[str, List[Optional[str]]]:
+        """
+        Gets the display colors of the instruments of member satellites,
+        inherited from their satellite or constellation.
+
+        Returns:
+            Dict[str, List[Optional[str]]]: The color of each instrument (in
+                order, `None` to derive it from the satellite color) of each
+                member with instrument colors, by name.
+        """
+        colors = {}
+        for i, system in enumerate(self.satellites):
+            instrument_colors = (
+                self.instrument_colors[i]
+                if self.instrument_colors and i < len(self.instrument_colors)
+                else None
+            )
+            if instrument_colors and any(instrument_colors):
+                for member in generate_members(system):
+                    colors[member.name] = list(instrument_colors)
         return colors
 
     def get_member_systems(self) -> Dict[str, int]:

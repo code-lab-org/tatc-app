@@ -51,6 +51,7 @@ function getBasePayload() {
   return {
     satellites: getSatellites(),
     colors: getSatelliteColors(),
+    instrumentColors: getInstrumentColors(),
     start: period.start.toISOString(),
     end: period.end.toISOString(),
     display: {
@@ -190,6 +191,7 @@ function runSelectedAnalysis() {
     payload = {
       satellites: base.satellites,
       colors: base.colors,
+      instrumentColors: base.instrumentColors,
       start: base.start,
       end: base.end,
       instrument_index: parseOptionalInteger($("#swaths-instrument").val()),

@@ -129,7 +129,9 @@ def compute_member_track(satellite: Satellite, times: pd.DatetimeIndex, epoch):
 
 
 @app.task
-def collect_member_track_task(satellite: str, times: list, epoch: str) -> dict:
+def collect_member_track_task(
+    satellite: str, times: list, epoch: str, colors: Optional[list] = None
+) -> dict:
     """
     Task to collect the orbit track of a member satellite to animate results.
 
@@ -137,6 +139,8 @@ def collect_member_track_task(satellite: str, times: list, epoch: str) -> dict:
         satellite (str): JSON serialized :class:`tatc.schemas.Satellite` object.
         times (list): List of ISO 8601 serialized times.
         epoch (str): ISO 8601 serialized reference time.
+        colors (Optional[list]): Display colors of the instruments (in
+            order, `None` to derive one from the satellite color).
 
     Returns:
         dict: Tagged (`track`) JSON serialized `MemberTrack`.
@@ -146,6 +150,8 @@ def collect_member_track_task(satellite: str, times: list, epoch: str) -> dict:
         _parse_times(times),
         datetime.fromisoformat(epoch),
     )
+    for instrument, color in zip(track.instruments, colors or []):
+        instrument.color = color
     return tag("track", track.model_dump_json())
 
 
@@ -287,7 +293,13 @@ def member_track_signatures(members: List[str], request) -> list:
         list: The task signatures.
     """
     times = [time.isoformat() for time in request.get_display_times()]
+    colors = request.get_member_instrument_colors()
     return [
-        collect_member_track_task.s(member, times, request.start.isoformat())
+        collect_member_track_task.s(
+            member,
+            times,
+            request.start.isoformat(),
+            colors.get(json.loads(member)["name"]),
+        )
         for member in members
     ]

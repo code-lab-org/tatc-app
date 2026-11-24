@@ -356,6 +356,10 @@ function addCatalogInstrument() {
     }
     editing.system = result.system;
     editing.instrument = result.system.instruments.length - result.added.length;
+    if (editing.instrument == 0) {
+      // the added instruments replaced all others (and their colors)
+      editing.instrumentColors = [];
+    }
     renderSatelliteForm();
     formChanged();
     $("#instrument-catalog-replace").prop("checked", false);

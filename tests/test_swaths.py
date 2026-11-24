@@ -90,6 +90,51 @@ class AnalyzeSwathsTestCase(TatcTestCase):
         self.assertGreaterEqual(len(swaths), 12)
         self.assertTrue(all(p["availability"].endswith("Z") for p in swaths))
 
+    def test_instrument_colors(self):
+        request = SwathAnalysisRequest.model_validate(
+            {
+                "satellites": [self.constellation.model_dump(mode="json")],
+                "instrumentColors": [[None, "#00ff00"]],
+                "start": self.start,
+                "end": self.end,
+                "segment": None,
+            }
+        )
+        members = [m.name for m in self.constellation.generate_members()]
+        self.assertEqual(
+            request.get_member_instrument_colors(),
+            {member: [None, "#00ff00"] for member in members},
+        )
+        # only default colors, or none
+        for colors in ([[None, None]], [None], None):
+            request.instrument_colors = colors
+            self.assertEqual(request.get_member_instrument_colors(), {})
+        # colors must be `#rrggbb`
+        with self.assertRaises(ValueError):
+            SwathAnalysisRequest(
+                satellites=[self.constellation],
+                instrument_colors=[["green"]],
+                start=self.start,
+                end=self.end,
+            )
+        # tracks carry the chosen colors of instruments
+        request.instrument_colors = [[None, "#00ff00"]]
+        task = self.run_analysis("/analyze/swaths", request)
+        result = SwathAnalysisResult.model_validate(
+            self.get_json(f"/analyze/swaths/{task['task_id']}")
+        )
+        for track in result.tracks.tracks:
+            self.assertEqual(
+                [instrument.color for instrument in track.instruments],
+                [None, "#00ff00"],
+            )
+        czml = self.get_json(f"/analyze/swaths/{task['task_id']}/czml")
+        circle = next(p for p in czml if p["id"] == f"fp/{members[0]}/1")
+        self.assertEqual(
+            circle["ellipse"]["material"]["solidColor"]["color"]["rgba"][:3],
+            [0, 255, 0],
+        )
+
     def test_analyze_tracks_only(self):
         task = self.run_analysis(
             "/analyze/swaths",

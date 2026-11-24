@@ -140,6 +140,11 @@ class InstrumentTrack(BaseModel):
         "observe. If `null`, the footprint is the circle spanned by the swath "
         "width.",
     )
+    color: Optional[str] = Field(
+        None,
+        description="Display color (`#rrggbb`) of the instrument, or `null` "
+        "to derive it from the satellite color.",
+    )
 
 
 class MemberTrack(BaseModel):

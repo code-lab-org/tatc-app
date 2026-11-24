@@ -158,6 +158,17 @@ class CzmlTestCase(unittest.TestCase):
         self.assertLess(fills[1][3], 255)
         # footprints can be omitted
         self.assertEqual(len(satellite_packets(tracks, footprint=False)), 1)
+        # an instrument's chosen color replaces its derived color
+        tracks.tracks[0].instruments[1].color = "#00ff00"
+        _, first, second = satellite_packets(tracks, {"s1": "#4e79a7"})
+        self.assertEqual(
+            first["ellipse"]["material"]["solidColor"]["color"]["rgba"],
+            rgba("#4e79a7", 70),
+        )
+        self.assertEqual(
+            second["ellipse"]["material"]["solidColor"]["color"]["rgba"],
+            rgba("#00ff00", 70),
+        )
 
     def test_satellite_footprint_polygons(self):
         square = [[0, 0, 1, 0, 1, 1, 0, 1]]
@@ -363,3 +374,15 @@ class CzmlTestCase(unittest.TestCase):
             rgba(instrument_color("#4e79a7", 1, 2), 150),
         )
         self.assertEqual(packets[1]["name"], "s1 b swath")
+        # chosen instrument colors replace derived colors
+        packets = swath_packets(
+            swaths,
+            end,
+            {"s1": "#4e79a7"},
+            instruments={"s1": ["a", "b"]},
+            instrument_colors={"s1": [None, "#00ff00"]},
+        )
+        self.assertEqual(
+            [p["polygon"]["material"]["solidColor"]["color"]["rgba"] for p in packets],
+            [rgba("#4e79a7", 150)] + [rgba("#00ff00", 150)] * 2,
+        )

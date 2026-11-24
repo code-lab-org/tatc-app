@@ -196,6 +196,7 @@ function previewOrbits() {
     payload: {
       satellites: satellites,
       colors: getSatelliteColors(),
+      instrumentColors: getInstrumentColors(),
       start: period.start.toISOString(),
       end: period.end.toISOString(),
       step: period.step,

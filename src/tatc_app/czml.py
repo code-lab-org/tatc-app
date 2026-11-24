@@ -245,7 +245,9 @@ def _footprint_packets(
     """
     packets = []
     for index, instrument in enumerate(track.instruments):
-        fill = instrument_color(color, index, len(track.instruments))
+        fill = instrument.color or instrument_color(
+            color, index, len(track.instruments)
+        )
         if instrument.footprints is not None:
             packets.extend(
                 _footprint_polygon_packets(
@@ -625,14 +627,23 @@ def _polygon_positions(polygon: Polygon) -> dict:
     return graphics
 
 
-def _swath_color(color: str, instrument: Optional[str], names: Sequence[str]) -> str:
+def _swath_color(
+    color: str,
+    instrument: Optional[str],
+    names: Sequence[str],
+    chosen: Sequence[Optional[str]] = (),
+) -> str:
     """
     Gets the color of a swath segment of an instrument (by name) among the
-    instruments of a satellite, or the satellite color if not found.
+    instruments of a satellite: its chosen color, if any, or else one derived
+    from the satellite color, or the satellite color if not found.
     """
     names = list(names)
     if instrument in names:
-        return instrument_color(color, names.index(instrument), len(names))
+        index = names.index(instrument)
+        if index < len(chosen) and chosen[index]:
+            return chosen[index]
+        return instrument_color(color, index, len(names))
     return color
 
 
@@ -642,6 +653,7 @@ def swath_packets(
     colors: Optional[Dict[str, str]] = None,
     *,
     instruments: Optional[Dict[str, Sequence[str]]] = None,
+    instrument_colors: Optional[Dict[str, Sequence[Optional[str]]]] = None,
     tolerance: float = 0.01,
     alpha: int = 150,
 ) -> List[dict]:
@@ -661,17 +673,24 @@ def swath_packets(
         instruments (Optional[Dict[str, Sequence[str]]]): The instrument
             names of each satellite (in order), to color the segments of each
             instrument distinctly (see `instrument_color`).
+        instrument_colors (Optional[Dict[str, Sequence[Optional[str]]]]):
+            The chosen colors of the instruments of each satellite (in the
+            order of `instruments`, `None` to derive one).
 
     Returns:
         List[dict]: The CZML packets.
     """
     colors = assign_colors(list(dict.fromkeys(swaths["satellite"])), colors)
     instruments = instruments or {}
+    instrument_colors = instrument_colors or {}
     packets = []
     for i, row in enumerate(swaths.itertuples()):
         instrument = getattr(row, "instrument", None)
         color = _swath_color(
-            colors[row.satellite], instrument, instruments.get(row.satellite, [])
+            colors[row.satellite],
+            instrument,
+            instruments.get(row.satellite, []),
+            instrument_colors.get(row.satellite, []),
         )
         geometry = row.geometry.simplify(tolerance, preserve_topology=True)
         polygons = (

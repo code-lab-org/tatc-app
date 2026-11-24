@@ -236,5 +236,9 @@ def retrieve_swath_analysis_czml(task_id: UUID):
                 track.name: [instrument.name for instrument in track.instruments]
                 for track in tracks.tracks
             },
+            instrument_colors={
+                track.name: [instrument.color for instrument in track.instruments]
+                for track in tracks.tracks
+            },
         )
     )

@@ -6,7 +6,9 @@ const DESIGN_STORAGE_KEY = "tatc-design-v2";
 const COLORS = ["#e15759", "#4e79a7", "#f28e2b", "#59a14f", "#b07aa1", "#76b7b2", "#edc948", "#ff9da7"];
 
 const design = {
-  satellites: [], // {system, color, validation: {status, members, message}}
+  // {system, color, instrumentColors, validation: {status, members, message}},
+  // with the chosen color of each instrument (in order; null for the default)
+  satellites: [],
   stations: [],
   targets: []
 };
@@ -30,13 +32,69 @@ function getSatelliteColors() {
   return _.map(design.satellites, "color");
 }
 
+// Gets the chosen instrument colors of each satellite or constellation (null
+// for one with only default colors), as analysis requests expect.
+function getInstrumentColors() {
+  return _.map(design.satellites, function(item) {
+    const count = (item.system.instruments || []).length;
+    const colors = _.take(item.instrumentColors || [], count);
+    return _.some(colors) ? _.map(colors, function(c) { return c || null; }) : null;
+  });
+}
+
+// Derives the default color of an instrument from the satellite color, as
+// the server does (`tatc_app.czml.instrument_color`): the first instrument
+// keeps the satellite color, and others rotate its hue evenly (with a
+// minimum saturation, so variants of gray colors stay distinct).
+function defaultInstrumentColor(color, index, count) {
+  if (index <= 0 || count <= 1) {
+    return color;
+  }
+  const rgb = _.map([1, 3, 5], function(i) { return parseInt(color.substr(i, 2), 16) / 255; });
+  const max = _.max(rgb), min = _.min(rgb);
+  const lightness = (max + min) / 2;
+  let hue = 0, saturation = 0;
+  if (max != min) {
+    const range = max - min;
+    saturation = lightness <= 0.5 ? range / (max + min) : range / (2 - max - min);
+    const c = _.map(rgb, function(v) { return (max - v) / range; });
+    hue = rgb[0] == max ? c[2] - c[1] : rgb[1] == max ? 2 + c[0] - c[2] : 4 + c[1] - c[0];
+    hue = ((hue / 6) % 1 + 1) % 1;
+  }
+  hue = (hue + index / count) % 1;
+  saturation = Math.max(saturation, 0.5);
+  const m2 = lightness <= 0.5 ? lightness * (1 + saturation) : lightness + saturation - lightness * saturation;
+  const m1 = 2 * lightness - m2;
+  function channel(h) {
+    h = ((h % 1) + 1) % 1;
+    if (h < 1 / 6) { return m1 + (m2 - m1) * h * 6; }
+    if (h < 0.5) { return m2; }
+    if (h < 2 / 3) { return m1 + (m2 - m1) * (2 / 3 - h) * 6; }
+    return m1;
+  }
+  return "#" + _.map([hue + 1 / 3, hue, hue - 1 / 3], function(h) {
+    return _.padStart(Math.round(channel(h) * 255).toString(16), 2, "0");
+  }).join("");
+}
+
+// Keeps valid colors (`#rrggbb`) of an imported list, and null otherwise.
+function importInstrumentColors(colors) {
+  return _.map(_.isArray(colors) ? colors : [], function(color) {
+    return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : null;
+  });
+}
+
 // --- Persistence ---
 
 function exportDesign() {
   return {
     version: 2,
     satellites: _.map(design.satellites, function(item) {
-      return { system: item.system, color: item.color };
+      const exported = { system: item.system, color: item.color };
+      if (_.some(item.instrumentColors)) {
+        exported.instrumentColors = item.instrumentColors;
+      }
+      return exported;
     }),
     stations: design.stations,
     targets: design.targets
@@ -71,6 +129,7 @@ function importDesign(data) {
     return {
       system: system,
       color: item.color || COLORS[i % COLORS.length],
+      instrumentColors: importInstrumentColors(item.system ? item.instrumentColors : null),
       validation: { status: "unknown" }
     };
   });
@@ -206,7 +265,7 @@ function uniqueName(name, names) {
 
 // --- Satellite dialog ---
 
-let editing = null; // {item, system, color, instrument}
+let editing = null; // {item, system, color, instrumentColors, instrument}
 
 function openSatelliteDialog() {
   const item = design.satellites[selectedSatellite];
@@ -217,6 +276,7 @@ function openSatelliteDialog() {
     item: item,
     system: _.cloneDeep(item.system),
     color: item.color,
+    instrumentColors: (item.instrumentColors || []).slice(),
     instrument: 0
   };
   $("#satellite-form-tab").tab("show");
@@ -287,6 +347,29 @@ function renderInstrumentForm() {
     }
     formChanged();
   });
+  renderInstrumentColor();
+}
+
+// Shows the color of the selected instrument: its chosen color, or the
+// default derived from the satellite color.
+function renderInstrumentColor() {
+  const chosen = editing.instrumentColors[editing.instrument];
+  const count = editing.system.instruments.length;
+  $("#instrument-color").val(chosen || defaultInstrumentColor(editing.color, editing.instrument, count));
+  $("#instrument-color-default").prop("checked", !chosen);
+}
+
+// Removes, then inserts (a default) instrument colors at an index, to keep
+// them aligned with the instruments.
+function spliceInstrumentColors(index, removed, inserted) {
+  const colors = editing.instrumentColors;
+  while (colors.length < index) {
+    colors.push(null);
+  }
+  colors.splice(index, removed);
+  for (let i = 0; i < (inserted || 0); i++) {
+    colors.splice(index, 0, null);
+  }
 }
 
 function formChanged() {
@@ -348,6 +431,8 @@ function applySatelliteJson() {
       throw new Error("Unknown type: " + system.type);
     }
     editing.system = system;
+    // colors stay with instruments by index
+    editing.instrumentColors = _.take(editing.instrumentColors, (system.instruments || []).length);
     renderSatelliteForm();
     return true;
   } catch (e) {
@@ -379,9 +464,15 @@ function commitSatelliteDialog() {
   const item = editing.item;
   const names = _.map(_.without(design.satellites, item), "system.name");
   editing.system.name = uniqueName(_.trim(editing.system.name) || "Satellite", names);
-  const changed = !_.isEqual(item.system, editing.system) || item.color != editing.color;
+  const instrumentColors = _.map(
+    _.take(editing.instrumentColors, (editing.system.instruments || []).length),
+    function(color) { return color || null; }
+  );
+  const changed = !_.isEqual(item.system, editing.system) || item.color != editing.color
+    || !_.isEqual(item.instrumentColors || [], instrumentColors);
   item.system = editing.system;
   item.color = editing.color;
+  item.instrumentColors = instrumentColors;
   editing = null;
   renderSatelliteList();
   if (changed) {
@@ -482,6 +573,19 @@ $(document).ready(function() {
   });
   $("#satellite-color").on("change", function() {
     editing.color = $(this).val();
+    renderInstrumentColor();
+  });
+  $("#instrument-color").on("input change", function() {
+    editing.instrumentColors[editing.instrument] = $(this).val();
+    $("#instrument-color-default").prop("checked", false);
+  });
+  $("#instrument-color-default").on("change", function() {
+    if (this.checked) {
+      editing.instrumentColors[editing.instrument] = null;
+    } else {
+      editing.instrumentColors[editing.instrument] = $("#instrument-color").val();
+    }
+    renderInstrumentColor();
   });
   $("#satellite-type").on("change", function() {
     const system = editing.system;
@@ -513,6 +617,7 @@ $(document).ready(function() {
     const instruments = editing.system.instruments;
     instruments.push(createInstrument(uniqueName("Instrument", _.map(instruments, "name"))));
     editing.instrument = instruments.length - 1;
+    spliceInstrumentColors(editing.instrument, 1, 1);
     renderInstrumentForm();
     formChanged();
   });
@@ -521,6 +626,8 @@ $(document).ready(function() {
     const copy = _.cloneDeep(instruments[editing.instrument]);
     copy.name = uniqueName(copy.name || "Instrument", _.map(instruments, "name"));
     instruments.splice(editing.instrument + 1, 0, copy);
+    // the copy takes a default color, distinct from the original's
+    spliceInstrumentColors(editing.instrument + 1, 0, 1);
     editing.instrument += 1;
     renderInstrumentForm();
     formChanged();
@@ -529,6 +636,7 @@ $(document).ready(function() {
     const instruments = editing.system.instruments;
     if (instruments.length > 1) {
       instruments.splice(editing.instrument, 1);
+      spliceInstrumentColors(editing.instrument, 1);
       renderInstrumentForm();
       formChanged();
     }
