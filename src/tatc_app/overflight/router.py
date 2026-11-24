@@ -15,7 +15,6 @@ from ..celery.schemas import CeleryTask
 from ..celery.utils import enqueue, get_task_result
 from ..czml import document_packet, link_packets, satellite_packets, site_packets
 from ..generation.utils import resolve_points
-from ..satellites import expand_members
 from ..tracking.tasks import member_track_signatures
 from ..utils.analysis import serialize_members
 from ..utils.serialization import to_geojson
@@ -39,7 +38,7 @@ def enqueue_overflight_analysis(request: OverflightAnalysisRequest):
     Returns:
         CeleryTask: Queued task.
     """
-    members = serialize_members(expand_members(request.satellites))
+    members = serialize_members(request.get_members())
     points = resolve_points(request.points)
     points_json = to_geojson(points)
     return enqueue(

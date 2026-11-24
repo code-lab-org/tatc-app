@@ -150,7 +150,7 @@ def enqueue_swath_analysis(request: SwathAnalysisRequest):
     Returns:
         CeleryTask: Queued task.
     """
-    members = serialize_members(expand_members(request.satellites))
+    members = serialize_members(request.get_members())
     times = [time.isoformat() for time in request.get_display_times()]
     tasks = member_track_signatures(members, request)
     if request.segment is not None:

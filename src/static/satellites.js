@@ -203,7 +203,13 @@ function validateItem(item) {
         ? { status: "unknown" }
         : { status: "invalid", message: formatError(xhr) };
     })
-    .always(renderSatelliteList);
+    .always(function() {
+      renderSatelliteList();
+      // the filter lists the members of validated constellations
+      if (typeof renderLayerFilter === "function") {
+        renderLayerFilter();
+      }
+    });
 }
 
 // --- Satellite list ---

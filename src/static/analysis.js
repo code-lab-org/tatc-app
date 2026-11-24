@@ -7,13 +7,13 @@ let targetLayer = null;
 
 const ANALYSES = {
   coverage: {
-    description: "Observations of a grid of points (and cells) by all instruments of all satellites. " +
+    description: "Observations of a grid of points (and cells) by the checked instruments of the checked satellites. " +
       "Animates observations accumulating over the analysis period, or shows final revisit statistics.",
     region: true,
     endpoint: "/analyze/coverage"
   },
   swaths: {
-    description: "Ground track swaths of an instrument, accumulating in segments as satellites orbit. " +
+    description: "Ground track swaths of the checked instruments, accumulating in segments as satellites orbit. " +
       "Best for periods of hours to a few days.",
     region: false,
     endpoint: "/analyze/swaths"
@@ -45,13 +45,16 @@ function getAnalysisPeriod() {
   return { start: start, end: end, animateEnd: animateEnd };
 }
 
-function getBasePayload() {
+// Gets the inputs common to all analyses, with the satellites, members, and
+// instruments checked in the filter.
+function getBasePayload(inputs) {
   const period = getAnalysisPeriod();
   const duration = (period.animateEnd - period.start) / 1000;
   return {
-    satellites: getSatellites(),
-    colors: getSatelliteColors(),
-    instrumentColors: getInstrumentColors(),
+    satellites: inputs.satellites,
+    colors: inputs.colors,
+    instrumentColors: inputs.instrumentColors,
+    excludeMembers: inputs.excludeMembers.length ? inputs.excludeMembers : null,
     start: period.start.toISOString(),
     end: period.end.toISOString(),
     display: {
@@ -61,10 +64,6 @@ function getBasePayload() {
       delta: Math.max(60, Math.ceil(duration / 19999))
     }
   };
-}
-
-function parseOptionalInteger(value) {
-  return value === "" || value === null || value === undefined ? null : Math.round(Number(value));
 }
 
 // --- Layers ---
@@ -183,7 +182,12 @@ function runSelectedAnalysis() {
     $("#analysis-error").text("Add a satellite or constellation in the Design tab.").show();
     return;
   }
-  const base = getBasePayload();
+  const inputs = getFilteredInputs();
+  if (inputs.satellites.length == 0) {
+    $("#analysis-error").text("Check at least one satellite and instrument to analyze.").show();
+    return;
+  }
+  const base = getBasePayload(inputs);
   let payload;
   if (type == "coverage") {
     payload = _.assign(base, { points: getPointsSpec(), cells: getCellsSpec() });
@@ -192,9 +196,10 @@ function runSelectedAnalysis() {
       satellites: base.satellites,
       colors: base.colors,
       instrumentColors: base.instrumentColors,
+      excludeMembers: base.excludeMembers,
       start: base.start,
       end: base.end,
-      instrument_index: parseOptionalInteger($("#swaths-instrument").val()),
+      instrument_index: null,
       step: Number($("#swaths-step").val()),
       segment: Number($("#swaths-segment").val()) * 60
     };
@@ -218,7 +223,7 @@ function runSelectedAnalysis() {
       points: _.map(design.targets, function(target, i) {
         return { id: i, latitude: target.latitude, longitude: target.longitude };
       }),
-      instrument_index: parseOptionalInteger($("#access-instrument").val()),
+      instrument_index: null,
       omit_solar: !$("#access-solar").is(":checked")
     });
   }

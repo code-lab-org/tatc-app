@@ -15,7 +15,6 @@ from ..celery.schemas import CeleryTask
 from ..celery.utils import enqueue, get_task_result
 from ..czml import document_packet, satellite_packets
 from ..generation.utils import chunk, resolve_cells, resolve_points
-from ..satellites import expand_members
 from ..tracking.tasks import member_track_signatures
 from ..utils.analysis import serialize_members
 from ..utils.serialization import to_geojson
@@ -39,7 +38,7 @@ def enqueue_coverage_analysis(request: CoverageAnalysisRequest):
     Returns:
         CeleryTask: Queued task.
     """
-    members = serialize_members(expand_members(request.satellites))
+    members = serialize_members(request.get_members())
     points = resolve_points(request.points)
     cells = resolve_cells(request.cells)
     return enqueue(

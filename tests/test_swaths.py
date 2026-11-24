@@ -151,6 +151,36 @@ class AnalyzeSwathsTestCase(TatcTestCase):
         self.assertEqual(len(result.tracks.tracks), 2)
         self.assertEqual(len(result.swaths.features), 0)
 
+    def test_exclude_members(self):
+        members = [m.name for m in self.constellation.generate_members()]
+        request = SwathAnalysisRequest.model_validate(
+            {
+                "satellites": [self.constellation.model_dump(mode="json")],
+                "excludeMembers": [members[0], "unknown"],
+                "start": self.start,
+                "end": self.end,
+                "segment": None,
+            }
+        )
+        self.assertEqual([m.name for m in request.get_members()], members[1:])
+        task = self.run_analysis("/analyze/swaths", request)
+        result = SwathAnalysisResult.model_validate(
+            self.get_json(f"/analyze/swaths/{task['task_id']}")
+        )
+        self.assertEqual([t.name for t in result.tracks.tracks], members[1:])
+        # all members excluded
+        response = self.client.post(
+            "/analyze/swaths",
+            json={
+                "satellites": [self.constellation.model_dump(mode="json")],
+                "excludeMembers": members,
+                "start": "2022-06-01T00:00:00Z",
+                "end": "2022-06-01T03:00:00Z",
+                "segment": None,
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+
     def test_too_many_steps(self):
         response = self.client.post(
             "/analyze/swaths",

@@ -12,6 +12,7 @@ from datetime import timedelta
 from typing import Annotated, Dict, List, Optional
 
 import pandas as pd
+from fastapi import HTTPException
 from pydantic import (
     AwareDatetime,
     BaseModel,
@@ -24,7 +25,7 @@ from pydantic.alias_generators import to_camel
 from tatc.schemas import Satellite
 
 from ..generation.schemas import TimeGenerator
-from ..satellites import SpaceSystemInput, generate_members
+from ..satellites import SpaceSystemInput, expand_members, generate_members
 
 # default and maximum durations of the display window of animated results
 DEFAULT_DISPLAY_DURATION = timedelta(days=1)
@@ -58,6 +59,11 @@ class AnalysisRequest(BaseModel):
         "of each satellite or constellation (applied to its members) in "
         "animated results; `null` derives an instrument's color from the "
         "satellite color.",
+    )
+    exclude_members: Optional[List[str]] = Field(
+        None,
+        description="Names of member satellites (of the satellites and "
+        "constellations) to leave out of the analysis.",
     )
     start: AwareDatetime = Field(
         ...,
@@ -105,6 +111,29 @@ class AnalysisRequest(BaseModel):
             delta=DEFAULT_DISPLAY_STEP,
         )
         return display.to_index(MAX_DISPLAY_STEPS)
+
+    def get_members(self) -> List[Satellite]:
+        """
+        Gets the member satellites to analyze: those of the satellites and
+        constellations, less any excluded members.
+
+        Raises:
+            HTTPException: (422) if two members share a name, or if all
+                members are excluded.
+
+        Returns:
+            List[Satellite]: The member satellites.
+        """
+        members = expand_members(self.satellites)
+        if self.exclude_members:
+            excluded = set(self.exclude_members)
+            members = [member for member in members if member.name not in excluded]
+            if not members:
+                raise HTTPException(
+                    status_code=422,
+                    detail="All satellites are excluded from the analysis.",
+                )
+        return members
 
     def get_member_colors(self) -> Dict[str, str]:
         """

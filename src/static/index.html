@@ -41,9 +41,12 @@
     .rail-btn:hover, .rail-btn:focus { color: #fff; background: rgba(255, 255, 255, 0.12); text-decoration: none; }
     .rail-btn.active { color: #fff; background: #007bff; }
     .rail-bottom { margin-top: auto; display: flex; flex-direction: column; align-items: center; }
+    /* The drawer is as tall as its content, up to the space above Cesium's
+       widgets (then its body scrolls). */
     #drawer {
       position: absolute; z-index: 20;
-      top: var(--overlay-gap); bottom: var(--overlay-bottom);
+      top: var(--overlay-gap);
+      max-height: calc(100% - var(--overlay-gap) - var(--overlay-bottom));
       left: calc(2 * var(--overlay-gap) + var(--rail-width));
       width: var(--drawer-width); min-width: 300px;
       max-width: calc(100vw - 3 * var(--overlay-gap) - var(--rail-width));
@@ -59,7 +62,9 @@
       display: flex; justify-content: space-between; align-items: center;
       padding: 6px 6px 6px 12px; border-bottom: 1px solid rgba(0, 0, 0, 0.1);
     }
-    .drawer-body { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; }
+    .drawer-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+    /* lists grow with their items, up to a maximum height */
+    .list-group.form-control { height: auto; min-height: 2.5em; }
     #drawer .form-control, #drawer .input-group-text { padding-left: 0.5rem; padding-right: 0.5rem; }
     #drawer select.form-control { padding-right: 0.25rem; }
     input:invalid { background-color: #fcc; }
@@ -152,7 +157,7 @@
             <div class="form-group">
               <label for="satellites">Satellites and Constellations</label>
               <div class="input-group">
-                <div class="list-group form-control p-0 overflow-auto" style="height:9em" id="satellites"></div>
+                <div class="list-group form-control p-0 overflow-auto" style="max-height:9em" id="satellites"></div>
                 <div class="input-group-append btn-group-vertical" role="group">
                   <button type="button" class="btn btn-secondary btn-sm" id="satellite-add" title="Add">
                     <i class="fas fa-plus"></i>
@@ -245,12 +250,16 @@
               </div>
             </div>
             <div class="alert alert-danger small mt-2" id="orbit-error" style="display:none"></div>
-            <div class="mt-2" id="preview-layers" style="display:none">
-              <div class="d-flex justify-content-between align-items-baseline">
-                <span class="small font-weight-bold">Displayed Satellites and Instruments</span>
-                <button type="button" class="btn btn-link btn-sm p-0" id="preview-layers-all">Show all</button>
+            <!-- the satellite and instrument filter, shared with the Analysis tab (filter.js) -->
+            <div class="layer-filter-slot mt-2">
+              <div id="layer-filter" style="display:none">
+                <div class="d-flex justify-content-between align-items-baseline">
+                  <span class="small font-weight-bold">Satellites and Instruments</span>
+                  <button type="button" class="btn btn-link btn-sm p-0" id="layer-filter-all">Check all</button>
+                </div>
+                <div class="small text-muted mb-1" id="layer-filter-note"></div>
+                <div class="border rounded px-2 py-1 small overflow-auto" style="max-height:16em" id="layer-filter-list"></div>
               </div>
-              <div class="border rounded px-2 py-1 small overflow-auto" style="max-height:16em" id="preview-layers-list"></div>
             </div>
           </div>
 
@@ -349,11 +358,7 @@
             <!-- Swaths -->
             <div class="analysis-panel" data-analysis="swaths">
               <div class="form-group row">
-                <label for="swaths-instrument" class="col-sm-3 col-form-label">Instrument</label>
-                <div class="col-sm-3">
-                  <input type="number" min="0" value="0" step="1" class="form-control" id="swaths-instrument" title="Instrument index (0 is the first instrument)">
-                </div>
-                <label for="swaths-step" class="col-sm-2 col-form-label">Step</label>
+                <label for="swaths-step" class="col-sm-3 col-form-label">Step</label>
                 <div class="input-group col-sm-4">
                   <input type="number" min="5" max="600" value="60" step="any" class="form-control" id="swaths-step">
                   <div class="input-group-append"><span class="input-group-text">s</span></div>
@@ -374,7 +379,7 @@
               <div class="form-group">
                 <label for="stations">Ground Stations</label>
                 <div class="input-group">
-                  <div class="list-group form-control p-0 overflow-auto" style="height:6em" id="stations"></div>
+                  <div class="list-group form-control p-0 overflow-auto" style="max-height:6em" id="stations"></div>
                   <div class="input-group-append btn-group-vertical" role="group">
                     <button type="button" class="btn btn-secondary btn-sm" id="station-add" title="Add"><i class="fas fa-plus"></i></button>
                     <button type="button" class="btn btn-secondary btn-sm" id="station-edit" title="Edit" disabled><i class="fas fa-edit"></i></button>
@@ -408,7 +413,7 @@
               <div class="form-group">
                 <label for="targets">Target Points</label>
                 <div class="input-group">
-                  <div class="list-group form-control p-0 overflow-auto" style="height:6em" id="targets"></div>
+                  <div class="list-group form-control p-0 overflow-auto" style="max-height:6em" id="targets"></div>
                   <div class="input-group-append btn-group-vertical" role="group">
                     <button type="button" class="btn btn-secondary btn-sm" id="target-pick" title="Add points by clicking the map"><i class="fas fa-map-marker-alt"></i></button>
                     <button type="button" class="btn btn-secondary btn-sm" id="target-add" title="Add by coordinates"><i class="fas fa-plus"></i></button>
@@ -416,19 +421,16 @@
                   </div>
                 </div>
               </div>
-              <div class="form-group row">
-                <label for="access-instrument" class="col-sm-3 col-form-label">Instrument</label>
-                <div class="col-sm-3">
-                  <input type="number" min="0" step="1" placeholder="All" class="form-control" id="access-instrument" title="Instrument index (blank for all instruments)">
-                </div>
-                <div class="col-sm-6 pt-2">
-                  <div class="form-check">
-                    <input type="checkbox" class="form-check-input" id="access-solar">
-                    <label for="access-solar" class="form-check-label">Solar angles</label>
-                  </div>
+              <div class="form-group">
+                <div class="form-check">
+                  <input type="checkbox" class="form-check-input" id="access-solar">
+                  <label for="access-solar" class="form-check-label">Solar angles</label>
                 </div>
               </div>
             </div>
+
+            <!-- the satellite and instrument filter moves here on this tab -->
+            <div class="layer-filter-slot mb-3"></div>
 
             <div class="row">
               <div class="col-sm-6">
@@ -875,6 +877,7 @@
   <script src="layers.js"></script>
   <script src="schemas.js"></script>
   <script src="satellites.js"></script>
+  <script src="filter.js"></script>
   <script src="catalog.js"></script>
   <script src="design.js"></script>
   <script src="region.js"></script>
