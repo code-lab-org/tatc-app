@@ -481,6 +481,23 @@ function showAnalysisData() {
 
 // --- Panels ---
 
+// Limits the animation (hours) to the analysis duration (days), so the input
+// shows the length actually animated. The requested length is kept, so it
+// returns when the duration grows again.
+const MAX_ANIMATE_HOURS = 168;
+
+function limitAnimation() {
+  const animate = $("#analysis-animate");
+  const duration = Number($("#analysis-duration").val());
+  if (!(duration > 0)) {
+    return;
+  }
+  const limit = Math.round(Math.min(MAX_ANIMATE_HOURS, duration * 24) * 1000) / 1000;
+  const requested = Number(animate.data("requested") || animate.val());
+  animate.attr("max", limit);
+  animate.val(Math.min(requested, limit));
+}
+
 function changeAnalysisType() {
   const type = getAnalysisType();
   $(".analysis-panel").removeClass("shown");
@@ -491,6 +508,7 @@ function changeAnalysisType() {
   if (type == "swaths" && Number($("#analysis-duration").val()) > 3) {
     $("#analysis-duration").val(0.25);
   }
+  limitAnimation();
   // picking (region vertices or target points) applies to one analysis type
   stopMapPick();
   const showResults = Boolean(analysisResult && analysisResult.type == type);
@@ -532,6 +550,11 @@ $(document).ready(function() {
     viewer.clock.shouldAnimate = false;
     viewer.clock.currentTime = viewer.clock.startTime.clone();
     changeAnalysisType();
+  });
+  $("#analysis-duration").change(limitAnimation);
+  $("#analysis-animate").change(function() {
+    $(this).data("requested", Number($(this).val()) || null);
+    limitAnimation();
   });
   $("#analysis-run").click(runSelectedAnalysis);
   $("#analysis-data").click(showAnalysisData);
