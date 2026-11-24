@@ -51,8 +51,10 @@ function openSatelliteDialog() {
     instrument: 0,
     revision: 0
   };
-  $("#satellite-form-tab").tab("show");
+  // the form (and JSON) are rendered first, so that leaving the JSON tab
+  // (open when the dialog last closed) has no JSON to apply
   renderSatelliteForm();
+  $("#satellite-general-tab").tab("show");
   showValidation(item.validation);
   $("#satellite-dialog").modal("show");
 }
@@ -105,7 +107,9 @@ function renderOrbitForm() {
   });
   select.val(orbitType);
   $("#query-celestrak").toggle(orbitType == "tle" || orbitType == "gp");
-  renderFields($("#orbit-fields"), specOf(ORBIT_SPECS, orbitType).fields, system.orbit, formChanged);
+  // the orbit's fields are mostly short (angles and altitudes), so they are
+  // packed four to a row
+  renderFields($("#orbit-fields"), specOf(ORBIT_SPECS, orbitType).fields, system.orbit, formChanged, 4);
 }
 
 function renderInstrumentForm() {
@@ -124,14 +128,16 @@ function renderInstrumentForm() {
   // an instrument without a type keeps it implicit (as the library infers it)
   const type = instrumentType(instrument);
   selectType($("#instrument-type"), type, INSTRUMENT_SPECS);
-  const fields = [{ key: "name", label: "Name", type: "text", default: "Default" }]
+  // the instrument's fields are mostly short (angles and options), so they
+  // are packed four to a row
+  const fields = [{ key: "name", label: "Name", type: "text", default: "Default", span: 2 }]
     .concat(specOf(INSTRUMENT_SPECS, type).fields);
   renderFields($("#instrument-fields"), fields, instrument, function(key) {
     if (key == "name") {
       list.find("option").eq(satelliteEditor.instrument).text(satelliteEditor.instrument + ": " + instrument.name);
     }
     formChanged();
-  });
+  }, 4);
   renderInstrumentColor();
 }
 
@@ -413,8 +419,10 @@ $(document).ready(function() {
     }
   });
 
+  // the form is split into tabs (general, orbit, and instruments): leaving
+  // the JSON tab for any of them applies its changes, if valid
   $("#satellite-json-tab").on("show.bs.tab", updateSatelliteJson);
-  $("#satellite-form-tab").on("show.bs.tab", function(e) {
+  $("#satellite-json-tab").on("hide.bs.tab", function(e) {
     if (hasUnappliedJson() && !applySatelliteJson()) {
       e.preventDefault();
     }

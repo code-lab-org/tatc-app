@@ -357,9 +357,14 @@ function fromFormValue(field, value) {
 
 // --- Rendering ---
 
-// Renders form fields for an object into a container (two fields per row).
+// Renders form fields for an object into a container, in rows of a number of
+// columns (by default, two). Text fields and elements span a row, date-times
+// two columns of rows of four or more (they need about twice the width of a
+// number), and other fields one column, unless they set `span` (a number of
+// columns).
 // Calls `onChange(key)` after each change is written to the object.
-function renderFields(container, fields, object, onChange) {
+function renderFields(container, fields, object, onChange, columns) {
+  columns = columns || 2;
   container.empty();
   let row = null;
   let count = 0;
@@ -373,12 +378,13 @@ function renderFields(container, fields, object, onChange) {
     }
     const id = "field-" + _.uniqueId();
     const wide = field.type == "tle" || field.type == "omm" || field.type == "text";
-    if (!row || wide || count % 2 == 0) {
+    const span = Math.min(field.span || (wide ? columns : field.type == "datetime" && columns >= 4 ? 2 : 1), columns);
+    if (!row || count + span > columns) {
       row = $("<div>").addClass("form-row");
       container.append(row);
       count = 0;
     }
-    const group = $("<div>").addClass("form-group mb-2").addClass(wide ? "col-12" : "col-sm-6");
+    const group = $("<div>").addClass("form-group mb-2").addClass("col-sm-" + 12 / columns * span);
     const label = $("<label>").attr("for", id).addClass("small mb-0").text(field.label);
     if (field.help) {
       label.attr("title", field.help).append(" ", $("<i>").addClass("far fa-question-circle text-muted"));
@@ -405,7 +411,7 @@ function renderFields(container, fields, object, onChange) {
       group.addClass("pt-3");
       group.append($("<div>").addClass("form-check").append(input.attr("id", id), label.addClass("form-check-label")));
       row.append(group);
-      count += wide ? 2 : 1;
+      count += span;
       return;
     } else if (field.type == "tle" || field.type == "omm") {
       input = $("<textarea spellcheck='false'>").attr("rows", field.type == "omm" ? 12 : 2)
@@ -465,7 +471,7 @@ function renderFields(container, fields, object, onChange) {
     }
     group.append(feedback);
     row.append(group);
-    count += wide ? 2 : 1;
+    count += span;
   });
 }
 

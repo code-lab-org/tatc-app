@@ -43,7 +43,7 @@
     </nav>
 
     <!-- Drawer: the panel of the active tab, collapsible over the globe -->
-    <aside id="drawer">
+    <aside id="drawer" class="dark-panel">
       <div class="overlay-header">
         <strong id="drawer-title">Information</strong>
         <button type="button" class="btn btn-link btn-sm text-secondary" id="drawer-collapse" title="Collapse panel (Esc)" aria-label="Collapse panel">
@@ -314,7 +314,7 @@
     <!-- Display panel, shared by all tabs: view options and the legends of
          satellites and instruments (filter.js) and analysis results. It
          collapses into its button of Cesium's toolbar (display.js). -->
-    <aside id="display-panel" aria-label="Display">
+    <aside id="display-panel" class="dark-panel" aria-label="Display">
       <div class="overlay-header">
         <strong>Display</strong>
         <button type="button" class="btn btn-link btn-sm text-secondary" id="display-collapse" title="Collapse panel" aria-label="Collapse panel">
@@ -409,7 +409,7 @@
   <!-- Satellite / constellation editor -->
   <div class="modal fade" id="satellite-dialog" role="dialog" data-backdrop="static">
     <div class="modal-dialog modal-lg" role="document">
-      <div class="modal-content">
+      <div class="modal-content dark-panel">
         <div class="modal-header">
           <h5 class="modal-title">Edit Satellite or Constellation</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -418,11 +418,13 @@
         </div>
         <div class="modal-body">
           <ul class="nav nav-tabs mb-2" role="tablist">
-            <li class="nav-item"><a class="nav-link active" id="satellite-form-tab" data-toggle="tab" href="#satellite-form" role="tab">Form</a></li>
-            <li class="nav-item"><a class="nav-link" id="satellite-json-tab" data-toggle="tab" href="#satellite-json" role="tab">JSON</a></li>
+            <li class="nav-item"><a class="nav-link active" id="satellite-general-tab" data-toggle="tab" href="#satellite-general" role="tab">General</a></li>
+            <li class="nav-item"><a class="nav-link" id="satellite-orbit-tab" data-toggle="tab" href="#satellite-orbit" role="tab">Orbit</a></li>
+            <li class="nav-item"><a class="nav-link" id="satellite-instruments-tab" data-toggle="tab" href="#satellite-instruments" role="tab">Instruments</a></li>
+            <li class="nav-item ml-auto"><a class="nav-link" id="satellite-json-tab" data-toggle="tab" href="#satellite-json" role="tab">JSON</a></li>
           </ul>
           <div class="tab-content">
-            <div class="tab-pane fade show active" id="satellite-form" role="tabpanel">
+            <div class="tab-pane fade show active" id="satellite-general" role="tabpanel">
               <div class="form-group row">
                 <label for="satellite-name" class="col-sm-2 col-form-label">Name</label>
                 <div class="col-sm-5">
@@ -440,7 +442,9 @@
                 </div>
               </div>
               <div id="platform-fields"></div>
-              <h6 class="mt-3">Orbit</h6>
+              <p class="small text-muted mb-0" id="satellite-extra"></p>
+            </div>
+            <div class="tab-pane fade" id="satellite-orbit" role="tabpanel">
               <div class="form-group row">
                 <label for="orbit-type" class="col-sm-2 col-form-label">Type</label>
                 <div class="input-group col-sm-10">
@@ -453,7 +457,8 @@
                 </div>
               </div>
               <div id="orbit-fields"></div>
-              <h6 class="mt-3">Instruments</h6>
+            </div>
+            <div class="tab-pane fade" id="satellite-instruments" role="tabpanel">
               <div class="form-group row">
                 <div class="input-group col-sm-12">
                   <select class="form-control" id="instruments"></select>
@@ -467,24 +472,19 @@
               </div>
               <div class="form-group row">
                 <label for="instrument-type" class="col-sm-2 col-form-label">Type</label>
-                <div class="col-sm-10">
+                <div class="col-sm-5">
                   <select class="form-control" id="instrument-type"></select>
                 </div>
-              </div>
-              <div class="form-group row">
                 <label for="instrument-color" class="col-sm-2 col-form-label">Color</label>
-                <div class="col-sm-3">
-                  <input type="color" class="form-control" id="instrument-color" title="Color of the instrument's footprint and swaths">
-                </div>
-                <div class="col-sm-7 col-form-label">
-                  <div class="form-check">
+                <div class="col-sm-3 d-flex align-items-center">
+                  <input type="color" class="form-control instrument-color" id="instrument-color" title="Color of the instrument's footprint and swaths">
+                  <div class="form-check ml-2" title="Derived from the satellite color">
                     <input type="checkbox" class="form-check-input" id="instrument-color-default">
-                    <label class="form-check-label" for="instrument-color-default">Default (derived from the satellite color)</label>
+                    <label class="form-check-label" for="instrument-color-default">Default</label>
                   </div>
                 </div>
               </div>
               <div id="instrument-fields"></div>
-              <p class="small text-muted mb-0" id="satellite-extra"></p>
             </div>
             <div class="tab-pane fade" id="satellite-json" role="tabpanel">
               <p class="small text-muted">The satellite or constellation in the schema of the TAT-C library (SI units). Use this editor for settings without a form, such as attitudes, general perturbations (GP) orbit options, and angle profiles.</p>
