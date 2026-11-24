@@ -6,7 +6,7 @@
 //   key:      property path in the schema object (e.g. "ascending_node.time")
 //   label:    form label
 //   type:     number | integer | text | select | checkbox | datetime | time |
-//             duration | tle | note
+//             duration | tle | omm | note
 //   unit:     unit displayed in the form
 //   scale:    SI value per form unit (default 1), e.g. 1000 for km -> m
 //   min, max, step: input constraints (form units)
@@ -25,6 +25,16 @@ const DEFAULT_TLE = [
   "1 25544U 98067A   21156.30527927  .00003432  00000-0  70541-4 0  9993",
   "2 25544  51.6455  41.4969 0003508  68.0432  78.3395 15.48957534286754"
 ];
+
+// the same placeholder elements as an orbit mean-elements message (OMM), for
+// a new general perturbations orbit
+const DEFAULT_OMM = {
+  OBJECT_NAME: "ISS (ZARYA)", OBJECT_ID: "1998-067A", EPOCH: "2021-06-05T07:19:36.128928",
+  MEAN_MOTION: 15.48957534, ECCENTRICITY: 0.0003508, INCLINATION: 51.6455, RA_OF_ASC_NODE: 41.4969,
+  ARG_OF_PERICENTER: 68.0432, MEAN_ANOMALY: 78.3395, EPHEMERIS_TYPE: 0, CLASSIFICATION_TYPE: "U",
+  NORAD_CAT_ID: 25544, ELEMENT_SET_NO: 999, REV_AT_EPOCH: 28675, BSTAR: 7.0541e-5,
+  MEAN_MOTION_DOT: 3.432e-5, MEAN_MOTION_DDOT: 0
+};
 
 function defaultEpoch() {
   const date = new Date();
@@ -48,6 +58,20 @@ const ORBIT_SPECS = {
   tle: {
     label: "Two Line Elements (TLE)",
     fields: [{ key: "tle", label: "Two line elements", type: "tle", default: function() { return DEFAULT_TLE.slice(); } }]
+  },
+  // general perturbations orbits, edited as orbit mean-elements messages,
+  // which (unlike TLE) support catalog numbers beyond 5 characters
+  gp: {
+    label: "Orbit Mean-Elements Message (OMM)",
+    fields: [
+      {
+        key: "elements", label: "Orbit mean-elements message", type: "omm",
+        default: function() { return ommToElements(JSON.stringify(DEFAULT_OMM)); },
+        help: "OMM in JSON, CSV, XML, or KVN format (as from CelesTrak or Space-Track), with one or more element sets. "
+          + "Catalog numbers beyond 339999, which SGP4 does not support, are replaced by 0."
+      },
+      { type: "note", label: "Other settings of general perturbations (GP) orbits, such as removing drag, are edited in the JSON tab." }
+    ]
   },
   circular: {
     label: "Circular",
@@ -120,11 +144,6 @@ const ORBIT_SPECS = {
       { key: "ascending_node.time", label: "Node time (UTC)", type: "datetime", default: defaultEpoch, help: "Time of an ascending node" },
       _.assign({ key: "ascending_node.longitude", label: "Node longitude", type: "number", min: -180, max: 180, default: 0 }, ANGLE)
     ]
-  },
-  gp: {
-    label: "General Perturbations (GP)",
-    jsonOnly: true,
-    fields: [{ type: "note", label: "Edit the elements of general perturbations orbits in the JSON tab." }]
   }
 };
 const ALL_ORBITS = _.keys(ORBIT_SPECS);
@@ -304,12 +323,15 @@ function toFormValue(field, value) {
       return String(value).substring(0, 8);
     case "tle":
       return _.isArray(value) ? value.join("\n") : String(value);
+    case "omm":
+      return elementsToOmm(value);
     default:
       return value;
   }
 }
 
-// Converts a form value to a schema (SI) value (`undefined` for blank).
+// Converts a form value to a schema (SI) value (`undefined` for blank),
+// throwing an error if the value cannot be converted.
 function fromFormValue(field, value) {
   const scale = field.scale || 1;
   switch (field.type) {
@@ -326,6 +348,8 @@ function fromFormValue(field, value) {
       return value ? (value.length == 5 ? value + ":00" : value) : undefined;
     case "tle":
       return _.filter(_.map(String(value).split(/\r?\n/), _.trim), function(line) { return line.length > 0; });
+    case "omm":
+      return ommToElements(value);
     default:
       return value;
   }
@@ -348,7 +372,7 @@ function renderFields(container, fields, object, onChange) {
       return;
     }
     const id = "field-" + _.uniqueId();
-    const wide = field.type == "tle" || field.type == "text";
+    const wide = field.type == "tle" || field.type == "omm" || field.type == "text";
     if (!row || wide || count % 2 == 0) {
       row = $("<div>").addClass("form-row");
       container.append(row);
@@ -383,8 +407,9 @@ function renderFields(container, fields, object, onChange) {
       row.append(group);
       count += wide ? 2 : 1;
       return;
-    } else if (field.type == "tle") {
-      input = $("<textarea rows='2' spellcheck='false'>").addClass("form-control form-control-sm mono");
+    } else if (field.type == "tle" || field.type == "omm") {
+      input = $("<textarea spellcheck='false'>").attr("rows", field.type == "omm" ? 12 : 2)
+        .addClass("form-control form-control-sm mono");
       input.val(toFormValue(field, value));
     } else {
       const types = { number: "number", integer: "number", duration: "number", datetime: "datetime-local", time: "time", text: "text" };
@@ -402,9 +427,20 @@ function renderFields(container, fields, object, onChange) {
       if (field.optional) { input.attr("placeholder", "(default)"); }
       input.val(toFormValue(field, value));
     }
+    // an error converting the value is shown (keeping the input) until fixed
+    const feedback = $("<div>").addClass("invalid-feedback");
     if (field.type != "select") {
       input.on("change", function() {
-        const converted = fromFormValue(field, input.val());
+        let converted;
+        try {
+          converted = fromFormValue(field, input.val());
+        } catch (e) {
+          input.addClass("is-invalid");
+          feedback.text(e.message).show();
+          return;
+        }
+        input.removeClass("is-invalid");
+        feedback.hide();
         if (converted === undefined) {
           if (field.optional) {
             _.unset(object, field.key);
@@ -427,6 +463,7 @@ function renderFields(container, fields, object, onChange) {
     } else {
       group.append(label, input);
     }
+    group.append(feedback);
     row.append(group);
     count += wide ? 2 : 1;
   });

@@ -104,7 +104,7 @@ function renderOrbitForm() {
     select.append($("<option>").val(type).text(specOf(ORBIT_SPECS, type).label));
   });
   select.val(orbitType);
-  $("#query-celestrak").toggle(orbitType == "tle");
+  $("#query-celestrak").toggle(orbitType == "tle" || orbitType == "gp");
   renderFields($("#orbit-fields"), specOf(ORBIT_SPECS, orbitType).fields, system.orbit, formChanged);
 }
 
@@ -281,15 +281,23 @@ function commitSatelliteDialog() {
 
 // The server searches a catalog it downloads from CelesTrak at most once
 // every two hours (per CelesTrak's usage policy), so queries are not
-// forwarded to CelesTrak. Objects with catalog numbers beyond the range of
-// two line elements (Alpha-5, up to 339999) have general perturbations orbits.
+// forwarded to CelesTrak. Objects have general perturbations orbits (from
+// orbit mean-elements messages) and, if their catalog numbers are within the
+// range of two line elements (Alpha-5, up to 339999), also TLE.
 let celestrakQuery = 0;
+
+// Gets the orbit of a CelesTrak object in the format of the edited orbit:
+// OMM (a general perturbations orbit), or TLE if the object has them.
+function celestrakOrbit(object) {
+  const orbit = satelliteEditor.system.orbit;
+  return orbit && orbit.type == "gp" ? object.gp_orbit : object.orbit;
+}
 
 function celestrakElementsText(orbit) {
   if (orbit.type == "tle") {
     return orbit.tle.join("\n");
   }
-  return JSON.stringify(orbit.elements, null, 2);
+  return elementsToOmm(orbit.elements);
 }
 
 function queryCelestrak() {
@@ -425,9 +433,13 @@ $(document).ready(function() {
 
   // CelesTrak
   $("#celestrak-name").on("input", _.debounce(queryCelestrak, 400));
+  // the elements of a selected object are shown in the edited orbit's format
+  $("#celestrak-dialog").on("show.bs.modal", function() {
+    $("#celestrak-objects").trigger("change");
+  });
   $("#celestrak-objects").on("change", function() {
     const option = $(this).find("option:selected");
-    const orbit = option.length ? option.data("object").orbit : null;
+    const orbit = option.length ? celestrakOrbit(option.data("object")) : null;
     $("#celestrak-tle").val(orbit ? celestrakElementsText(orbit) : "").attr("rows", orbit && orbit.type != "tle" ? 8 : 2);
     $("#celestrak-tle-ok").prop("disabled", !option.length);
   });
@@ -435,7 +447,7 @@ $(document).ready(function() {
     const option = $("#celestrak-objects option:selected");
     if (option.length) {
       const object = option.data("object");
-      satelliteEditor.system.orbit = _.cloneDeep(object.orbit);
+      satelliteEditor.system.orbit = _.cloneDeep(celestrakOrbit(object));
       if (/^New Satellite/.test(satelliteEditor.system.name)) {
         satelliteEditor.system.name = object.name;
         $("#satellite-name").val(satelliteEditor.system.name);
