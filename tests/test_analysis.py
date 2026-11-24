@@ -56,7 +56,9 @@ class MemberTrackTestCase(unittest.TestCase):
             orbit=CircularOrbit(altitude=700e3, inclination=98),
             instruments=[Instrument(name="imager", field_of_regard=60)],
         )
-        self.assertIsNone(compute_member_track(leo, times, START).instruments[0].footprints)
+        self.assertIsNone(
+            compute_member_track(leo, times, START).instruments[0].footprints
+        )
         # the full disk of a geostationary imager is too wide to draw as a
         # circle, so its footprint is computed by TAT-C
         geo = Satellite(

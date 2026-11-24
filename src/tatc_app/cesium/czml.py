@@ -38,6 +38,13 @@ POLE_TOLERANCE = 1e-6
 # polygons re-formed around a pole (see `display_polygons`)
 POLAR_SEAM_TOLERANCE = 10
 POLAR_SIMPLIFY_TOLERANCE = 1000
+# area (square degrees) of footprint polygons drawn as static entities, as
+# Cesium takes too long to rebuild larger time-varying polygons every frame
+# (about 2 seconds for the full disk of a geostationary imager), and the
+# tolerance (degrees) within which their shape is unchanged over time (see
+# `_footprint_polygon_packets`), as a fraction of their size
+STATIC_FOOTPRINT_AREA = 1000
+FOOTPRINT_MOTION_TOLERANCE = 0.01
 
 
 def iso(time: datetime) -> str:
@@ -386,6 +393,33 @@ def _merge_intervals(spans: Sequence[Tuple[float, float]]) -> List[Tuple[float, 
     return merged
 
 
+def _footprint_runs(
+    samples: Sequence[Tuple[float, float, Polygon, str]],
+) -> List[Tuple[float, float, Polygon, str]]:
+    """
+    Merges consecutive samples (lower and upper bounds, shape, and arc type)
+    of a footprint polygon whose shape is unchanged, within a fraction
+    `FOOTPRINT_MOTION_TOLERANCE` of the size (square root of the area) of
+    the first shape of a run, into runs drawn with the first shape. The
+    tolerance is relative as the edges of large footprints, near the limb
+    of the Earth, move far for small changes of the satellite's position.
+    """
+    runs: List[Tuple[float, float, Polygon, str]] = []
+    for lower, upper, shape, arc_type in samples:
+        if runs:
+            run_lower, run_upper, run_shape, run_arc_type = runs[-1]
+            if (
+                lower <= run_upper
+                and arc_type == run_arc_type
+                and shape.hausdorff_distance(run_shape)
+                <= FOOTPRINT_MOTION_TOLERANCE * math.sqrt(run_shape.area)
+            ):
+                runs[-1] = (run_lower, max(run_upper, upper), run_shape, run_arc_type)
+                continue
+        runs.append((lower, upper, shape, arc_type))
+    return runs
+
+
 def _footprint_polygon_packets(  # pylint: disable=too-many-arguments,too-many-locals
     identifier: str,
     name: str,
@@ -399,9 +433,16 @@ def _footprint_polygon_packets(  # pylint: disable=too-many-arguments,too-many-l
     """
     Builds packets for the time-sampled footprint polygons of an instrument
     (see `InstrumentTrack.footprints`): a parent entity (`identifier`, to
-    show or hide the footprint) and one child entity for each polygon of a
-    (multi-part) footprint, whose positions change at the midpoints between
-    samples.
+    show or hide the footprint) and child entities (`<identifier>/<n>`) for
+    the polygons of a (multi-part) footprint, which change at the midpoints
+    between samples.
+
+    Each polygon of a footprint is one child entity whose positions change
+    over time, which Cesium rebuilds every frame. Large polygons (of at
+    least `STATIC_FOOTPRINT_AREA`), which take too long to rebuild, are
+    instead one static child entity for each run of samples whose shape is
+    unchanged (see `_footprint_runs`), shown only during its run: a few for
+    a geostationary satellite.
     """
     times = [t for t, _ in footprints]
     if not any(polygons for _, polygons in footprints):
@@ -419,6 +460,15 @@ def _footprint_polygon_packets(  # pylint: disable=too-many-arguments,too-many-l
             min(end, epoch + timedelta(seconds=upper)),
         )
 
+    def child(polygon: dict, availability) -> dict:
+        return {
+            "id": f"{identifier}/{len(packets) - 1}",
+            "name": name,
+            "parent": identifier,
+            "availability": availability,
+            "polygon": {**polygon, "material": _solid(fill, alpha)},
+        }
+
     packets = [
         {
             "id": identifier,
@@ -435,50 +485,67 @@ def _footprint_polygon_packets(  # pylint: disable=too-many-arguments,too-many-l
         ]
         if not samples:
             continue
-        arc_types = {arc_type for *_, arc_type in samples}
-        polygon = {
-            "positions": [
-                {
-                    "interval": when(lower, upper),
-                    "cartographicDegrees": _ring_degrees(shape.exterior.coords[:-1]),
-                }
-                for lower, upper, shape, _ in samples
-            ],
-            "arcType": (
-                arc_types.pop()
-                if len(arc_types) == 1
-                else [
-                    {"interval": when(lower, upper), "arcType": arc_type}
-                    for lower, upper, _, arc_type in samples
-                ]
-            ),
-            "material": _solid(fill, alpha),
-        }
-        if any(len(shape.interiors) > 0 for _, _, shape, _ in samples):
-            polygon["holes"] = [
-                {
-                    "interval": when(lower, upper),
-                    "cartographicDegrees": [
-                        _ring_degrees(ring.coords[:-1]) for ring in shape.interiors
-                    ],
-                }
-                for lower, upper, shape, _ in samples
-            ]
+        if max(shape.area for _, _, shape, _ in samples) >= STATIC_FOOTPRINT_AREA:
+            for lower, upper, shape, arc_type in _footprint_runs(samples):
+                packets.append(
+                    child(
+                        {**_polygon_positions(shape), "arcType": arc_type},
+                        when(lower, upper),
+                    )
+                )
+            continue
         packets.append(
-            {
-                "id": f"{identifier}/{j}",
-                "name": name,
-                "parent": identifier,
-                "availability": [
+            child(
+                _dynamic_polygon(samples, when),
+                [
                     when(lower, upper)
                     for lower, upper in _merge_intervals(
                         [(lower, upper) for lower, upper, *_ in samples]
                     )
                 ],
-                "polygon": polygon,
-            }
+            )
         )
     return packets
+
+
+def _dynamic_polygon(
+    samples: Sequence[Tuple[float, float, Polygon, str]],
+    when,
+) -> dict:
+    """
+    Builds the positions, holes, and arc types of a CZML polygon that change
+    over the samples (lower and upper bounds, shape, and arc type) of a
+    footprint polygon, with `when` formatting the interval between bounds.
+    """
+    arc_types = {arc_type for *_, arc_type in samples}
+    polygon = {
+        "positions": [
+            {
+                "interval": when(lower, upper),
+                "cartographicDegrees": _ring_degrees(shape.exterior.coords[:-1]),
+            }
+            for lower, upper, shape, _ in samples
+        ],
+        "arcType": (
+            arc_types.pop()
+            if len(arc_types) == 1
+            else [
+                {"interval": when(lower, upper), "arcType": arc_type}
+                for lower, upper, _, arc_type in samples
+            ]
+        ),
+    }
+    if any(len(shape.interiors) > 0 for _, _, shape, _ in samples):
+        polygon["holes"] = [
+            {
+                "interval": when(lower, upper),
+                "cartographicDegrees": [
+                    _ring_degrees(ring.coords[:-1]) for ring in shape.interiors
+                ],
+            }
+            for lower, upper, shape, _ in samples
+        ]
+    return polygon
 
 
 def site_packets(

@@ -61,7 +61,9 @@ def parse_times(times: List[str]) -> pd.DatetimeIndex:
     )
 
 
-def has_circular_footprint(instrument, orbit_track: Optional[pd.DataFrame] = None) -> bool:
+def has_circular_footprint(
+    instrument, orbit_track: Optional[pd.DataFrame] = None
+) -> bool:
     """
     Checks whether an instrument's footprint is the circle spanned by its
     swath width: a (simple) instrument, whose view is a cone centered on
