@@ -1,20 +1,8 @@
 // Design tab: orbit preview of satellites and constellations (orbit tracks
 // and instrument footprints of all member satellites, animated from a CZML
 // document). The preview computes all satellites and instruments, and shows
-// those checked in the shared filter (see filter.js).
-
-function icrf(scene, time) {
-  if (scene.mode !== Cesium.SceneMode.SCENE3D) {
-    return;
-  }
-  const icrfToFixed = Cesium.Transforms.computeIcrfToFixedMatrix(time);
-  if (Cesium.defined(icrfToFixed)) {
-    const camera = viewer.camera;
-    const offset = Cesium.Cartesian3.clone(camera.position);
-    const transform = Cesium.Matrix4.fromRotationTranslation(icrfToFixed);
-    camera.lookAtTransform(transform, offset);
-  }
-}
+// those checked in the shared filter (see filter.js) with the paths and
+// footprints chosen in the display panel (see display.js).
 
 let previewResult = null;
 // satellites and constellations of the preview: [{name, members: [{name,
@@ -32,8 +20,8 @@ function applyPreviewDisplayOptions() {
   if (!source) {
     return;
   }
-  const path = $("#display-path").is(":checked");
-  const footprint = $("#display-footprint").is(":checked");
+  const path = isPathShown();
+  const footprint = isFootprintShown();
   _.forEach(previewLayers, function(system) {
     const systemShown = isFilterChecked(filterKey("sys", system.name));
     _.forEach(system.members, function(member) {
@@ -166,18 +154,7 @@ $(document).ready(function() {
   start.setUTCMinutes(0, 0, 0);
   $("#display-start").val(toDateTimeInput(start));
 
-  $("#display-observer").change(function() {
-    if ($(this).val() == "inertial") {
-      viewer.scene.postUpdate.addEventListener(icrf);
-    } else {
-      viewer.scene.postUpdate.removeEventListener(icrf);
-      viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
-    }
-  });
   $("#display-path, #display-footprint").change(applyPreviewDisplayOptions);
-  $("#display-lighting").change(function() {
-    viewer.scene.globe.enableLighting = $(this).is(":checked");
-  });
   $("#orbit-analyze").click(previewOrbits);
   $("#orbit-data").click(showPreviewData);
   onLayerFilterChange(applyPreviewDisplayOptions);
