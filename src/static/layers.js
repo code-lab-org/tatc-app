@@ -54,7 +54,31 @@ function setClock(start, stop, multiplier) {
 
 // --- Color scales and legend ---
 
-const VIRIDIS = createColormap({ colormap: "viridis", nshades: 64, format: "hex" });
+// Stops (position, RGB) of the viridis colormap.
+const VIRIDIS_STOPS = [
+  [0, [68, 1, 84]], [0.13, [71, 44, 122]], [0.25, [59, 81, 139]],
+  [0.38, [44, 113, 142]], [0.5, [33, 144, 141]], [0.63, [39, 173, 129]],
+  [0.75, [92, 200, 99]], [0.88, [170, 220, 50]], [1, [253, 231, 37]]
+];
+
+// Interpolates a number of hex colors (`#rrggbb`) linearly between stops.
+function interpolateColors(stops, count) {
+  function hex(rgb) {
+    return "#" + _.map(rgb, function(v) { return _.padStart(Math.round(v).toString(16), 2, "0"); }).join("");
+  }
+  const colors = [];
+  for (let s = 0; s < stops.length - 1; s++) {
+    const from = stops[s], to = stops[s + 1];
+    const steps = Math.round(to[0] * (count - 1)) - Math.round(from[0] * (count - 1));
+    for (let j = 0; j < steps; j++) {
+      colors.push(hex(_.map(from[1], function(v, k) { return v + (to[1][k] - v) * j / steps; })));
+    }
+  }
+  colors.push(hex(_.last(stops)[1]));
+  return colors;
+}
+
+const VIRIDIS = interpolateColors(VIRIDIS_STOPS, 64);
 
 // A linear color scale over [min, max]; `reverse` maps small values to the
 // bright end (for example, short revisit times).

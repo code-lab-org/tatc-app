@@ -29,6 +29,7 @@ class TargetLayer {
   //   cells:       GeoJSON feature collection of cells
   //   timeline:    {epoch, target, start, end} events of targets
   //   cellTargets: {cell_id: [target indices]}
+  //   arcType:     Cesium.ArcType of cell edges
   constructor(options) {
     this.points = options.points.features;
     this.cells = options.cells ? options.cells.features : [];
@@ -48,7 +49,7 @@ class TargetLayer {
     }));
     this.cellCollection = viewer.scene.primitives.add(new Cesium.PrimitiveCollection());
     this.cellIds = _.map(this.cells, function(feature, i) { return feature.properties.cell_id || i; });
-    this.cellPrimitive = addCellPrimitives(this.cells, this.cellCollection, null, function() {
+    this.cellPrimitive = addCellPrimitives(this.cells, this.cellCollection, null, options.arcType, function() {
       return MISSING_COLOR;
     });
 
@@ -58,19 +59,16 @@ class TargetLayer {
   // Indexes the start and end times of events by target (seconds since epoch).
   indexEvents(timeline) {
     const n = this.points.length;
-    this.starts = _.times(n, function() { return []; });
-    this.ends = _.times(n, function() { return []; });
+    const starts = _.times(n, function() { return []; });
+    const ends = _.times(n, function() { return []; });
     for (let k = 0; k < timeline.target.length; k++) {
       const t = timeline.target[k];
-      this.starts[t].push(timeline.start[k]);
-      this.ends[t].push(timeline.end[k] === null ? Infinity : timeline.end[k]);
+      starts[t].push(timeline.start[k]);
+      ends[t].push(timeline.end[k] === null ? Infinity : timeline.end[k]);
     }
+    this.starts = _.map(starts, function(values) { return Float64Array.from(values); });
     // ends of overlapping events may be out of order
-    this.sortedEnds = _.map(this.ends, function(ends) {
-      return Float64Array.from(ends).sort();
-    });
-    this.starts = _.map(this.starts, function(starts) { return Float64Array.from(starts); });
-    this.duration = timeline.start.length ? _.max(timeline.start) : 0;
+    this.sortedEnds = _.map(ends, function(values) { return Float64Array.from(values).sort(); });
   }
 
   // Number of events started by time t.
@@ -81,16 +79,15 @@ class TargetLayer {
   // Time (seconds) since the last event ended (0 during an event), or NaN
   // if no event has started.
   timeSince(i, t) {
-    const k = upperBound(this.starts[i], t) - 1;
-    if (k < 0) {
+    if (this.countStarted(i, t) == 0) {
       return NaN;
     }
-    // the latest end of events started by t (events may overlap)
-    let latestEnd = -Infinity;
-    for (let j = k; j >= 0 && j > k - 4; j--) {
-      latestEnd = Math.max(latestEnd, this.ends[i][j]);
+    if (this.countPending(i, t) > 0) {
+      return 0;
     }
-    return latestEnd >= t ? 0 : t - latestEnd;
+    // all events started by t have ended: the latest ended last
+    const ends = this.sortedEnds[i];
+    return t - ends[upperBound(ends, t) - 1];
   }
 
   // Number of events started but not ended by time t.

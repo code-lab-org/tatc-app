@@ -11,85 +11,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/css/bootstrap.min.css" integrity="sha512-P5MgMn1jBN01asBgU0z60Qk4QxiXo86+wlFahKrsQf37c9cro517WzVSPPV1tDKzhku2iJ2FVgL67wG03SGnNA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" integrity="sha512-iBBXm8fW90+nuLcSKlbmrPcLa0OT92xO1BIsZ+ywDWZCvqsWgccV3gFoRBv0z+8dLJgyAHIhR35VZc2oM/gI1w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="stylesheet" href="https://cdn.datatables.net/1.10.25/css/dataTables.bootstrap4.min.css" />
-  <style>
-    /* Overlay geometry: the rail and drawer float over the globe, clear of
-       Cesium's animation widget and timeline at the bottom-left. */
-    :root {
-      --overlay-gap: 8px;
-      --overlay-bottom: 120px;
-      --rail-width: 48px;
-      --drawer-width: 440px;
-    }
-    html, body { height: 100%; margin: 0; overflow: hidden; }
-    #viewer, #cesiumContainer { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
-    #rail {
-      position: absolute; z-index: 20;
-      top: var(--overlay-gap); bottom: var(--overlay-bottom); left: var(--overlay-gap);
-      width: var(--rail-width); padding: 6px 0;
-      display: flex; flex-direction: column; align-items: center;
-      background: rgba(33, 37, 41, 0.88); border-radius: 6px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-    }
-    #rail .nav { flex-direction: column; align-items: center; flex-wrap: nowrap; }
-    .rail-brand { color: #fff; font-weight: 700; font-size: 11px; margin-bottom: 8px; }
-    .rail-brand:hover { color: #fff; text-decoration: none; }
-    .rail-btn {
-      width: 36px; height: 36px; margin: 2px 0; padding: 0;
-      display: flex; align-items: center; justify-content: center;
-      color: #adb5bd; border-radius: 4px; font-size: 16px;
-    }
-    .rail-btn:hover, .rail-btn:focus { color: #fff; background: rgba(255, 255, 255, 0.12); text-decoration: none; }
-    .rail-btn.active { color: #fff; background: #007bff; }
-    .rail-bottom { margin-top: auto; display: flex; flex-direction: column; align-items: center; }
-    /* The drawer is as tall as its content, up to the space above Cesium's
-       widgets (then its body scrolls). */
-    #drawer {
-      position: absolute; z-index: 20;
-      top: var(--overlay-gap);
-      max-height: calc(100% - var(--overlay-gap) - var(--overlay-bottom));
-      left: calc(2 * var(--overlay-gap) + var(--rail-width));
-      width: var(--drawer-width); min-width: 300px;
-      max-width: calc(100vw - 3 * var(--overlay-gap) - var(--rail-width));
-      display: flex; flex-direction: column;
-      overflow: hidden; resize: horizontal;
-      background: rgba(255, 255, 255, 0.92);
-      -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-      border-radius: 6px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-      transition: transform 0.2s ease, opacity 0.2s ease, visibility 0.2s;
-    }
-    #drawer.collapsed { transform: translateX(-16px); opacity: 0; visibility: hidden; pointer-events: none; }
-    .drawer-header {
-      display: flex; justify-content: space-between; align-items: center;
-      padding: 6px 6px 6px 12px; border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-    }
-    .drawer-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
-    /* lists grow with their items, up to a maximum height */
-    .list-group.form-control { height: auto; min-height: 2.5em; }
-    #drawer .form-control, #drawer .input-group-text { padding-left: 0.5rem; padding-right: 0.5rem; }
-    #drawer select.form-control { padding-right: 0.25rem; }
-    input:invalid { background-color: #fcc; }
-    .colorbar { display: flex; height: 14px; border: 1px solid #999; }
-    .colorbar span { flex: 1 1 0; }
-    .colorbar-labels { display: flex; justify-content: space-between; font-size: 11px; }
-    .mono { font-family: monospace; font-size: 11px; }
-    .legend-overlay {
-      position: absolute; right: 8px; bottom: 40px; z-index: 10; min-width: 220px;
-      background: rgba(40, 40, 40, 0.8); color: #fff; padding: 6px 8px; border-radius: 4px;
-      font-size: 12px; display: none;
-    }
-    .legend-overlay .colorbar { border-color: #666; }
-    .list-badge { font-size: 10px; }
-    .analysis-panel { display: none; }
-    .preview-layer + .preview-layer { border-top: 1px solid #eee; padding-top: 2px; }
-    .preview-layer-details { padding-left: 1.25rem; }
-    .preview-layer-hidden { opacity: 0.5; }
-    .preview-layer-members { max-height: 8em; overflow-y: auto; }
-    .preview-swatch {
-      display: inline-block; width: 10px; height: 10px; margin-right: 4px;
-      border-radius: 2px; border: 1px solid rgba(0, 0, 0, 0.3); vertical-align: -1px;
-    }
-    .preview-swatch-none { background: repeating-linear-gradient(45deg, #ccc, #ccc 2px, #fff 2px, #fff 4px); }
-  </style>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 
 <body>
@@ -268,12 +190,7 @@
             <div class="form-group row">
               <label for="analysis-type" class="col-sm-3 col-form-label">Analysis</label>
               <div class="col-sm-9">
-                <select class="form-control" id="analysis-type">
-                  <option value="coverage">Coverage and Revisit</option>
-                  <option value="swaths">Ground Track Swaths</option>
-                  <option value="latency">Data Latency (Ground Stations)</option>
-                  <option value="access">Point Access (Overflight)</option>
-                </select>
+                <select class="form-control" id="analysis-type"></select>
               </div>
             </div>
             <p class="small text-muted" id="analysis-description"></p>
@@ -345,12 +262,7 @@
               <div class="form-group row">
                 <label for="coverage-mode" class="col-sm-3 col-form-label">Display</label>
                 <div class="col-sm-9">
-                  <select class="form-control" id="coverage-mode">
-                    <option value="samples">Observations so far (animated)</option>
-                    <option value="since">Time since last observation (animated)</option>
-                    <option value="revisit">Mean revisit time (final)</option>
-                    <option value="final-samples">Number of observations (final)</option>
-                  </select>
+                  <select class="form-control" id="coverage-mode"></select>
                 </div>
               </div>
             </div>
@@ -400,10 +312,7 @@
               <div class="form-group row">
                 <label for="latency-mode" class="col-sm-3 col-form-label">Display</label>
                 <div class="col-sm-9">
-                  <select class="form-control" id="latency-mode">
-                    <option value="pending">Observations awaiting downlink (animated)</option>
-                    <option value="latency">Mean data latency (final)</option>
-                  </select>
+                  <select class="form-control" id="latency-mode"></select>
                 </div>
               </div>
             </div>
@@ -892,15 +801,15 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js" integrity="sha512-WFN04846sdKMIP5LKNphMaWzU7YpMyCU245etK3g/2ARYbPK9Ub18eG+ljU96qKRCWh+quCY7yefSmlkQw1ANQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdn.datatables.net/1.10.25/js/jquery.dataTables.min.js"></script>
   <script src="https://cdn.datatables.net/1.10.25/js/dataTables.bootstrap4.min.js"></script>
-  <script src="colormap.js"></script>
   <script src="index.js"></script>
   <script src="tasks.js"></script>
   <script src="layers.js"></script>
   <script src="schemas.js"></script>
-  <script src="satellites.js"></script>
+  <script src="design-state.js"></script>
+  <script src="satellite-dialog.js"></script>
   <script src="filter.js"></script>
   <script src="catalog.js"></script>
-  <script src="design.js"></script>
+  <script src="preview.js"></script>
   <script src="region.js"></script>
   <script src="timeline-layer.js"></script>
   <script src="analysis.js"></script>

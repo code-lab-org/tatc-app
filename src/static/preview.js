@@ -35,9 +35,9 @@ function applyPreviewDisplayOptions() {
   const path = $("#display-path").is(":checked");
   const footprint = $("#display-footprint").is(":checked");
   _.forEach(previewLayers, function(system) {
-    const systemShown = isLayerShown(layerKey("sys", system.name));
+    const systemShown = isFilterChecked(filterKey("sys", system.name));
     _.forEach(system.members, function(member) {
-      const shown = systemShown && isLayerShown(layerKey("sat", system.name, member.name));
+      const shown = systemShown && isFilterChecked(filterKey("sat", system.name, member.name));
       const satellite = source.entities.getById("sat/" + member.name);
       if (satellite) {
         satellite.show = shown;
@@ -46,7 +46,7 @@ function applyPreviewDisplayOptions() {
       for (let i = 0; i < member.instruments; i++) {
         const entity = source.entities.getById("fp/" + member.name + "/" + i);
         if (entity) {
-          entity.show = shown && footprint && isLayerShown(layerKey("ins", system.name, i));
+          entity.show = shown && footprint && isFilterChecked(filterKey("ins", system.name, i));
         }
       }
     });
@@ -81,19 +81,23 @@ function buildPreviewLayers(result, systems, source) {
     }
     group.members.push({ name: track.name, instruments: track.instruments.length });
     _.forEach(track.instruments, function(instrument, i) {
-      const insKey = layerKey("ins", group.name, i);
+      const insKey = filterKey("ins", group.name, i);
       withFootprint[insKey] = withFootprint[insKey] || hasFootprint(source, "fp/" + track.name + "/" + i);
     });
   });
-  setLayersWithoutFootprint(_.filter(_.keys(withFootprint), function(k) { return !withFootprint[k]; }));
+  setFilterWithoutFootprint(_.filter(_.keys(withFootprint), function(k) { return !withFootprint[k]; }));
   return groups;
 }
 
 function previewOrbits() {
   const satellites = getSatellites();
   if (satellites.length == 0) {
+    // drop any run in progress, so its results do not show
+    cancelAnalysis("design");
     clearCzmlLayer("design");
+    previewResult = null;
     previewLayers = null;
+    $("#orbit-data").prop("disabled", true);
     return;
   }
   const systems = _.map(satellites, "name");
@@ -110,7 +114,6 @@ function previewOrbits() {
       step: period.step,
       segment: null
     },
-    resultUrl: function(taskId) { return "/analyze/swaths/" + taskId; },
     button: $("#orbit-analyze"),
     progress: $("#orbit-progress"),
     error: $("#orbit-error"),
@@ -148,9 +151,9 @@ function showPreviewData() {
       });
     }
   });
-  showResultsTable(
-    "Orbit Tracks",
-    [
+  showResultsTable({
+    title: "Orbit Tracks",
+    columns: [
       { title: "Time (UTC)", key: "time" },
       { title: "Satellite", key: "satellite" },
       { title: "Instrument", key: "instrument" },
@@ -159,10 +162,10 @@ function showPreviewData() {
       { title: "Altitude (km)", key: "altitude_km", format: function(v) { return v.toFixed(2); } },
       { title: "Swath width (km)", key: "swath_width_km", format: function(v) { return v.toFixed(1); } }
     ],
-    rows,
-    "orbit-tracks",
-    "Swath width spans the field of regard of each instrument."
-  );
+    rows: rows,
+    filename: "orbit-tracks",
+    note: "Swath width spans the field of regard of each instrument."
+  });
 }
 
 $(document).ready(function() {
