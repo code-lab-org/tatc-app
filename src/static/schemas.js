@@ -191,12 +191,13 @@ const PLATFORM_SPECS = {
   }
 };
 
+// (the lighting constraints share a row)
 const COMMON_INSTRUMENT_FIELDS = [
   { key: "min_access_time", label: "Min. access", type: "duration", unit: "s", min: 0, step: "any", default: 0 },
-  { key: "req_target_sunlit", label: "Target", type: "select", default: null, options: SUNLIT_OPTIONS },
-  { key: "req_self_sunlit", label: "Satellite", type: "select", default: null, options: SUNLIT_OPTIONS },
-  _.assign({ key: "min_target_solar_elevation", label: "Min. solar elev.", type: "number", min: -90, max: 90, optional: true }, ANGLE),
-  _.assign({ key: "max_target_solar_elevation", label: "Max. solar elev.", type: "number", min: -90, max: 90, optional: true }, ANGLE)
+  { key: "req_target_sunlit", label: "Target", type: "select", default: null, options: SUNLIT_OPTIONS, group: "lighting" },
+  { key: "req_self_sunlit", label: "Satellite", type: "select", default: null, options: SUNLIT_OPTIONS, group: "lighting" },
+  _.assign({ key: "min_target_solar_elevation", label: "Min. solar elev.", type: "number", min: -90, max: 90, optional: true, group: "lighting" }, ANGLE),
+  _.assign({ key: "max_target_solar_elevation", label: "Max. solar elev.", type: "number", min: -90, max: 90, optional: true, group: "lighting" }, ANGLE)
 ];
 
 const INSTRUMENT_SPECS = {
@@ -209,10 +210,10 @@ const INSTRUMENT_SPECS = {
   pointed: {
     label: "Pointed (field of view)",
     fields: [
-      _.assign({ key: "cross_track_field_of_view", label: "Cross-track FOV", type: "number", min: 0, max: 180, default: 30 }, ANGLE),
-      _.assign({ key: "along_track_field_of_view", label: "Along-track FOV", type: "number", min: 0, max: 180, default: 1 }, ANGLE),
-      _.assign({ key: "roll_angle", label: "Roll", type: "number", min: -180, max: 180, default: 0 }, ANGLE),
-      _.assign({ key: "pitch_angle", label: "Pitch", type: "number", min: -180, max: 180, default: 0 }, ANGLE),
+      _.assign({ key: "cross_track_field_of_view", label: "Cross-track FOV", type: "number", min: 0, max: 180, default: 30, group: "fov" }, ANGLE),
+      _.assign({ key: "along_track_field_of_view", label: "Along-track FOV", type: "number", min: 0, max: 180, default: 1, group: "fov" }, ANGLE),
+      _.assign({ key: "roll_angle", label: "Roll", type: "number", min: -180, max: 180, default: 0, group: "pointing" }, ANGLE),
+      _.assign({ key: "pitch_angle", label: "Pitch", type: "number", min: -180, max: 180, default: 0, group: "pointing" }, ANGLE),
       { key: "is_rectangular", label: "Rectangular", type: "checkbox", default: false },
       _.assign({ key: "field_of_regard", label: "Field of regard", type: "number", min: 0, max: 360, optional: true, help: "Blank for the default" }, ANGLE)
     ].concat(COMMON_INSTRUMENT_FIELDS)
@@ -222,8 +223,8 @@ const INSTRUMENT_SPECS = {
     fields: [
       _.assign({ key: "cone_angle", label: "Cone angle", type: "number", min: 0, max: 90, default: 45 }, ANGLE),
       _.assign({ key: "along_track_field_of_view", label: "Along-track FOV", type: "number", min: 0, max: 180, default: 1 }, ANGLE),
-      _.assign({ key: "scan_center_azimuth", label: "Scan center", type: "number", min: -180, max: 180, default: 0 }, ANGLE),
-      _.assign({ key: "scan_half_width", label: "Scan half-width", type: "number", min: 0, max: 180, default: 180 }, ANGLE),
+      _.assign({ key: "scan_center_azimuth", label: "Scan center", type: "number", min: -180, max: 180, default: 0, group: "scan" }, ANGLE),
+      _.assign({ key: "scan_half_width", label: "Scan half-width", type: "number", min: 0, max: 180, default: 180, group: "scan" }, ANGLE),
       _.assign({ key: "field_of_regard", label: "Field of regard", type: "number", min: 0, max: 360, optional: true, help: "Blank for the default" }, ANGLE)
     ].concat(COMMON_INSTRUMENT_FIELDS)
   }
@@ -361,25 +362,34 @@ function fromFormValue(field, value) {
 // columns (by default, two). Text fields and elements span a row, date-times
 // two columns of rows of four or more (they need about twice the width of a
 // number), and other fields one column, unless they set `span` (a number of
-// columns).
+// columns). Consecutive fields of a `group` (such as a minimum and maximum)
+// share a row: a group that does not fit in the rest of a row starts the next.
 // Calls `onChange(key)` after each change is written to the object.
 function renderFields(container, fields, object, onChange, columns) {
   columns = columns || 2;
+  function spanOf(field) {
+    const wide = field.type == "tle" || field.type == "omm" || field.type == "text";
+    return Math.min(field.span || (wide ? columns : field.type == "datetime" && columns >= 4 ? 2 : 1), columns);
+  }
+  const shown = _.filter(fields, function(field) {
+    return !field.showIf || field.showIf(object);
+  });
   container.empty();
   let row = null;
   let count = 0;
-  _.forEach(fields, function(field) {
-    if (field.showIf && !field.showIf(object)) {
-      return;
-    }
+  _.forEach(shown, function(field, i) {
     if (field.type == "note") {
       container.append($("<p>").addClass("small text-muted").text(field.label));
       return;
     }
     const id = "field-" + _.uniqueId();
-    const wide = field.type == "tle" || field.type == "omm" || field.type == "text";
-    const span = Math.min(field.span || (wide ? columns : field.type == "datetime" && columns >= 4 ? 2 : 1), columns);
-    if (!row || count + span > columns) {
+    const span = spanOf(field);
+    // the span of the group the field starts (if any)
+    let groupSpan = span;
+    if (field.group && (i == 0 || shown[i - 1].group != field.group)) {
+      groupSpan = _.sumBy(_.takeWhile(shown.slice(i), { group: field.group }), spanOf);
+    }
+    if (!row || count + Math.min(groupSpan, columns) > columns) {
       row = $("<div>").addClass("form-row");
       container.append(row);
       count = 0;
