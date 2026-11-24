@@ -303,6 +303,7 @@ function addCatalogInstrument() {
     return;
   }
   const period = getAnalysisPeriod();
+  const edit = currentEdit();
   const button = $("#instrument-catalog-add").prop("disabled", true);
   showInstrumentCatalogStatus("Adding " + entry.name + "…");
   postJson("/catalog/instruments/" + encodeURIComponent(entry.id) + "/add", {
@@ -313,8 +314,10 @@ function addCatalogInstrument() {
     end: period.end.toISOString(),
     replace: $("#instrument-catalog-replace").is(":checked")
   }).done(function(result) {
-    // the satellite dialog may close meanwhile
-    if (!getEditedSystem()) {
+    // the satellite dialog may close, edit another satellite, or change
+    // the system meanwhile
+    if (!isCurrentEdit(edit)) {
+      showInstrumentCatalogStatus(entry.name + " was not added: the satellite changed meanwhile.", "text-danger");
       return;
     }
     if (result.attitude_changed && !confirm(

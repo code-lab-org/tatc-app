@@ -141,20 +141,10 @@ function addCellPrimitives(features, collection, outlines, arcType, colorFunctio
   }));
 }
 
-const GRID_ERROR_PREFIX = "Grid: ";
-
-// Hides a grid error (but not other analysis errors sharing the alert).
-function clearGridError() {
-  const error = $("#analysis-error");
-  if (_.startsWith(error.text(), GRID_ERROR_PREFIX)) {
-    error.hide().text("");
-  }
-}
-
 let gridRequest = 0;
 function generateRegionGrid() {
   const request = ++gridRequest;
-  clearGridError();
+  $("#grid-error").hide().text("");
   $("#region-generate").prop("disabled", true).find(".spinner-border").show();
   clearRegionGrid();
   showRegionGrid(true);
@@ -178,7 +168,7 @@ function generateRegionGrid() {
     .fail(function(xhr) {
       // ignore failures of superseded requests
       if (request == gridRequest) {
-        $("#analysis-error").text(GRID_ERROR_PREFIX + formatError(xhr)).show();
+        $("#grid-error").text(formatError(xhr)).show();
       }
     })
     .always(function() {
@@ -195,9 +185,17 @@ function updateCoordinatesText() {
   })));
 }
 
-function setRegionCoordinates(coordinates) {
-  regionPoints = Cesium.Cartesian3.fromDegreesArray(_.flatten(coordinates));
+// Sets the vertices (Cartesian3) of the custom region, updating its polygon
+// and coordinates.
+function setRegionPoints(points) {
+  regionPoints = points;
   regionEntity.polygon.hierarchy = new Cesium.PolygonHierarchy(regionPoints);
+  updateCoordinatesText();
+}
+
+// Sets the vertices of the custom region from [longitude, latitude] pairs.
+function setRegionCoordinates(coordinates) {
+  setRegionPoints(Cesium.Cartesian3.fromDegreesArray(_.flatten(coordinates)));
 }
 
 function changeRegionType() {
@@ -230,7 +228,6 @@ $(document).ready(function() {
     show: false
   });
   setRegionCoordinates([[-130, 20], [-130, 50], [-60, 50], [-60, 20]]);
-  updateCoordinatesText();
 
   let editingCoordinates = false;
   $("#edit-coordinates").click(function() {
@@ -251,8 +248,8 @@ $(document).ready(function() {
         generateRegionGrid();
       } catch (e) {
         alert("Invalid coordinates: " + e.message);
+        updateCoordinatesText();
       }
-      updateCoordinatesText();
     }
   });
 
@@ -261,11 +258,6 @@ $(document).ready(function() {
   // leaves the grid to generate when the region shows again)
   const selectButton = $("#select-coordinates");
   let formerPoints = [];
-  function setRegionPoints(points) {
-    regionPoints = points;
-    regionEntity.polygon.hierarchy = new Cesium.PolygonHierarchy(regionPoints);
-    updateCoordinatesText();
-  }
   function addRegionPoint(cartesian) {
     setRegionPoints(regionPoints.concat([cartesian]));
   }

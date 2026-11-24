@@ -47,7 +47,7 @@ function getFilterSystems() {
       instruments: _.map(instruments, function(instrument, i) {
         return {
           name: instrument.name,
-          color: (item.instrumentColors || [])[i] || defaultInstrumentColor(item.color, i, instruments.length)
+          color: instrumentColor(item, i)
         };
       }),
       members: item.validation.status == "valid" ? _.map(item.validation.members, "name") : null
@@ -154,10 +154,7 @@ function getFilteredInputs() {
     }
     let colors = requestInstrumentColors(item);
     if (kept.length < instruments.length) {
-      const chosen = item.instrumentColors || [];
-      colors = _.map(kept, function(i) {
-        return chosen[i] || defaultInstrumentColor(item.color, i, instruments.length);
-      });
+      colors = _.map(kept, function(i) { return instrumentColor(item, i); });
       inputs.satellites.push(_.assign({}, system, { instruments: _.at(instruments, kept) }));
     } else {
       inputs.satellites.push(system);

@@ -1,5 +1,6 @@
 // Manages result layers in the Cesium viewer: CZML data sources (animated
-// satellites, links, and swaths) and the legend overlay.
+// satellites, links, and swaths), and the color scales and colorbars of
+// legends.
 
 const czmlSources = {};
 
@@ -110,21 +111,4 @@ function renderColorbar(container, scale) {
 
 function formatNumber(value, digits) {
   return Number(value).toLocaleString(undefined, { maximumFractionDigits: digits === undefined ? 1 : digits });
-}
-
-// Shows the legend overlay (and the colorbar settings of the Analysis tab).
-function showLegend(title, scale, unit) {
-  $("#legend-title").text(title);
-  renderColorbar($("#legend-colorbar"), scale);
-  $("#legend-min").text(formatNumber(scale.min) + " " + unit);
-  $("#legend-max").text(formatNumber(scale.max) + " " + unit);
-  $("#legend-overlay").show();
-  $("#colorbar-title").text(title);
-  $(".colorbar-unit").text(unit);
-  $("#colorbar-group").show();
-}
-
-function hideLegend() {
-  $("#legend-overlay").hide();
-  $("#colorbar-group").hide();
 }

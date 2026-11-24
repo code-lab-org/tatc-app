@@ -14,17 +14,15 @@ from fastapi import APIRouter
 from geojson_pydantic import FeatureCollection
 
 from ..analysis.endpoints import (
-    MSGPACK_RESPONSES,
     chunk,
     enqueue_analysis,
     get_analysis_result,
+    serialize_members,
 )
-from ..analysis.tasks import serialize_members
 from ..celery.schemas import CeleryTask
 from ..celery.utils import enqueue, get_task_result
 from ..cesium.czml import animation_packets, swath_packets
-from ..satellites import expand_members
-from ..utils.serialization import from_geojson
+from ..utils.serialization import MSGPACK_RESPONSES, from_geojson
 from .schemas import (
     GroundTrackAnalysisRequest,
     OrbitTrackAnalysisRequest,
@@ -32,6 +30,7 @@ from .schemas import (
     SwathAnalysisResult,
 )
 from .tasks import (
+    SWATH_COLUMNS,
     collect_ground_track_task,
     collect_orbit_track_task,
     collect_swaths_task,
@@ -48,8 +47,20 @@ TRACK_CHUNK_SIZE = 100
 
 
 def _enqueue_track(task, request: OrbitTrackAnalysisRequest) -> dict:
-    members = serialize_members(expand_members([request.satellite]))
-    mask = request.model_dump(mode="json").get("mask", None)
+    """
+    Enqueues tasks to collect the (orbit or ground) tracks of the members of
+    a satellite or constellation, in parallel by member and chunk of times,
+    followed by a task that merges their feature collections.
+
+    Args:
+        task (celery.Task): The task to collect a track.
+        request (OrbitTrackAnalysisRequest): The request.
+
+    Returns:
+        dict: The enqueued task (see `celery.utils.enqueue`).
+    """
+    members = serialize_members(request.get_members())
+    mask = request.mask.model_dump(mode="json") if request.mask else None
     return enqueue(
         chord(
             group(
@@ -210,22 +221,11 @@ def retrieve_swath_analysis_czml(task_id: UUID):
         List[dict]: CZML packets.
     """
     result = _get_swath_result(task_id)
-    tracks = result.tracks
     swaths = from_geojson(
         result.swaths.model_dump_json(),
         datetimes=["start", "end"],
-        columns=["satellite", "instrument", "start", "end", "geometry"],
+        columns=SWATH_COLUMNS,
     )
     return animation_packets("Swath analysis", result) + swath_packets(
-        swaths,
-        tracks.get_end(),
-        result.colors,
-        instruments={
-            track.name: [instrument.name for instrument in track.instruments]
-            for track in tracks.tracks
-        },
-        instrument_colors={
-            track.name: [instrument.color for instrument in track.instruments]
-            for track in tracks.tracks
-        },
+        swaths, result.tracks.get_end(), result.colors, tracks=result.tracks
     )

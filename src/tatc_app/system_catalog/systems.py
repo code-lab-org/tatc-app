@@ -45,7 +45,7 @@ MAX_DURATION = timedelta(days=366)
 
 
 class CatalogInstrument(BaseModel):
-    """An instrument of the instrument catalog."""
+    """An instrument a spacecraft carries: an entry of the instrument catalog."""
 
     id: str = Field(..., description="Instrument entry identifier.")
     name: str = Field(..., description="Instrument name.")

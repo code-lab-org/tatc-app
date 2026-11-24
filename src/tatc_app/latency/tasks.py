@@ -20,7 +20,7 @@ from tatc.schemas import GroundStation, Satellite
 
 from ..analysis.tasks import combine_animation, get_cell_targets, tag, untag
 from ..analysis.timeline import build_timeline
-from ..utils.serialization import concat, from_geojson, to_geojson
+from ..utils.serialization import concat, empty_frame, from_geojson, to_geojson
 from ..worker import app
 from .schemas import LatencyAnalysisResult
 
@@ -35,10 +35,6 @@ LATENCY_COLUMNS = [
     "geometry",
 ]
 CONTACT_COLUMNS = ["ground_station", "satellite", "start", "end", "geometry"]
-
-
-def _empty(columns: List[str]) -> gpd.GeoDataFrame:
-    return gpd.GeoDataFrame(columns=columns, geometry="geometry", crs="EPSG:4326")
 
 
 def collect_latencies(
@@ -66,13 +62,13 @@ def collect_latencies(
     """
     downlinks = collect_downlinks(stations, [satellite], start, end)
     contacts = (
-        _empty(CONTACT_COLUMNS) if downlinks.empty else downlinks[CONTACT_COLUMNS]
+        empty_frame(CONTACT_COLUMNS) if downlinks.empty else downlinks[CONTACT_COLUMNS]
     )
     observations = collect_observations(
         points, [satellite], start, end, instrument_index=None
     )
     if observations.empty:
-        return _empty(LATENCY_COLUMNS), contacts
+        return empty_frame(LATENCY_COLUMNS), contacts
     latencies = compute_latencies(
         observations, downlinks, during_contact=during_contact
     )

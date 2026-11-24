@@ -116,9 +116,10 @@ class TargetLayer {
     return max;
   }
 
-  // Sets the display mode:
-  //   {pointValue(i, t, feature), cellValue(cellIndex, feature, targetValues)?,
-  //    scale, animated}
+  // Sets the display mode: {pointValue(i, t, feature), cellValue(c, feature)?,
+  // scale, animated}, with the value of point i at time t (seconds since the
+  // epoch) and, optionally, of cell c (by default, the mean value of the
+  // points within the cell); an animated mode updates as the clock advances.
   setMode(mode) {
     this.mode = mode;
     this.lastTime = null;

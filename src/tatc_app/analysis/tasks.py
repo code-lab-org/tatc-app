@@ -21,7 +21,7 @@ from tatc.schemas import Instrument, Satellite
 
 from ..worker import app
 from .colors import assign_colors
-from .timeline import MemberTrack, OrbitTracks, build_member_track
+from .tracks import MemberTrack, OrbitTracks, build_member_track
 
 
 def tag(kind: str, data) -> dict:
@@ -38,16 +38,10 @@ def untag(results: list, kind: str) -> list:
     return [r["data"] for r in results if r["kind"] == kind]
 
 
-def serialize_members(members: List[Satellite]) -> List[str]:
-    """
-    Serializes member satellites to pass to tasks.
-    """
-    return [member.model_dump_json() for member in members]
-
-
 def deserialize_members(members: List[str]) -> List[Satellite]:
     """
-    Deserializes member satellites passed to tasks.
+    Deserializes member satellites passed to tasks (see
+    `endpoints.serialize_members`).
     """
     return [Satellite.model_validate_json(member) for member in members]
 
@@ -126,31 +120,6 @@ def collect_member_track_task(
     for instrument, color in zip(track.instruments, colors or []):
         instrument.color = color
     return tag("track", track.model_dump_json())
-
-
-def member_track_signatures(members: List[Satellite], request) -> list:
-    """
-    Builds the signatures of tasks to collect the orbit tracks of member
-    satellites over the display window of an analysis request.
-
-    Args:
-        members (List[tatc.schemas.Satellite]): The member satellites.
-        request (AnalysisRequest): The analysis request.
-
-    Returns:
-        list: The task signatures.
-    """
-    times = [time.isoformat() for time in request.get_display_times()]
-    colors = request.get_member_instrument_colors()
-    return [
-        collect_member_track_task.s(
-            member.model_dump_json(),
-            times,
-            request.start.isoformat(),
-            colors.get(member.name),
-        )
-        for member in members
-    ]
 
 
 class Animation(NamedTuple):

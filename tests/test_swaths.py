@@ -195,6 +195,17 @@ class AnalyzeSwathsTestCase(TatcTestCase):
             },
         )
         self.assertEqual(response.status_code, 422)
+        # members of distinct constellations must have distinct names
+        response = self.client.post(
+            "/analyze/swaths",
+            json={
+                "satellites": [self.constellation.model_dump(mode="json")] * 2,
+                "start": "2022-06-01T00:00:00Z",
+                "end": "2022-06-01T03:00:00Z",
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("Duplicate satellite name", response.text)
 
     def test_too_many_steps(self):
         response = self.client.post(

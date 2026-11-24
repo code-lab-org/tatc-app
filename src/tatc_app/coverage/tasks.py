@@ -25,7 +25,7 @@ from ..analysis.tasks import (
     untag,
 )
 from ..analysis.timeline import build_timeline
-from ..utils.serialization import concat, from_geojson, to_geojson
+from ..utils.serialization import concat, empty_frame, from_geojson, to_geojson
 from ..worker import app
 from .schemas import CoverageAnalysisResult
 
@@ -65,9 +65,7 @@ def collect_aggregated_observations(
         points, satellites, start, end, instrument_index=None
     )
     if observations.empty:
-        return gpd.GeoDataFrame(
-            columns=OBSERVATION_COLUMNS, geometry="geometry", crs="EPSG:4326"
-        )
+        return empty_frame(OBSERVATION_COLUMNS)
     return aggregate_observations(observations)[OBSERVATION_COLUMNS]
 
 

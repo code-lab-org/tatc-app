@@ -99,6 +99,13 @@ function defaultInstrumentColor(color, index, count) {
   }).join("");
 }
 
+// Gets the color of an instrument of a satellite or constellation: its
+// chosen color, or the default derived from the satellite color.
+function instrumentColor(item, index) {
+  const chosen = (item.instrumentColors || [])[index];
+  return chosen || defaultInstrumentColor(item.color, index, (item.system.instruments || []).length);
+}
+
 // Keeps valid colors (`#rrggbb`) of an imported list, and null otherwise.
 function importInstrumentColors(colors) {
   return _.map(_.isArray(colors) ? colors : [], function(color) {
@@ -184,6 +191,8 @@ function defaultDesign() {
   };
 }
 
+// Loads the stored design (or the default design), once every module
+// listens to design changes (see main.js).
 function loadInitialDesign() {
   let stored = null;
   try {
@@ -238,7 +247,7 @@ function validateUnknownItems() {
 // --- Satellite list ---
 
 function describeSystem(system) {
-  const platform = PLATFORM_SPECS[system.type || "satellite"];
+  const platform = PLATFORM_SPECS[system.type];
   const orbit = system.orbit && ORBIT_SPECS[system.orbit.type];
   return (platform ? platform.label : system.type) + (orbit ? ", " + orbit.label : "");
 }
@@ -309,7 +318,8 @@ $(document).ready(function() {
     copy.system.name = uniqueName(item.system.name, _.map(design.satellites, "system.name"));
     design.satellites.splice(selectedSatellite + 1, 0, copy);
     selectedSatellite += 1;
-    renderSatelliteList();
+    // the copy's members have its new name (and the original may be validating)
+    validateItem(copy);
     notifyDesignChange();
   });
   $("#satellite-delete").click(function() {
@@ -342,7 +352,4 @@ $(document).ready(function() {
       importDesign(defaultDesign());
     }
   });
-
-  loadInitialDesign();
-  onSignedIn(validateUnknownItems);
 });

@@ -332,10 +332,13 @@ class CelestrakCatalog:  # pylint: disable=too-many-instance-attributes
             or time.monotonic() - last_failure >= self.retry_interval.total_seconds()
         )
 
-    def _is_fresh(self) -> bool:
+    def _is_fresh(self, downloaded: datetime | None) -> bool:
+        """
+        Checks whether data downloaded at a time is within the refresh interval.
+        """
         return (
-            self._downloaded is not None
-            and datetime.now(timezone.utc) - self._downloaded < self.refresh_interval
+            downloaded is not None
+            and datetime.now(timezone.utc) - downloaded < self.refresh_interval
         )
 
     def _read_cache(self) -> None:
@@ -372,7 +375,8 @@ class CelestrakCatalog:  # pylint: disable=too-many-instance-attributes
         async with self._lock:
             if self._records is None:
                 await asyncio.to_thread(self._read_cache)
-            if not self._is_fresh() and self._can_retry(self._last_failure):
+            fresh = self._is_fresh(self._downloaded)
+            if not fresh and self._can_retry(self._last_failure):
                 try:
                     records = await self._download(self.group)
                 except DOWNLOAD_ERRORS as error:
@@ -465,9 +469,7 @@ class CelestrakCatalog:  # pylint: disable=too-many-instance-attributes
             for number in numbers:
                 cached = self._objects.get(number)
                 records[number] = cached[1] if cached else None
-                if cached and (
-                    datetime.now(timezone.utc) - cached[0] < self.refresh_interval
-                ):
+                if cached and self._is_fresh(cached[0]):
                     continue
                 if not self._can_retry(self._last_object_failure):
                     continue

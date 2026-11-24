@@ -8,7 +8,6 @@ from datetime import timedelta
 from typing import Annotated, Dict, List, Optional, Sequence, Tuple, TypeVar, Union
 
 import pandas as pd
-from fastapi import HTTPException
 from pydantic import (
     AwareDatetime,
     BaseModel,
@@ -22,7 +21,7 @@ from tatc.schemas import Point, Satellite
 from ..generation.schemas import Cell, CellGenerator, PointGenerator, TimeGenerator
 from ..satellites import SpaceSystemInput, check_unique_names, generate_members
 from ..utils.schemas import CamelModel
-from .timeline import OrbitTracks
+from .tracks import OrbitTracks
 
 # default and maximum durations of the display window of animated results
 DEFAULT_DISPLAY_DURATION = timedelta(days=1)
@@ -85,6 +84,8 @@ class AnalysisRequest(CamelModel):
     )
     # (index of the satellite or constellation, member) of each member
     _system_members: Optional[List[Tuple[int, Satellite]]] = PrivateAttr(None)
+    # the member satellites to analyze
+    _members: Optional[List[Satellite]] = PrivateAttr(None)
 
     @model_validator(mode="after")
     def validate_period(self) -> "AnalysisRequest":
@@ -101,6 +102,22 @@ class AnalysisRequest(CamelModel):
         Validates the number of display times is within limits.
         """
         self.get_display_times()
+        return self
+
+    @model_validator(mode="after")
+    def validate_members(self) -> "AnalysisRequest":
+        """
+        Validates the members have unique names and are not all excluded.
+        """
+        members = check_unique_names(
+            [member for _, member in self._get_system_members()]
+        )
+        if self.exclude_members:
+            excluded = set(self.exclude_members)
+            members = [member for member in members if member.name not in excluded]
+            if not members:
+                raise ValueError("All satellites are excluded from the analysis.")
+        self._members = members
         return self
 
     def get_display_times(self) -> pd.DatetimeIndex:
@@ -132,27 +149,12 @@ class AnalysisRequest(CamelModel):
     def get_members(self) -> List[Satellite]:
         """
         Gets the member satellites to analyze: those of the satellites and
-        constellations, less any excluded members.
-
-        Raises:
-            HTTPException: (422) if two members share a name, or if all
-                members are excluded.
+        constellations, less any excluded members (see `validate_members`).
 
         Returns:
             List[Satellite]: The member satellites.
         """
-        members = check_unique_names(
-            [member for _, member in self._get_system_members()]
-        )
-        if self.exclude_members:
-            excluded = set(self.exclude_members)
-            members = [member for member in members if member.name not in excluded]
-            if not members:
-                raise HTTPException(
-                    status_code=422,
-                    detail="All satellites are excluded from the analysis.",
-                )
-        return members
+        return self._members
 
     def get_member_colors(self) -> Dict[str, str]:
         """

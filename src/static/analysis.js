@@ -5,13 +5,17 @@
 let analysisResult = null; // {type, result, taskId, payload, duration}
 let targetLayer = null;
 
-// The analyses (in the order of the analysis select).
+// The analyses (in the order of the analysis select): whether each analyzes
+// the points (and cells) of the region, and whether it shows its results with
+// a layer of targets (points and cells colored by a metric, see
+// `DISPLAY_MODES`).
 const ANALYSES = {
   coverage: {
     label: "Coverage and Revisit",
     description: "Observations of a grid of points (and cells) by the checked instruments of the checked satellites. " +
       "Animates observations accumulating over the analysis period, or shows final revisit statistics.",
     region: true,
+    targetLayer: true,
     endpoint: "/analyze/coverage"
   },
   swaths: {
@@ -19,6 +23,7 @@ const ANALYSES = {
     description: "Ground track swaths of the checked instruments, accumulating in segments as satellites orbit. " +
       "Best for periods of hours to a few days.",
     region: false,
+    targetLayer: false,
     endpoint: "/analyze/swaths"
   },
   latency: {
@@ -26,6 +31,7 @@ const ANALYSES = {
     description: "Latency from the observation of each point to its downlink at a ground station. " +
       "Animates contacts with ground stations and observations awaiting downlink.",
     region: true,
+    targetLayer: true,
     endpoint: "/analyze/latency"
   },
   access: {
@@ -33,14 +39,13 @@ const ANALYSES = {
     description: "Accesses of selected target points by each satellite, with lines of sight " +
       "animated during each access and a table of access windows.",
     region: false,
+    targetLayer: false,
     endpoint: "/analyze/overflight"
   }
 };
 
-// Whether an analysis type shows its results with a layer of targets (points
-// and cells colored by a metric).
 function hasTargetLayer(type) {
-  return type == "coverage" || type == "latency";
+  return ANALYSES[type].targetLayer;
 }
 
 function getAnalysisType() {
@@ -88,7 +93,23 @@ function clearAnalysisLayers() {
     targetLayer = null;
   }
   clearCzmlLayer("analysis");
-  hideLegend();
+  showLegend(false);
+}
+
+// Shows (or hides) the legend of the target layer: the overlay in the viewer
+// and the color scale settings of this tab.
+function showLegend(show) {
+  $("#legend-overlay, #colorbar-group").toggle(show);
+}
+
+// Shows the color scale of a display mode in the legend.
+function renderLegend(title, scale, unit) {
+  $("#legend-title, #colorbar-title").text(title);
+  renderColorbar($("#legend-colorbar"), scale);
+  $("#legend-min").text(formatNumber(scale.min) + " " + unit);
+  $("#legend-max").text(formatNumber(scale.max) + " " + unit);
+  $(".colorbar-unit").text(unit);
+  showLegend(true);
 }
 
 // Tests whether an analysis includes a satellite or constellation since
@@ -118,7 +139,7 @@ function showAnalysisLayers(show) {
   }
   showCzmlLayer("analysis", show);
   // the target layer shows a legend
-  $("#legend-overlay").toggle(show && Boolean(targetLayer));
+  showLegend(show && Boolean(targetLayer));
 }
 
 // Sets the clock to the results: the analysis period for results with a
@@ -236,7 +257,7 @@ function applyDisplayMode() {
     mode = { animated: true, pointValue: spec.pointValue };
   }
   mode.scale = createColorScale(range[0], range[1], spec.reverse);
-  showLegend(spec.title, mode.scale, spec.unit);
+  renderLegend(spec.title, mode.scale, spec.unit);
   targetLayer.setMode(mode);
 }
 
@@ -264,17 +285,19 @@ function getAnalysisPayload(type, base) {
       stations: design.stations,
       during_contact: $("#latency-contact").val()
     });
+  } else if (type == "access") {
+    if (design.targets.length == 0) {
+      $("#analysis-error").text("Add at least one target point.").show();
+      return null;
+    }
+    return _.assign(base, {
+      points: _.map(design.targets, function(target, i) {
+        return { id: i, latitude: target.latitude, longitude: target.longitude };
+      }),
+      omit_solar: !$("#access-solar").is(":checked")
+    });
   }
-  if (design.targets.length == 0) {
-    $("#analysis-error").text("Add at least one target point.").show();
-    return null;
-  }
-  return _.assign(base, {
-    points: _.map(design.targets, function(target, i) {
-      return { id: i, latitude: target.latitude, longitude: target.longitude };
-    }),
-    omit_solar: !$("#access-solar").is(":checked")
-  });
+  throw new Error("Unknown analysis type: " + type);
 }
 
 function runSelectedAnalysis() {
@@ -310,13 +333,12 @@ function runSelectedAnalysis() {
       }
       clearAnalysisLayers();
       showRegionGrid(false);
-      const period = getAnalysisPeriod();
       analysisResult = {
         type: type,
         result: result,
         taskId: taskId,
         payload: payload,
-        duration: (period.end - period.start) / 1000
+        duration: (new Date(payload.end) - new Date(payload.start)) / 1000
       };
       $("#analysis-data").prop("disabled", false);
       if (hasTargetLayer(type)) {
@@ -454,111 +476,6 @@ function showAnalysisData() {
   }
 }
 
-// --- Ground stations ---
-
-let selectedStation = -1;
-let siteSource = null;
-
-function renderStations() {
-  renderSelectableList($("#stations"), design.stations, selectedStation, {
-    buttons: "#station-edit, #station-delete",
-    renderItem: function(station) {
-      return [
-        $("<i>").addClass("fas fa-broadcast-tower mr-2"),
-        $("<span>").text(station.name),
-        $("<span>").addClass("ml-2 text-muted").text(
-          "(" + Number(station.latitude).toFixed(2) + "°, " + Number(station.longitude).toFixed(2) + "°)"
-        )
-      ];
-    },
-    onSelect: function(i) {
-      selectedStation = i;
-      renderStations();
-    },
-    onOpen: function(i) {
-      selectedStation = i;
-      openStationDialog();
-    }
-  });
-  renderSiteEntities();
-}
-
-function openStationDialog() {
-  const station = design.stations[selectedStation];
-  if (!station) {
-    return;
-  }
-  renderFields($("#station-fields"), STATION_FIELDS, station, function() {
-    renderStations();
-    saveDesign();
-  });
-  $("#station-dialog").modal("show");
-}
-
-// --- Target points ---
-
-let selectedTarget = -1;
-
-function renderTargets() {
-  renderSelectableList($("#targets"), design.targets, selectedTarget, {
-    buttons: "#target-delete",
-    renderItem: function(target, i) {
-      return [
-        $("<i>").addClass("fas fa-map-marker-alt mr-2"),
-        $("<span>").text("Point " + i + " (" + Number(target.latitude).toFixed(3) + "°, " + Number(target.longitude).toFixed(3) + "°)")
-      ];
-    },
-    onSelect: function(i) {
-      selectedTarget = i;
-      renderTargets();
-    }
-  });
-  renderSiteEntities();
-}
-
-function addTarget(latitude, longitude) {
-  design.targets.push({ latitude: latitude, longitude: longitude });
-  selectedTarget = design.targets.length - 1;
-  renderTargets();
-  saveDesign();
-}
-
-function addPickedTarget(cartesian) {
-  const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
-  addTarget(
-    Number(Cesium.Math.toDegrees(cartographic.latitude).toFixed(4)),
-    Number(Cesium.Math.toDegrees(cartographic.longitude).toFixed(4))
-  );
-}
-
-// Shows the stations (latency) or targets (access) being edited on the map.
-function renderSiteEntities() {
-  if (!siteSource) {
-    return;
-  }
-  siteSource.entities.removeAll();
-  const type = getAnalysisType();
-  const visible = $("#nav-analysis-tab").hasClass("active")
-    && !(analysisResult && analysisResult.type == type);
-  siteSource.show = visible;
-  function addSite(latitude, longitude, name, point) {
-    siteSource.entities.add({
-      position: Cesium.Cartesian3.fromDegrees(longitude, latitude),
-      point: _.assign({ outlineColor: Cesium.Color.BLACK, outlineWidth: 1, disableDepthTestDistance: 1e12 }, point),
-      label: { text: name, font: "11px sans-serif", pixelOffset: new Cesium.Cartesian2(8, 0), horizontalOrigin: Cesium.HorizontalOrigin.LEFT, style: Cesium.LabelStyle.FILL_AND_OUTLINE, outlineWidth: 2, disableDepthTestDistance: 1e12 }
-    });
-  }
-  if (type == "latency") {
-    _.forEach(design.stations, function(station) {
-      addSite(station.latitude, station.longitude, station.name, { pixelSize: 9, color: Cesium.Color.fromCssColorString("#ffd166") });
-    });
-  } else if (type == "access") {
-    _.forEach(design.targets, function(target, i) {
-      addSite(target.latitude, target.longitude, "Point " + i, { pixelSize: 8, color: Cesium.Color.WHITE });
-    });
-  }
-}
-
 // --- Panels ---
 
 function changeAnalysisType() {
@@ -600,9 +517,6 @@ $(document).ready(function() {
     fillSelect($("#" + type + "-mode"), modes);
   });
 
-  siteSource = new Cesium.CustomDataSource("sites");
-  viewer.dataSources.add(siteSource);
-
   const start = new Date();
   start.setUTCHours(0, 0, 0, 0);
   $("#analysis-start").val(toDateTimeInput(start));
@@ -629,46 +543,6 @@ $(document).ready(function() {
   });
   $("#colorbar-min, #colorbar-max").change(applyDisplayMode);
 
-  // stations
-  $("#station-add").click(function() {
-    design.stations.push(createStation(uniqueName("Station", _.map(design.stations, "name"))));
-    selectedStation = design.stations.length - 1;
-    renderStations();
-    openStationDialog();
-  });
-  $("#station-edit").click(openStationDialog);
-  $("#station-delete").click(function() {
-    selectedStation = removeSelected(design.stations, selectedStation);
-    renderStations();
-    saveDesign();
-  });
-  $("#station-dialog").on("hidden.bs.modal", function() {
-    const station = design.stations[selectedStation];
-    if (station) {
-      station.name = uniqueName(station.name, _.map(_.without(design.stations, station), "name"), "Station");
-    }
-    renderStations();
-    saveDesign();
-  });
-
-  // targets
-  $("#target-pick").click(function() {
-    if (isMapPicking($(this))) {
-      stopMapPick();
-    } else {
-      startMapPick($(this), addPickedTarget);
-    }
-  });
-  $("#target-add").click(function() { $("#target-dialog").modal("show"); });
-  $("#target-ok").click(function() {
-    addTarget(Number($("#target-latitude").val()), Number($("#target-longitude").val()));
-  });
-  $("#target-delete").click(function() {
-    selectedTarget = removeSelected(design.targets, selectedTarget);
-    renderTargets();
-    saveDesign();
-  });
-
   $("#nav-analysis-tab").on("shown.bs.tab", function() {
     changeAnalysisType();
     if (analysisResult) {
@@ -684,15 +558,8 @@ $(document).ready(function() {
     siteSource.show = false;
   });
 
-  onDesignChange(function() {
-    dropStaleAnalysis();
-    // an imported design replaces the stations and targets
-    renderStations();
-    renderTargets();
-  });
+  onDesignChange(dropStaleAnalysis);
 
-  renderStations();
-  renderTargets();
   changeAnalysisType();
   showRegion(false);
   siteSource.show = false;

@@ -79,7 +79,7 @@
             <div class="form-group">
               <label for="satellites">Satellites and Constellations</label>
               <div class="input-group">
-                <div class="list-group form-control p-0 overflow-auto" style="max-height:9em" id="satellites"></div>
+                <div class="list-group form-control p-0 overflow-auto" id="satellites"></div>
                 <div class="input-group-append btn-group-vertical" role="group">
                   <button type="button" class="btn btn-secondary btn-sm" id="satellite-add" title="Add">
                     <i class="fas fa-plus"></i>
@@ -180,7 +180,7 @@
                   <button type="button" class="btn btn-link btn-sm p-0" id="layer-filter-all">Check all</button>
                 </div>
                 <div class="small text-muted mb-1" id="layer-filter-note"></div>
-                <div class="border rounded px-2 py-1 small overflow-auto" style="max-height:16em" id="layer-filter-list"></div>
+                <div class="border rounded px-2 py-1 small overflow-auto" id="layer-filter-list"></div>
               </div>
             </div>
           </div>
@@ -255,6 +255,7 @@
                   </div>
                 </div>
               </div>
+              <div class="alert alert-danger small mt-2" id="grid-error" style="display:none"></div>
             </div>
 
             <!-- Coverage -->
@@ -291,7 +292,7 @@
               <div class="form-group">
                 <label for="stations">Ground Stations</label>
                 <div class="input-group">
-                  <div class="list-group form-control p-0 overflow-auto" style="max-height:6em" id="stations"></div>
+                  <div class="list-group form-control p-0 overflow-auto" id="stations"></div>
                   <div class="input-group-append btn-group-vertical" role="group">
                     <button type="button" class="btn btn-secondary btn-sm" id="station-add" title="Add"><i class="fas fa-plus"></i></button>
                     <button type="button" class="btn btn-secondary btn-sm" id="station-edit" title="Edit" disabled><i class="fas fa-edit"></i></button>
@@ -322,7 +323,7 @@
               <div class="form-group">
                 <label for="targets">Target Points</label>
                 <div class="input-group">
-                  <div class="list-group form-control p-0 overflow-auto" style="max-height:6em" id="targets"></div>
+                  <div class="list-group form-control p-0 overflow-auto" id="targets"></div>
                   <div class="input-group-append btn-group-vertical" role="group">
                     <button type="button" class="btn btn-secondary btn-sm" id="target-pick" title="Add points by clicking the map"><i class="fas fa-map-marker-alt"></i></button>
                     <button type="button" class="btn btn-secondary btn-sm" id="target-add" title="Add by coordinates"><i class="fas fa-plus"></i></button>
@@ -564,13 +565,13 @@
           <div class="form-group row">
             <label class="col-sm-2 col-form-label">Satellites</label>
             <div class="col-sm-10">
-              <div class="form-control overflow-auto small h-auto" style="max-height:9em" id="catalog-members"></div>
+              <div class="form-control overflow-auto small h-auto" id="catalog-members"></div>
             </div>
           </div>
           <div class="form-group row">
             <label class="col-sm-2 col-form-label">Instruments</label>
             <div class="col-sm-10">
-              <div class="form-control overflow-auto small h-auto" style="max-height:7em" id="catalog-instruments"></div>
+              <div class="form-control overflow-auto small h-auto" id="catalog-instruments"></div>
               <small class="form-text text-muted">Cataloged instruments, each on the satellites that carry it (satellites without one have TAT-C's default instrument).</small>
             </div>
           </div>
@@ -778,7 +779,7 @@
             <span aria-hidden="true">&times;</span>
           </button>
         </div>
-        <div class="modal-body overflow-auto" style="max-height:40em;">
+        <div class="modal-body overflow-auto">
           <p class="small text-muted" id="results-note"></p>
           <table class="table table-sm small w-100" id="results-table"></table>
         </div>
@@ -811,8 +812,10 @@
   <script src="catalog.js"></script>
   <script src="preview.js"></script>
   <script src="region.js"></script>
-  <script src="timeline-layer.js"></script>
+  <script src="target-layer.js"></script>
+  <script src="sites.js"></script>
   <script src="analysis.js"></script>
+  <script src="main.js"></script>
 </body>
 
 </html>

@@ -51,6 +51,11 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .drawer-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 /* lists grow with their items, up to a maximum height */
 .list-group.form-control { height: auto; min-height: 2.5em; }
+#stations, #targets { max-height: 6em; }
+#catalog-instruments { max-height: 7em; }
+#satellites, #catalog-members { max-height: 9em; }
+#layer-filter-list { max-height: 16em; }
+#results-dialog .modal-body { max-height: 40em; }
 #drawer .form-control, #drawer .input-group-text { padding-left: 0.5rem; padding-right: 0.5rem; }
 #drawer select.form-control { padding-right: 0.25rem; }
 input:invalid { background-color: #fcc; }

@@ -15,9 +15,12 @@ from tatc.analysis import collect_ground_track, collect_orbit_track
 from tatc.schemas import Satellite
 
 from ..analysis.tasks import combine_animation, parse_times, tag, untag
-from ..utils.serialization import concat, from_geojson, to_geojson
+from ..utils.serialization import concat, empty_frame, from_geojson, to_geojson
 from ..worker import app
 from .schemas import SwathAnalysisResult
+
+# columns of swath segments
+SWATH_COLUMNS = ["satellite", "instrument", "start", "end", "geometry"]
 
 
 @app.task
@@ -104,11 +107,10 @@ def compute_swaths(
         geopandas.GeoDataFrame: The swath segments, with columns `satellite`,
             `instrument`, `start`, `end`, and `geometry`.
     """
-    columns = ["satellite", "instrument", "start", "end", "geometry"]
     track = collect_ground_track(satellite, times, instrument_index, time_step=step)
     track = track[track.valid_obs & ~track.geometry.is_empty]
     if track.empty:
-        return gpd.GeoDataFrame(columns=columns, geometry="geometry", crs="EPSG:4326")
+        return empty_frame(SWATH_COLUMNS)
     track = track.assign(
         # samples on a boundary belong to the preceding segment
         segment=((track.time - times[0] - pd.Timedelta(1, "ns")) // segment)
@@ -124,7 +126,7 @@ def compute_swaths(
     )
     swaths["start"] = swaths["start"].clip(lower=times[0])
     swaths["end"] = swaths["end"].clip(upper=times[-1])
-    return swaths[columns].sort_values("start", ignore_index=True)
+    return swaths[SWATH_COLUMNS].sort_values("start", ignore_index=True)
 
 
 @app.task

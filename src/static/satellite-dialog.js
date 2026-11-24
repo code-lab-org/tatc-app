@@ -3,14 +3,26 @@
 // orbital elements.
 
 // The satellite being edited (null when the dialog is closed): {item,
-// system, color, instrumentColors, instrument}, with a copy of the item's
-// system and colors (committed when the dialog closes) and the index of the
-// selected instrument.
+// system, color, instrumentColors, instrument, revision}, with a copy of the
+// item's system and colors (committed when the dialog closes), the index of
+// the selected instrument, and a count of changes to the system.
 let satelliteEditor = null;
 
 // Gets the system being edited, or null if the dialog is closed.
 function getEditedSystem() {
   return satelliteEditor ? satelliteEditor.system : null;
+}
+
+// Gets a token of the current edit, to check that the response of a request
+// about the edited system still applies (see `isCurrentEdit`).
+function currentEdit() {
+  return satelliteEditor && { editor: satelliteEditor, revision: satelliteEditor.revision };
+}
+
+// Whether the dialog still edits the same system as when a token was taken:
+// the same satellite, without changes since.
+function isCurrentEdit(edit) {
+  return Boolean(edit) && edit.editor === satelliteEditor && edit.revision == satelliteEditor.revision;
 }
 
 // Replaces the system being edited (for example, with added catalog
@@ -36,7 +48,8 @@ function openSatelliteDialog() {
     system: _.cloneDeep(item.system),
     color: item.color,
     instrumentColors: (item.instrumentColors || []).slice(),
-    instrument: 0
+    instrument: 0,
+    revision: 0
   };
   $("#satellite-form-tab").tab("show");
   renderSatelliteForm();
@@ -55,7 +68,6 @@ function selectType(select, type, specs) {
 
 function renderSatelliteForm() {
   const system = satelliteEditor.system;
-  system.type = system.type || "satellite";
   const spec = specOf(PLATFORM_SPECS, system.type);
   $("#satellite-name").val(system.name);
   $("#satellite-color").val(satelliteEditor.color);
@@ -146,6 +158,7 @@ function spliceInstrumentColors(index, removed, inserted) {
 }
 
 function formChanged() {
+  satelliteEditor.revision += 1;
   updateSatelliteJson();
   showValidation({ status: "unknown" });
 }
@@ -203,10 +216,14 @@ function applySatelliteJson() {
     if (!PLATFORM_SPECS[system.type]) {
       throw new Error("Unknown type: " + system.type);
     }
+    const changed = !_.isEqual(system, satelliteEditor.system);
     satelliteEditor.system = system;
     // colors stay with instruments by index
     satelliteEditor.instrumentColors = _.take(satelliteEditor.instrumentColors, (system.instruments || []).length);
     renderSatelliteForm();
+    if (changed) {
+      formChanged();
+    }
     return true;
   } catch (e) {
     showValidation({ status: "invalid", message: "JSON: " + e.message });
@@ -215,13 +232,19 @@ function applySatelliteJson() {
 }
 
 function validateEditedSystem() {
+  // results of an earlier edit (or satellite) are ignored
+  const edit = currentEdit();
   showValidation({ status: "pending" });
   validateSystem(satelliteEditor.system)
     .done(function(result) {
-      showValidation({ status: "valid", members: result.members });
+      if (isCurrentEdit(edit)) {
+        showValidation({ status: "valid", members: result.members });
+      }
     })
     .fail(function(xhr) {
-      showValidation({ status: "invalid", message: formatError(xhr) });
+      if (isCurrentEdit(edit)) {
+        showValidation({ status: "invalid", message: formatError(xhr) });
+      }
     });
 }
 

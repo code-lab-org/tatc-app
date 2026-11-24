@@ -29,13 +29,8 @@ from tatc.constants import EARTH_MEAN_RADIUS, EARTH_MU
 
 from ..analysis.colors import assign_colors, hex_to_rgb, instrument_color
 from ..analysis.schemas import AnimatedResult
-from ..analysis.timeline import (
-    MemberTrack,
-    OrbitTracks,
-    Timeline,
-    decode_polygons,
-    polygon_parts,
-)
+from ..analysis.timeline import Timeline
+from ..analysis.tracks import MemberTrack, OrbitTracks, decode_polygons, polygon_parts
 
 # tolerance (degrees) to find polygon vertices at a pole
 POLE_TOLERANCE = 1e-6
@@ -217,6 +212,15 @@ def satellite_packets(
     return packets
 
 
+def _instrument_fill(track: MemberTrack, index: int, color: str) -> str:
+    """
+    Gets the color of an instrument of a satellite: its chosen color, if any,
+    or else one derived from the satellite color (see `instrument_color`).
+    """
+    chosen = track.instruments[index].color
+    return chosen or instrument_color(color, index, len(track.instruments))
+
+
 def _footprint_packets(
     track: MemberTrack, color: str, epoch: datetime, start: datetime, end: datetime
 ) -> List[dict]:
@@ -227,9 +231,7 @@ def _footprint_packets(
     """
     packets = []
     for index, instrument in enumerate(track.instruments):
-        fill = instrument.color or instrument_color(
-            color, index, len(track.instruments)
-        )
+        fill = _instrument_fill(track, index, color)
         if instrument.footprints is not None:
             packets.extend(
                 _footprint_polygon_packets(
@@ -593,22 +595,16 @@ def _polygon_positions(polygon: Polygon) -> dict:
 
 
 def _swath_color(
-    color: str,
-    instrument: Optional[str],
-    names: Sequence[str],
-    chosen: Sequence[Optional[str]] = (),
+    color: str, instrument: Optional[str], track: Optional[MemberTrack]
 ) -> str:
     """
-    Gets the color of a swath segment of an instrument (by name) among the
-    instruments of a satellite: its chosen color, if any, or else one derived
-    from the satellite color, or the satellite color if not found.
+    Gets the color of a swath segment of an instrument (by name) of a
+    satellite: the color of the instrument of its track, or the satellite
+    color if not found.
     """
-    names = list(names)
+    names = [i.name for i in track.instruments] if track else []
     if instrument in names:
-        index = names.index(instrument)
-        if index < len(chosen) and chosen[index]:
-            return chosen[index]
-        return instrument_color(color, index, len(names))
+        return _instrument_fill(track, names.index(instrument), color)
     return color
 
 
@@ -617,8 +613,7 @@ def swath_packets(
     end: datetime,
     colors: Optional[Dict[str, str]] = None,
     *,
-    instruments: Optional[Dict[str, Sequence[str]]] = None,
-    instrument_colors: Optional[Dict[str, Sequence[Optional[str]]]] = None,
+    tracks: Optional[OrbitTracks] = None,
     tolerance: float = 0.01,
     alpha: int = 150,
 ) -> List[dict]:
@@ -633,29 +628,22 @@ def swath_packets(
             `instrument`).
         end (datetime.datetime): The end of the analysis.
         colors (Optional[Dict[str, str]]): The color of each satellite.
+        tracks (Optional[OrbitTracks]): The orbit tracks of the satellites,
+            whose instruments (and their colors) color the segments of each
+            instrument distinctly.
         tolerance (float): The tolerance (degrees) to simplify geometries.
         alpha (int): The fill opacity (0-255).
-        instruments (Optional[Dict[str, Sequence[str]]]): The instrument
-            names of each satellite (in order), to color the segments of each
-            instrument distinctly (see `instrument_color`).
-        instrument_colors (Optional[Dict[str, Sequence[Optional[str]]]]):
-            The chosen colors of the instruments of each satellite (in the
-            order of `instruments`, `None` to derive one).
 
     Returns:
         List[dict]: The CZML packets.
     """
     colors = assign_colors(list(dict.fromkeys(swaths["satellite"])), colors)
-    instruments = instruments or {}
-    instrument_colors = instrument_colors or {}
+    member_tracks = {track.name: track for track in tracks.tracks} if tracks else {}
     packets = []
     for i, row in enumerate(swaths.itertuples()):
         instrument = getattr(row, "instrument", None)
         color = _swath_color(
-            colors[row.satellite],
-            instrument,
-            instruments.get(row.satellite, []),
-            instrument_colors.get(row.satellite, []),
+            colors[row.satellite], instrument, member_tracks.get(row.satellite)
         )
         polygons = polygon_parts(
             row.geometry.simplify(tolerance, preserve_topology=True)

@@ -9,12 +9,13 @@ from typing import Dict, List, Optional, Union
 
 import pandas as pd
 from geojson_pydantic import FeatureCollection, Polygon
-from pydantic import Field, model_validator
+from pydantic import AwareDatetime, Field, PrivateAttr, model_validator
 from shapely.geometry import box, mapping
+from tatc.schemas import Satellite
 
 from ..analysis.schemas import MAX_DISPLAY_STEPS, AnalysisRequest, AnimatedResult
 from ..generation.schemas import TimeGenerator
-from ..satellites import SpaceSystemInput, validate_instrument_index
+from ..satellites import SpaceSystemInput, expand_members, validate_instrument_index
 from ..utils.schemas import CamelModel
 
 
@@ -29,9 +30,9 @@ class OrbitTrackAnalysisRequest(CamelModel):
     instrument_index: Optional[int] = Field(
         0, ge=0, description="Instrument index, or `null` for all instruments."
     )
-    times: Union[List[datetime], TimeGenerator] = Field(
+    times: Union[List[AwareDatetime], TimeGenerator] = Field(
         ...,
-        description="Times at which to compute the track.",
+        description=f"Times at which to compute the track (at most {MAX_DISPLAY_STEPS}).",
         examples=[
             TimeGenerator(
                 start=datetime.fromisoformat("2021-01-01T00:00:00+00:00"),
@@ -49,9 +50,19 @@ class OrbitTrackAnalysisRequest(CamelModel):
         description="Mask to limit the extent of results.",
         examples=[Polygon(**mapping(box(-180, -90, 180, 90)))],
     )
+    # the member satellites
+    _members: Optional[List[Satellite]] = PrivateAttr(None)
 
     @model_validator(mode="after")
-    def valid_instrument_index(self) -> "OrbitTrackAnalysisRequest":
+    def validate_members(self) -> "OrbitTrackAnalysisRequest":
+        """
+        Validates the members have unique names.
+        """
+        self._members = expand_members([self.satellite])
+        return self
+
+    @model_validator(mode="after")
+    def validate_instruments(self) -> "OrbitTrackAnalysisRequest":
         """
         Validates the instrument index is in bounds.
         """
@@ -59,12 +70,23 @@ class OrbitTrackAnalysisRequest(CamelModel):
         return self
 
     @model_validator(mode="after")
-    def valid_times(self) -> "OrbitTrackAnalysisRequest":
+    def validate_times(self) -> "OrbitTrackAnalysisRequest":
         """
-        Validates the times are timezone-aware and within limits.
+        Validates the number of times is within limits.
         """
+        if isinstance(self.times, list) and len(self.times) > MAX_DISPLAY_STEPS:
+            raise ValueError(f"Too many times: at most {MAX_DISPLAY_STEPS}.")
         self.get_times()
         return self
+
+    def get_members(self) -> List[Satellite]:
+        """
+        Gets the member satellites of the satellite or constellation.
+
+        Returns:
+            List[tatc.schemas.Satellite]: The member satellites.
+        """
+        return self._members
 
     def get_times(self) -> pd.DatetimeIndex:
         """
@@ -75,8 +97,6 @@ class OrbitTrackAnalysisRequest(CamelModel):
         """
         if isinstance(self.times, TimeGenerator):
             return self.times.to_index(MAX_DISPLAY_STEPS)
-        if any(time.tzinfo is None for time in self.times):
-            raise ValueError("Times must be timezone-aware.")
         return pd.DatetimeIndex(self.times).tz_convert("UTC")
 
 
@@ -115,7 +135,7 @@ class SwathAnalysisRequest(AnalysisRequest):
     )
 
     @model_validator(mode="after")
-    def valid_instrument_index(self) -> "SwathAnalysisRequest":
+    def validate_instruments(self) -> "SwathAnalysisRequest":
         """
         Validates the instrument index is in bounds.
         """
@@ -123,7 +143,7 @@ class SwathAnalysisRequest(AnalysisRequest):
         return self
 
     @model_validator(mode="after")
-    def no_display(self) -> "SwathAnalysisRequest":
+    def validate_no_display(self) -> "SwathAnalysisRequest":
         """
         Validates `display` is not set (swaths are sampled every `step`).
         """

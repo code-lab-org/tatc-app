@@ -62,23 +62,14 @@ function hasFootprint(source, id) {
 }
 
 // Groups the member tracks of a preview result by satellite or constellation
-// (`systems` lists the names of the requested satellites and constellations),
-// and marks instruments without a footprint in the filter.
+// (`systems` lists the names of the requested satellites and constellations,
+// and `result.systems` the index of each member's), and marks instruments
+// without a footprint in the filter.
 function buildPreviewLayers(result, systems, source) {
-  const groups = [];
+  const groups = _.map(systems, function(name) { return { name: name, members: [] }; });
   const withFootprint = {};
   _.forEach(result.tracks.tracks, function(track) {
-    const index = result.systems ? result.systems[track.name] : undefined;
-    const key = index === undefined ? "member:" + track.name : index;
-    let group = _.find(groups, { key: key });
-    if (!group) {
-      group = {
-        key: key,
-        name: index === undefined || !systems[index] ? track.name : systems[index],
-        members: []
-      };
-      groups.push(group);
-    }
+    const group = groups[result.systems[track.name]];
     group.members.push({ name: track.name, instruments: track.instruments.length });
     _.forEach(track.instruments, function(instrument, i) {
       const insKey = filterKey("ins", group.name, i);
@@ -86,7 +77,7 @@ function buildPreviewLayers(result, systems, source) {
     });
   });
   setFilterWithoutFootprint(_.filter(_.keys(withFootprint), function(k) { return !withFootprint[k]; }));
-  return groups;
+  return _.filter(groups, function(group) { return group.members.length > 0; });
 }
 
 function previewOrbits() {
@@ -137,6 +128,8 @@ function showPreviewData() {
   const epoch = new Date(tracks.epoch).getTime();
   const rows = [];
   _.forEach(tracks.tracks, function(track) {
+    // positions are [t, longitude, latitude, altitude] samples, and swath
+    // widths [t, width] samples at the same times
     for (let i = 0; i < track.positions.length; i += 4) {
       _.forEach(track.instruments, function(instrument) {
         rows.push({

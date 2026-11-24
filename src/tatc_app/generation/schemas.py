@@ -1,5 +1,6 @@
 """
-Schema specifications for generation endpoints.
+Schema specifications to generate points, cells, and times: requests of the
+generation endpoints, and parts of analysis requests.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -10,10 +11,17 @@ from typing import Annotated, Optional, Union
 
 import pandas as pd
 from geojson_pydantic import Polygon
-from pydantic import AwareDatetime, Field, StringConstraints, model_validator
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 from shapely.geometry import box, mapping
 
 from ..utils.schemas import CamelModel
+from .masks import KnownShape, country_codes
 
 
 class PointGeneratorMethod(str, Enum):
@@ -25,21 +33,22 @@ class PointGeneratorMethod(str, Enum):
     equally_spaced = "equally_spaced"
 
 
-class KnownShape(str, Enum):
-    """
-    Known shapes to use as masks.
-    """
+def _check_country_code(code: str) -> str:
+    if code not in country_codes():
+        raise ValueError(f"Unknown ISO 3166-1 alpha-3 country code: {code}")
+    return code
 
-    conus = "conus"
 
+# an ISO 3166-1 alpha-3 country code (case insensitive)
+CountryCode = Annotated[
+    str,
+    StringConstraints(min_length=3, max_length=3, to_upper=True),
+    AfterValidator(_check_country_code),
+]
 
 # a mask to limit the extent of generated points or cells: a polygon, a known
-# shape, or an ISO 3166-1 alpha-3 country code
-Mask = Union[
-    Polygon,
-    KnownShape,
-    Annotated[str, StringConstraints(min_length=3, max_length=3)],
-]
+# shape, or a country
+Mask = Union[Polygon, KnownShape, CountryCode]
 
 
 class PointGenerator(CamelModel):

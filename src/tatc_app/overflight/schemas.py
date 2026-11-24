@@ -39,7 +39,7 @@ class OverflightAnalysisRequest(AnalysisRequest):
     )
 
     @model_validator(mode="after")
-    def valid_instrument_index(self) -> "OverflightAnalysisRequest":
+    def validate_instruments(self) -> "OverflightAnalysisRequest":
         """
         Validates the instrument index is in bounds.
         """

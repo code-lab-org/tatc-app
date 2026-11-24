@@ -32,7 +32,9 @@ class LatencyAnalysisRequest(PointsCellsAnalysisRequest):
 
     @field_validator("stations")
     @classmethod
-    def unique_station_names(cls, stations: List[GroundStation]) -> List[GroundStation]:
+    def validate_station_names(
+        cls, stations: List[GroundStation]
+    ) -> List[GroundStation]:
         """
         Validates ground station names are unique.
         """

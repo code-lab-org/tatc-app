@@ -49,16 +49,6 @@ function initializeCesium() {
   });
 }
 
-// Removes the child entities of a parent entity.
-function clearEntities(parent) {
-  const entitiesToRemove = _.filter(viewer.entities.values, function(entity) {
-    return entity.parent === parent;
-  });
-  _.forEach(entitiesToRemove, function(entity) {
-    viewer.entities.remove(entity);
-  });
-}
-
 // --- Map picking ---
 
 // The active pick mode: {button, onPick, onStop}. One mode is active at a

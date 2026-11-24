@@ -277,7 +277,7 @@ function resolveDefault(field) {
 
 // Creates an object of a type with default values.
 function createDefault(spec, type) {
-  const object = { type: type };
+  const object = type === undefined ? {} : { type: type };
   _.forEach(spec.fields, function(field) {
     if (field.key && field.default !== undefined) {
       _.set(object, field.key, resolveDefault(field));
@@ -489,5 +489,5 @@ function createSatellite(name) {
 }
 
 function createStation(name) {
-  return _.assign(createDefault({ fields: STATION_FIELDS }, undefined), { name: name || "Station" });
+  return _.assign(createDefault({ fields: STATION_FIELDS }), { name: name || "Station" });
 }

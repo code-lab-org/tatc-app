@@ -11,15 +11,14 @@ from uuid import UUID
 from fastapi import APIRouter
 
 from ..analysis.endpoints import (
-    MSGPACK_RESPONSES,
     enqueue_analysis,
     get_analysis_result,
+    serialize_members,
 )
-from ..analysis.tasks import serialize_members
 from ..celery.schemas import CeleryTask
 from ..cesium.czml import animation_packets, link_packets, site_packets
 from ..generation.utils import resolve_points
-from ..utils.serialization import to_geojson
+from ..utils.serialization import MSGPACK_RESPONSES, to_geojson
 from .schemas import OverflightAnalysisRequest, OverflightAnalysisResult
 from .tasks import collect_observations_task, combine_overflights_task
 

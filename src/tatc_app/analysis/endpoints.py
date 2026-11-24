@@ -18,13 +18,7 @@ from tatc.schemas import Satellite
 
 from ..celery.utils import enqueue, get_task_result
 from .schemas import AnalysisRequest
-from .tasks import member_track_signatures
-
-# OpenAPI metadata of endpoints that also respond with MessagePack (see
-# `msgpack_asgi.MessagePackMiddleware`)
-MSGPACK_RESPONSES = {
-    "200": {"content": {"application/json": {}, "application/x-msgpack": {}}}
-}
+from .tasks import collect_member_track_task
 
 ResultT = TypeVar("ResultT", bound=BaseModel)
 ItemsT = TypeVar("ItemsT")
@@ -55,6 +49,41 @@ def chunk(items: ItemsT, size: Optional[int] = None) -> List[ItemsT]:
     ]
 
 
+def serialize_members(members: List[Satellite]) -> List[str]:
+    """
+    Serializes member satellites to pass to tasks (see
+    `tasks.deserialize_members`).
+    """
+    return [member.model_dump_json() for member in members]
+
+
+def member_track_signatures(
+    request: AnalysisRequest, members: List[Satellite]
+) -> List[Signature]:
+    """
+    Builds the signatures of tasks to collect the orbit tracks of member
+    satellites over the display window of an analysis request.
+
+    Args:
+        request (AnalysisRequest): The analysis request.
+        members (List[tatc.schemas.Satellite]): The member satellites.
+
+    Returns:
+        List[celery.canvas.Signature]: The task signatures.
+    """
+    times = [time.isoformat() for time in request.get_display_times()]
+    colors = request.get_member_instrument_colors()
+    return [
+        collect_member_track_task.s(
+            member.model_dump_json(),
+            times,
+            request.start.isoformat(),
+            colors.get(member.name),
+        )
+        for member in members
+    ]
+
+
 def enqueue_analysis(
     request: AnalysisRequest,
     members: List[Satellite],
@@ -76,7 +105,7 @@ def enqueue_analysis(
         dict: The enqueued task (see `celery.utils.enqueue`).
     """
     return enqueue(
-        chord(group(tasks + member_track_signatures(members, request)), combine)
+        chord(group(tasks + member_track_signatures(request, members)), combine)
     )
 
 

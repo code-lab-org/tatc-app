@@ -9,6 +9,7 @@ import json
 from fastapi import APIRouter
 from geojson_pydantic import FeatureCollection
 
+from ..utils.serialization import MSGPACK_RESPONSES
 from .schemas import CellGenerator, PointGenerator
 from .utils import generate_cells_geojson, generate_points_geojson
 
@@ -19,7 +20,7 @@ router = APIRouter()
     "/points",
     response_model=FeatureCollection,
     response_model_exclude_none=True,
-    responses={"200": {"content": {"application/x-msgpack": {}}}},
+    responses=MSGPACK_RESPONSES,
 )
 def generate_points(generator: PointGenerator):
     """
@@ -38,7 +39,7 @@ def generate_points(generator: PointGenerator):
     "/cells",
     response_model=FeatureCollection,
     response_model_exclude_none=True,
-    responses={"200": {"content": {"application/x-msgpack": {}}}},
+    responses=MSGPACK_RESPONSES,
 )
 def generate_cells(generator: CellGenerator):
     """
