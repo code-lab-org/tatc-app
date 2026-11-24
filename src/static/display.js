@@ -45,13 +45,30 @@ function applySatelliteDisplayOptions(source) {
   });
 }
 
+// Collapses the panel into its button of Cesium's toolbar (or expands it).
 function setDisplayCollapsed(collapsed) {
   $("#display-panel").toggleClass("collapsed", collapsed);
-  $("#display-collapse")
-    .attr("aria-expanded", String(!collapsed))
-    .attr("title", collapsed ? "Expand panel" : "Collapse panel")
-    .attr("aria-label", collapsed ? "Expand panel" : "Collapse panel")
-    .find("i").toggleClass("fa-chevron-up", !collapsed).toggleClass("fa-chevron-down", collapsed);
+  $("#display-toggle").toggleClass("active", !collapsed).attr("aria-expanded", String(!collapsed));
+}
+
+// Adds the button that shows or hides the panel to Cesium's toolbar, beside
+// the scene mode picker (to its right, clear of the picker's options, which
+// open to its left).
+function createDisplayToggle() {
+  $("<button type='button'>")
+    .addClass("cesium-button cesium-toolbar-button display-toggle active")
+    .attr({
+      id: "display-toggle",
+      title: "Display",
+      "aria-label": "Display",
+      "aria-controls": "display-panel",
+      "aria-expanded": "true"
+    })
+    .append($("<i>").addClass("fas fa-layer-group"))
+    .on("click", function() {
+      setDisplayCollapsed(!$("#display-panel").hasClass("collapsed"));
+    })
+    .appendTo($(viewer.container).find(".cesium-viewer-toolbar"));
 }
 
 $(document).ready(function() {
@@ -70,7 +87,8 @@ $(document).ready(function() {
   $("#display-path, #display-footprint").change(function() {
     applySatelliteDisplayOptions(getCzmlLayer("analysis"));
   });
+  createDisplayToggle();
   $("#display-collapse").click(function() {
-    setDisplayCollapsed(!$("#display-panel").hasClass("collapsed"));
+    setDisplayCollapsed(true);
   });
 });

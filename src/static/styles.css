@@ -83,16 +83,21 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
   max-height: calc(100% - var(--display-top) - var(--display-bottom));
   width: var(--display-width);
   max-width: calc(100vw - 2 * var(--overlay-gap));
+  transition: transform 0.2s ease, opacity 0.2s ease, visibility 0.2s;
 }
-#display-panel.collapsed .overlay-header { border-bottom: none; }
-#display-panel.collapsed .display-body { display: none; }
+#display-panel.collapsed { transform: translateY(-16px); opacity: 0; visibility: hidden; pointer-events: none; }
+/* the button of the panel in Cesium's toolbar (highlighted while expanded) */
+.display-toggle { font-size: 15px; line-height: 1; }
+.display-toggle.active { background: #48b; border-color: #aef; }
 .display-body { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
 .display-section { flex: none; padding: 6px 10px; }
 .display-section + .display-section { border-top: 1px solid rgba(0, 0, 0, 0.1); }
 .display-section-title { font-size: 80%; font-weight: 700; }
 #layer-filter { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
 #layer-filter-list { flex: 0 1 auto; min-height: 4em; overflow-y: auto; }
-/* Cesium's info box (of a selected entity) shows over the display panel */
+/* Cesium's toolbar (the options of its scene mode picker drop down) and info
+   box (of a selected entity) show over the display panel */
+.cesium-viewer-toolbar { z-index: 25; }
 .cesium-infoBox { z-index: 30; }
 /* lists grow with their items (in the drawer, see `.fill-list`) */
 .list-group.form-control { height: auto; min-height: 2.5em; }
