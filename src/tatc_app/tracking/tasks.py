@@ -5,27 +5,19 @@ Task specifications for tracking analysis endpoints.
 """
 
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import List, Optional
 
 import geopandas as gpd
 import pandas as pd
 from shapely.geometry import shape
 from tatc.analysis import collect_ground_track, collect_orbit_track
-from tatc.schemas import Instrument, Satellite
+from tatc.schemas import Satellite
 
-from ..czml import assign_colors
-from ..utils.analysis import tag, untag
+from ..analysis.tasks import combine_animation, parse_times, tag, untag
 from ..utils.serialization import concat, from_geojson, to_geojson
-from ..utils.timeline import OrbitTracks, build_member_track
 from ..worker import app
 from .schemas import SwathAnalysisResult
-
-
-def _parse_times(times: List[str]) -> pd.DatetimeIndex:
-    return pd.DatetimeIndex([datetime.fromisoformat(t) for t in times]).tz_convert(
-        "UTC"
-    )
 
 
 @app.task
@@ -51,7 +43,7 @@ def collect_orbit_track_task(
     """
     results = collect_orbit_track(
         Satellite.model_validate_json(satellite),
-        _parse_times(times),
+        parse_times(times),
         instrument_index,
         elevation,
         shape(mask) if mask is not None else None,
@@ -82,77 +74,12 @@ def collect_ground_track_task(
     """
     results = collect_ground_track(
         Satellite.model_validate_json(satellite),
-        _parse_times(times),
+        parse_times(times),
         instrument_index,
         elevation,
         shape(mask) if mask is not None else None,
     )
     return to_geojson(results)
-
-
-def has_circular_footprint(instrument) -> bool:
-    """
-    Checks whether an instrument's footprint is the circle spanned by its
-    swath width: a (simple) instrument, whose view is a cone centered on
-    nadir spanning its field of regard. Footprints of other instruments
-    (pointed, conical, or in situ) are computed by TAT-C to animate results.
-    """
-    return isinstance(instrument, Instrument) and instrument.type == "instrument"
-
-
-def compute_member_track(satellite: Satellite, times: pd.DatetimeIndex, epoch):
-    """
-    Computes the orbit track (and instrument footprints) of a member
-    satellite to animate results.
-
-    Args:
-        satellite (tatc.schemas.Satellite): The satellite.
-        times (pandas.DatetimeIndex): The times.
-        epoch (datetime.datetime): The reference time.
-
-    Returns:
-        MemberTrack: The member track.
-    """
-    indices = range(len(satellite.instruments))
-    return build_member_track(
-        [collect_orbit_track(satellite, times, index) for index in indices],
-        epoch,
-        [
-            (
-                None
-                if has_circular_footprint(satellite.instruments[index])
-                else collect_ground_track(satellite, times, index)
-            )
-            for index in indices
-        ],
-    )
-
-
-@app.task
-def collect_member_track_task(
-    satellite: str, times: list, epoch: str, colors: Optional[list] = None
-) -> dict:
-    """
-    Task to collect the orbit track of a member satellite to animate results.
-
-    Args:
-        satellite (str): JSON serialized :class:`tatc.schemas.Satellite` object.
-        times (list): List of ISO 8601 serialized times.
-        epoch (str): ISO 8601 serialized reference time.
-        colors (Optional[list]): Display colors of the instruments (in
-            order, `None` to derive one from the satellite color).
-
-    Returns:
-        dict: Tagged (`track`) JSON serialized `MemberTrack`.
-    """
-    track = compute_member_track(
-        Satellite.model_validate_json(satellite),
-        _parse_times(times),
-        datetime.fromisoformat(epoch),
-    )
-    for instrument, color in zip(track.instruments, colors or []):
-        instrument.color = color
-    return tag("track", track.model_dump_json())
 
 
 def compute_swaths(
@@ -223,31 +150,12 @@ def collect_swaths_task(
     """
     swaths = compute_swaths(
         Satellite.model_validate_json(satellite),
-        _parse_times(times),
+        parse_times(times),
         instrument_index,
         timedelta(seconds=step),
         timedelta(seconds=segment),
     )
     return tag("swath", to_geojson(swaths))
-
-
-def combine_tracks(results: list, epoch: datetime) -> OrbitTracks:
-    """
-    Combines the tagged member tracks of parallel tasks.
-
-    Args:
-        results (list): The tagged results of parallel tasks.
-        epoch (datetime.datetime): The reference time.
-
-    Returns:
-        OrbitTracks: The orbit tracks.
-    """
-    return OrbitTracks.model_validate(
-        {
-            "epoch": epoch,
-            "tracks": [json.loads(track) for track in untag(results, "track")],
-        }
-    )
 
 
 @app.task
@@ -267,39 +175,37 @@ def combine_swaths_task(
     Returns:
         str: JSON serialized `SwathAnalysisResult`.
     """
-    tracks = combine_tracks(results, datetime.fromisoformat(start))
+    animation = combine_animation(results, start, colors)
     swaths = concat(
         from_geojson(data, datetimes=["start", "end"])
         for data in untag(results, "swath")
     )
     return SwathAnalysisResult(
         swaths=json.loads(to_geojson(swaths)),
-        tracks=tracks,
-        colors=assign_colors([track.name for track in tracks.tracks], colors),
+        tracks=animation.tracks,
+        colors=animation.colors,
         systems=systems or {},
     ).model_dump_json()
 
 
-def member_track_signatures(members: List[str], request) -> list:
+@app.task
+def merge_feature_collections_task(collections: List[str]) -> str:
     """
-    Builds the signatures of tasks to collect the orbit tracks of member
-    satellites over the display window of an analysis request.
+    Task to merge feature collections into one feature collection.
 
     Args:
-        members (List[str]): JSON serialized member satellites.
-        request (AnalysisRequest): The analysis request.
+        collections (List[str]): GeoJSON serialized feature collections.
 
     Returns:
-        list: The task signatures.
+        str: GeoJSON serialized feature collection.
     """
-    times = [time.isoformat() for time in request.get_display_times()]
-    colors = request.get_member_instrument_colors()
-    return [
-        collect_member_track_task.s(
-            member,
-            times,
-            request.start.isoformat(),
-            colors.get(json.loads(member)["name"]),
-        )
-        for member in members
-    ]
+    return json.dumps(
+        {
+            "type": "FeatureCollection",
+            "features": [
+                feature
+                for collection in collections
+                for feature in json.loads(collection)["features"]
+            ],
+        }
+    )

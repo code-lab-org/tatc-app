@@ -6,24 +6,23 @@ import pandas as pd
 import shapely
 from shapely.geometry import MultiPolygon, Polygon, box
 
-from tatc_app.czml import (
-    assign_colors,
-    display_polygons,
-    document_packet,
-    instrument_color,
-    link_packets,
-    rgba,
-    satellite_packets,
-    site_packets,
-    swath_packets,
-)
-from tatc_app.utils.timeline import (
+from tatc_app.analysis.colors import assign_colors, instrument_color
+from tatc_app.analysis.timeline import (
     InstrumentTrack,
     MemberTrack,
     OrbitTracks,
     Timeline,
     build_footprints,
     build_timeline,
+)
+from tatc_app.cesium.czml import (
+    display_polygons,
+    document_packet,
+    link_packets,
+    rgba,
+    satellite_packets,
+    site_packets,
+    swath_packets,
 )
 
 EPOCH = datetime(2022, 1, 1, tzinfo=timezone.utc)

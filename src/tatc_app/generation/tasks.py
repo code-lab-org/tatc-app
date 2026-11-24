@@ -4,160 +4,70 @@ Task specifications for generation endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import io
-from functools import lru_cache
-from importlib import resources
+from typing import Optional, Union
 
-import geopandas as gpd
-from shapely.geometry import shape
 from tatc.generation.cells import generate_cells_uniform_spacing
 from tatc.generation.points import (
     generate_points_fibonacci_lattice,
     generate_points_uniform_spacing,
 )
 
+from ..utils.serialization import to_geojson
 from ..worker import app
-from .schemas import KnownShape
+from .masks import resolve_mask
+from .schemas import PointGeneratorMethod
 
-
-@lru_cache(maxsize=None)
-def _load_resource(filename: str) -> gpd.GeoDataFrame:
-    """
-    Loads a zipped shapefile bundled in the `tatc_app` package's `resources`
-    directory (declared as package data in `pyproject.toml`), independent of
-    the process's current working directory. Cached since parsing a bundled
-    shapefile takes tens of milliseconds and its contents never change
-    within a process's lifetime.
-    """
-    data = (resources.files("tatc_app") / "resources" / filename).read_bytes()
-    return gpd.read_file(io.BytesIO(data))
-
-
-def load_country_mask(iso_3166_1_alpha3: str):
-    """
-    Load a country geometry from its ISO 3166-1 alpha-3 code.
-
-    Args:
-        iso_3166_1_alpha3 (str): The ISO 3166-1 alpha-3 country code.
-
-    Returns:
-        Union[Polygon, MultiPolygon]: the country's border geometry
-    """
-    # `geopandas.datasets` (and its bundled `naturalearth_lowres` sample) was
-    # removed in geopandas 1.0, so this dataset (Natural Earth 110m admin-0
-    # countries) is instead bundled directly with the application.
-    world = _load_resource("ne_110m_admin_0_countries.zip")
-    # `ISO_A3_EH` (rather than `ISO_A3`) is used because several countries
-    # (e.g. France, Norway) have a placeholder `-99` in `ISO_A3` due to a
-    # long-standing Natural Earth data issue.
-    return (
-        world.query(f'ISO_A3_EH == "{iso_3166_1_alpha3}"').to_crs("EPSG:4326").geometry
-    )
-
-
-def load_known_shape(shape: KnownShape):
-    """
-    Loads a known shape.
-
-    Args:
-        shape (KnownShape): A known shape.
-
-    Returns:
-        Union[Polygon, MultiPolygon]: the known shape's geometry
-    """
-    if shape == KnownShape.conus:
-        usa = _load_resource("cb_2020_us_state_20m.zip")
-        return (
-            usa[(usa.STUSPS != "AK") & (usa.STUSPS != "HI") & (usa.STUSPS != "PR")]
-            .dissolve()
-            .to_crs("EPSG:4326")
-            .geometry
-        )
-
-
-def resolve_mask(mask):
-    """
-    Resolves a mask specification to a geometry.
-
-    Args:
-        mask (Union[dict, str, None]): A GeoJSON geometry, a known shape name
-            (see `KnownShape`), an ISO 3166-1 alpha-3 country code, or `None`.
-
-    Returns:
-        Union[Polygon, MultiPolygon, geopandas.GeoSeries, None]: The mask.
-    """
-    if isinstance(mask, str):
-        if mask in KnownShape.__members__:
-            return load_known_shape(KnownShape(mask))
-        if len(mask) == 3:
-            return load_country_mask(mask)
-        raise ValueError(f"Unknown mask: {mask}")
-    return shape(mask) if mask is not None else None
+# point generation functions by method
+POINT_GENERATORS = {
+    PointGeneratorMethod.fibonacci_lattice: generate_points_fibonacci_lattice,
+    PointGeneratorMethod.equally_spaced: generate_points_uniform_spacing,
+}
 
 
 @app.task
-def generate_equally_spaced_points_task(
-    distance: float, elevation: float, mask: str = None
+def generate_points_task(
+    method: str,
+    distance: float,
+    elevation: float,
+    mask: Optional[Union[dict, str]] = None,
 ) -> str:
     """
-    Task to generate equally spaced points.
+    Task to generate points.
 
     Args:
+        method (str): The generation method (see `PointGeneratorMethod`).
         distance (float): The characteristic distance between points.
         elevation (float): Elevation (meters) above datum in the WGS 84 coordinate system.
-        mask (str): Optional GeoJSON serialized mask to constrain points.
+        mask (Optional[Union[dict, str]]): Optional mask to constrain points
+            (see `resolve_mask`).
 
     Returns:
         str: GeoJSON serialized points.
     """
-    return generate_points_uniform_spacing(
-        distance,
-        elevation,
-        resolve_mask(mask),
-    ).to_json(show_bbox=False, drop_id=True)
+    generate = POINT_GENERATORS[PointGeneratorMethod(method)]
+    return to_geojson(generate(distance, elevation, resolve_mask(mask)))
 
 
 @app.task
-def generate_fibonacci_lattice_points_task(
-    distance: float, elevation: float, mask: str = None
-) -> str:
-    """
-    Task to generate Fibonacci lattice points.
-
-    Args:
-        distance (float): The characteristic distance between points.
-        elevation (float): Elevation (meters) above datum in the WGS 84 coordinate system.
-        mask (str): Optional GeoJSON serialized mask to constrain points.
-
-    Returns:
-        str: GeoJSON serialized points.
-    """
-    return generate_points_fibonacci_lattice(
-        distance,
-        elevation,
-        resolve_mask(mask),
-    ).to_json(show_bbox=False, drop_id=True)
-
-
-@app.task
-def generate_equally_spaced_cells_task(
-    distance: float, elevation: float, mask: str = None, strips: str = None
+def generate_cells_task(
+    distance: float,
+    elevation: float,
+    mask: Optional[Union[dict, str]] = None,
+    strips: Optional[str] = None,
 ) -> str:
     """
     Task to generate equally spaced cells.
 
     Args:
-        distance (float): The characteristic distance between points.
+        distance (float): The characteristic distance between cell centroids.
         elevation (float): Elevation (meters) above datum in the WGS 84 coordinate system.
-        mask (str): Optional GeoJSON serialized mask to constrain cells.
-        strips (str): Optional strips (`lat` or `lon`).
+        mask (Optional[Union[dict, str]]): Optional mask to constrain cells
+            (see `resolve_mask`).
+        strips (Optional[str]): Optional strips (`lat` or `lon`).
 
     Returns:
         str: GeoJSON serialized cells.
     """
-    return generate_cells_uniform_spacing(
-        distance,
-        elevation,
-        resolve_mask(mask),
-        strips,
-    ).to_json(show_bbox=False, drop_id=True)
+    return to_geojson(
+        generate_cells_uniform_spacing(distance, elevation, resolve_mask(mask), strips)
+    )

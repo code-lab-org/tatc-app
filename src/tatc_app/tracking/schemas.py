@@ -9,24 +9,20 @@ from typing import Dict, List, Optional, Union
 
 import pandas as pd
 from geojson_pydantic import FeatureCollection, Polygon
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-from pydantic.alias_generators import to_camel
+from pydantic import Field, model_validator
 from shapely.geometry import box, mapping
 
+from ..analysis.schemas import MAX_DISPLAY_STEPS, AnalysisRequest, AnimatedResult
 from ..generation.schemas import TimeGenerator
 from ..satellites import SpaceSystemInput, validate_instrument_index
-from ..utils.analysis import MAX_DISPLAY_STEPS, AnalysisRequest
-from ..utils.timeline import OrbitTracks
+from ..utils.schemas import CamelModel
 
 
-class OrbitTrackAnalysisRequest(BaseModel):
+class OrbitTrackAnalysisRequest(CamelModel):
     """
     User request to perform orbit track analysis.
     """
 
-    model_config = ConfigDict(
-        from_attributes=True, populate_by_name=True, alias_generator=to_camel
-    )
     satellite: SpaceSystemInput = Field(
         ..., description="Satellite or constellation from which to observe."
     )
@@ -99,7 +95,8 @@ class GroundTrackAnalysisRequest(OrbitTrackAnalysisRequest):
 class SwathAnalysisRequest(AnalysisRequest):
     """
     User request to analyze the swaths of instruments as they accumulate
-    over time.
+    over time. Orbit tracks and footprints are sampled every `step` over the
+    whole analysis period (so `display` does not apply).
     """
 
     instrument_index: Optional[int] = Field(
@@ -125,6 +122,18 @@ class SwathAnalysisRequest(AnalysisRequest):
         validate_instrument_index(self.satellites, self.instrument_index)
         return self
 
+    @model_validator(mode="after")
+    def no_display(self) -> "SwathAnalysisRequest":
+        """
+        Validates `display` is not set (swaths are sampled every `step`).
+        """
+        if self.display is not None:
+            raise ValueError(
+                "Invalid display: swath analyses sample the whole analysis "
+                "period every `step`."
+            )
+        return self
+
     def get_display_times(self) -> pd.DatetimeIndex:
         """
         Gets the times at which to sample orbit tracks and footprints.
@@ -137,7 +146,7 @@ class SwathAnalysisRequest(AnalysisRequest):
         )
 
 
-class SwathAnalysisResult(BaseModel):
+class SwathAnalysisResult(AnimatedResult):
     """
     Results of a swath analysis.
     """
@@ -147,8 +156,6 @@ class SwathAnalysisResult(BaseModel):
         description="Swath segments with properties `satellite`, `instrument`, "
         "`start`, and `end`.",
     )
-    tracks: OrbitTracks = Field(..., description="Orbit tracks of satellites.")
-    colors: Dict[str, str] = Field({}, description="Display color of satellites.")
     systems: Dict[str, int] = Field(
         {},
         description="Index of the requested satellite or constellation of "

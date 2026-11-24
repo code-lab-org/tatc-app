@@ -13,7 +13,6 @@ See https://github.com/AnalyticalGraphicsInc/czml-writer/wiki/CZML-Guide
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import colorsys
 import functools
 import math
 from datetime import datetime, timedelta, timezone
@@ -23,12 +22,20 @@ import geopandas as gpd
 import numpy as np
 import shapely
 from pyproj import Transformer
-from shapely.geometry import MultiPolygon, Polygon
+from shapely.geometry import Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 from tatc.constants import EARTH_MEAN_RADIUS, EARTH_MU
 
-from .utils.timeline import MemberTrack, OrbitTracks, Timeline
+from ..analysis.colors import assign_colors, hex_to_rgb, instrument_color
+from ..analysis.schemas import AnimatedResult
+from ..analysis.timeline import (
+    MemberTrack,
+    OrbitTracks,
+    Timeline,
+    decode_polygons,
+    polygon_parts,
+)
 
 # tolerance (degrees) to find polygon vertices at a pole
 POLE_TOLERANCE = 1e-6
@@ -36,20 +43,6 @@ POLE_TOLERANCE = 1e-6
 # polygons re-formed around a pole (see `display_polygons`)
 POLAR_SEAM_TOLERANCE = 10
 POLAR_SIMPLIFY_TOLERANCE = 1000
-
-# categorical colors (Tableau 10) assigned to satellites without a color
-PALETTE = [
-    "#4e79a7",
-    "#f28e2b",
-    "#e15759",
-    "#76b7b2",
-    "#59a14f",
-    "#edc948",
-    "#b07aa1",
-    "#ff9da7",
-    "#9c755f",
-    "#bab0ac",
-]
 
 
 def iso(time: datetime) -> str:
@@ -74,52 +67,31 @@ def rgba(color: str, alpha: int = 255) -> List[int]:
     """
     Converts a hex color (`#rrggbb`) to a CZML RGBA array.
     """
-    color = color.lstrip("#")
-    return [int(color[i : i + 2], 16) for i in (0, 2, 4)] + [alpha]
+    return [*hex_to_rgb(color), alpha]
 
 
-def assign_colors(
-    members: Sequence[str], colors: Optional[Dict[str, str]] = None
-) -> Dict[str, str]:
+def _solid(color: str, alpha: int = 255) -> dict:
     """
-    Assigns a color to each member, defaulting to a categorical palette.
-
-    Args:
-        members (Sequence[str]): The member names.
-        colors (Optional[Dict[str, str]]): Requested colors by member name.
-
-    Returns:
-        Dict[str, str]: The color (`#rrggbb`) of each member.
+    Builds a CZML solid color material.
     """
-    colors = colors or {}
+    return {"solidColor": {"color": {"rgba": rgba(color, alpha)}}}
+
+
+def _label(text: str, color: str = "#ffffff", **options) -> dict:
+    """
+    Builds a CZML label to the right of a point.
+    """
     return {
-        member: colors.get(member) or PALETTE[i % len(PALETTE)]
-        for i, member in enumerate(members)
+        "text": text,
+        "font": "11px sans-serif",
+        "fillColor": {"rgba": rgba(color)},
+        "outlineColor": {"rgba": [0, 0, 0, 255]},
+        "outlineWidth": 2,
+        "style": "FILL_AND_OUTLINE",
+        "horizontalOrigin": "LEFT",
+        "pixelOffset": {"cartesian2": [8, 0]},
+        **options,
     }
-
-
-def instrument_color(color: str, index: int, count: int) -> str:
-    """
-    Derives a distinct color for each instrument of a satellite: the first
-    instrument keeps the satellite color, and others rotate its hue evenly
-    (with a minimum saturation, so variants of gray colors stay distinct).
-
-    Args:
-        color (str): The satellite color (`#rrggbb`).
-        index (int): The instrument index.
-        count (int): The number of instruments of the satellite.
-
-    Returns:
-        str: The instrument color (`#rrggbb`).
-    """
-    if index <= 0 or count <= 1:
-        return color
-    red, green, blue = (c / 255 for c in rgba(color)[:3])
-    hue, lightness, saturation = colorsys.rgb_to_hls(red, green, blue)
-    red, green, blue = colorsys.hls_to_rgb(
-        (hue + index / count) % 1, lightness, max(saturation, 0.5)
-    )
-    return "#" + "".join(f"{round(c * 255):02x}" for c in (red, green, blue))
 
 
 def document_packet(
@@ -149,6 +121,23 @@ def document_packet(
             "step": "SYSTEM_CLOCK_MULTIPLIER",
         },
     }
+
+
+def animation_packets(name: str, result: AnimatedResult) -> List[dict]:
+    """
+    Builds the document packet and satellite packets that animate the
+    results of an analysis.
+
+    Args:
+        name (str): The document name.
+        result (AnimatedResult): The analysis result.
+
+    Returns:
+        List[dict]: The CZML packets.
+    """
+    return [
+        document_packet(name, result.tracks.epoch, result.tracks.get_end())
+    ] + satellite_packets(result.tracks, result.colors)
 
 
 def _orbit_period(positions: Sequence[float]) -> float:
@@ -208,17 +197,10 @@ def satellite_packets(
                 "outlineColor": {"rgba": [255, 255, 255, 255]},
                 "outlineWidth": 1,
             },
-            "label": {
-                "text": track.name,
-                "font": "11px sans-serif",
-                "fillColor": {"rgba": [255, 255, 255, 255]},
-                "outlineColor": {"rgba": [0, 0, 0, 255]},
-                "outlineWidth": 2,
-                "style": "FILL_AND_OUTLINE",
-                "horizontalOrigin": "LEFT",
-                "pixelOffset": {"cartesian2": [8, 0]},
-                "distanceDisplayCondition": {"distanceDisplayCondition": [0, 3e7]},
-            },
+            "label": _label(
+                track.name,
+                distanceDisplayCondition={"distanceDisplayCondition": [0, 3e7]},
+            ),
         }
         if path:
             period = _orbit_period(track.positions)
@@ -227,7 +209,7 @@ def satellite_packets(
                 "trailTime": period,
                 "resolution": 60,
                 "width": 1.5,
-                "material": {"solidColor": {"color": {"rgba": rgba(color, 160)}}},
+                "material": _solid(color, 160),
             }
         packets.append(packet)
         if footprint:
@@ -277,7 +259,7 @@ def _footprint_packets(
                 "ellipse": {
                     "semiMajorAxis": axis,
                     "semiMinorAxis": axis,
-                    "material": {"solidColor": {"color": {"rgba": rgba(fill, 70)}}},
+                    "material": _solid(fill, 70),
                 },
             }
         )
@@ -405,18 +387,7 @@ def _footprint_polygon_packets(  # pylint: disable=too-many-arguments,too-many-l
     if not any(polygons for _, polygons in footprints):
         return []
     # polygons (and arc types) to draw at each sample
-    drawn = [
-        display_polygons(
-            [
-                Polygon(
-                    list(zip(rings[0][0::2], rings[0][1::2])),
-                    [list(zip(ring[0::2], ring[1::2])) for ring in rings[1:]],
-                )
-                for rings in polygons
-            ]
-        )
-        for _, polygons in footprints
-    ]
+    drawn = [display_polygons(decode_polygons(polygons)) for _, polygons in footprints]
     # each sample spans from the midpoints with its neighbors
     bounds = (
         [times[0]] + [(a + b) / 2 for a, b in zip(times[:-1], times[1:])] + [times[-1]]
@@ -461,7 +432,7 @@ def _footprint_polygon_packets(  # pylint: disable=too-many-arguments,too-many-l
                     for lower, upper, _, arc_type in samples
                 ]
             ),
-            "material": {"solidColor": {"color": {"rgba": rgba(fill, alpha)}}},
+            "material": _solid(fill, alpha),
         }
         if any(len(shape.interiors) > 0 for _, _, shape, _ in samples):
             polygon["holes"] = [
@@ -527,18 +498,12 @@ def site_packets(
             },
         }
         if label:
-            packet["label"] = {
-                "text": name,
-                "font": "11px sans-serif",
-                "fillColor": {"rgba": rgba(color)},
-                "outlineColor": {"rgba": [0, 0, 0, 255]},
-                "outlineWidth": 2,
-                "style": "FILL_AND_OUTLINE",
-                "horizontalOrigin": "LEFT",
-                "pixelOffset": {"cartesian2": [8, 0]},
-                "heightReference": "CLAMP_TO_GROUND",
-                "disableDepthTestDistance": 1e12,
-            }
+            packet["label"] = _label(
+                name,
+                color,
+                heightReference="CLAMP_TO_GROUND",
+                disableDepthTestDistance=1e12,
+            )
         packets.append(packet)
     return packets
 
@@ -692,11 +657,8 @@ def swath_packets(
             instruments.get(row.satellite, []),
             instrument_colors.get(row.satellite, []),
         )
-        geometry = row.geometry.simplify(tolerance, preserve_topology=True)
-        polygons = (
-            list(geometry.geoms)
-            if isinstance(geometry, MultiPolygon)
-            else [geometry] if isinstance(geometry, Polygon) else []
+        polygons = polygon_parts(
+            row.geometry.simplify(tolerance, preserve_topology=True)
         )
         for j, (polygon, arc_type) in enumerate(display_polygons(polygons)):
             packets.append(
@@ -711,9 +673,7 @@ def swath_packets(
                     "polygon": {
                         **_polygon_positions(polygon),
                         "arcType": arc_type,
-                        "material": {
-                            "solidColor": {"color": {"rgba": rgba(color, alpha)}}
-                        },
+                        "material": _solid(color, alpha),
                     },
                 }
             )

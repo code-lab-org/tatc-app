@@ -4,28 +4,21 @@ Schema specifications for latency analysis endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from typing import Dict, List, Literal, Union
+from typing import Dict, List, Literal
 
 from geojson_pydantic import FeatureCollection
-from pydantic import BaseModel, Field, field_validator
-from tatc.schemas import GroundStation, Point
+from pydantic import Field, field_validator
+from tatc.schemas import GroundStation
 
-from ..generation.schemas import Cell, CellGenerator, PointGenerator
-from ..utils.analysis import AnalysisRequest
-from ..utils.timeline import OrbitTracks, Timeline
+from ..analysis.schemas import AnimatedResult, PointsCellsAnalysisRequest
+from ..analysis.timeline import Timeline
 
 
-class LatencyAnalysisRequest(AnalysisRequest):
+class LatencyAnalysisRequest(PointsCellsAnalysisRequest):
     """
     User request to perform latency analysis.
     """
 
-    points: Union[List[Point], PointGenerator] = Field(
-        ..., description="Points from which to collect observations."
-    )
-    cells: Union[List[Cell], CellGenerator] = Field(
-        ..., description="Cells from which to aggregate observations."
-    )
     stations: List[GroundStation] = Field(
         ...,
         min_length=1,
@@ -49,7 +42,7 @@ class LatencyAnalysisRequest(AnalysisRequest):
         return stations
 
 
-class LatencyAnalysisResult(BaseModel):
+class LatencyAnalysisResult(AnimatedResult):
     """
     Response to provide latency analysis results.
     """
@@ -76,5 +69,3 @@ class LatencyAnalysisResult(BaseModel):
     cell_targets: Dict[str, List[int]] = Field(
         {}, description="Indices of the points within each cell, by `cell_id`."
     )
-    tracks: OrbitTracks = Field(..., description="Orbit tracks of satellites.")
-    colors: Dict[str, str] = Field({}, description="Display color of satellites.")

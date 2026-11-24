@@ -8,15 +8,17 @@ import logging
 from typing import List
 from uuid import UUID
 
-from celery import chord, group
 from fastapi import APIRouter
 
+from ..analysis.endpoints import (
+    MSGPACK_RESPONSES,
+    enqueue_analysis,
+    get_analysis_result,
+)
+from ..analysis.tasks import serialize_members
 from ..celery.schemas import CeleryTask
-from ..celery.utils import enqueue, get_task_result
-from ..czml import document_packet, link_packets, satellite_packets, site_packets
+from ..cesium.czml import animation_packets, link_packets, site_packets
 from ..generation.utils import resolve_points
-from ..tracking.tasks import member_track_signatures
-from ..utils.analysis import serialize_members
 from ..utils.serialization import to_geojson
 from .schemas import OverflightAnalysisRequest, OverflightAnalysisResult
 from .tasks import collect_observations_task, combine_overflights_task
@@ -38,37 +40,33 @@ def enqueue_overflight_analysis(request: OverflightAnalysisRequest):
     Returns:
         CeleryTask: Queued task.
     """
-    members = serialize_members(request.get_members())
-    points = resolve_points(request.points)
-    points_json = to_geojson(points)
-    return enqueue(
-        chord(
-            group(
-                [
-                    collect_observations_task.s(
-                        points_json,
-                        member,
-                        request.instrument_index,
-                        request.start.isoformat(),
-                        request.end.isoformat(),
-                        request.omit_solar,
-                    )
-                    for member in members
-                ]
-                + member_track_signatures(members, request)
-            ),
-            combine_overflights_task.s(
+    members = request.get_members()
+    points_json = to_geojson(resolve_points(request.points))
+    return enqueue_analysis(
+        request,
+        members,
+        [
+            collect_observations_task.s(
                 points_json,
+                member,
+                request.instrument_index,
                 request.start.isoformat(),
-                request.get_member_colors(),
-            ),
-        )
+                request.end.isoformat(),
+                request.omit_solar,
+            )
+            for member in serialize_members(members)
+        ],
+        combine_overflights_task.s(
+            points_json,
+            request.start.isoformat(),
+            request.get_member_colors(),
+        ),
     )
 
 
 def _get_overflight_result(task_id: UUID) -> OverflightAnalysisResult:
-    return OverflightAnalysisResult.model_validate_json(
-        get_task_result(task_id, "Overflight analysis", logger)
+    return get_analysis_result(
+        OverflightAnalysisResult, task_id, "Overflight analysis", logger
     )
 
 
@@ -76,9 +74,7 @@ def _get_overflight_result(task_id: UUID) -> OverflightAnalysisResult:
     "/overflight/{task_id}",
     response_model=OverflightAnalysisResult,
     response_model_exclude_none=True,
-    responses={
-        "200": {"content": {"application/json": {}, "application/x-msgpack": {}}}
-    },
+    responses=MSGPACK_RESPONSES,
 )
 def retrieve_overflight_analysis(task_id: UUID):
     """
@@ -116,12 +112,7 @@ def retrieve_overflight_analysis_czml(task_id: UUID):
         for i, feature in enumerate(result.points.features)
     ]
     return (
-        [
-            document_packet(
-                "Overflight analysis", result.tracks.epoch, result.tracks.get_end()
-            )
-        ]
-        + satellite_packets(result.tracks, result.colors)
+        animation_packets("Overflight analysis", result)
         + site_packets("tgt", sites, color="#ffffff", pixel_size=8, label=True)
         + link_packets(result.timeline, "tgt", result.colors)
     )

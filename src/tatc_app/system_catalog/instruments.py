@@ -21,7 +21,6 @@ from __future__ import annotations
 import copy
 import functools
 import re
-import warnings
 from typing import Any
 
 from pydantic import BaseModel, Field, TypeAdapter
@@ -29,7 +28,8 @@ from tatc.catalog import InstrumentClass, InstrumentEntry, get_entry, list_entri
 from tatc.schemas import Satellite
 
 from ..satellites import SpaceSystemInput
-from .systems import _BUILD_LOCK, CatalogPeriod
+from .capture import capture_catalog_warnings
+from .systems import CatalogPeriod
 
 SOUNDERS = (InstrumentClass.LIMB, InstrumentClass.OCCULTATION)
 """Classes of instruments whose soundings TAT-C analyzes with other methods."""
@@ -218,7 +218,49 @@ def _describe_grouping(entry: InstrumentEntry, key: str, first: int) -> str | No
     return None
 
 
-def add_instrument(  # pylint: disable=too-many-locals
+def _merge_instruments(
+    system: dict, built: dict, replace: bool
+) -> tuple[dict, list[dict], list[str]]:
+    """
+    Merges built instruments (and their attitude) into a satellite or
+    constellation, naming them uniquely.
+
+    Args:
+        system (dict): The satellite or constellation (not modified).
+        built (dict): The satellite that carries the built instruments.
+        replace (bool): `True`, to replace the instruments of the system.
+
+    Returns:
+        tuple[dict, list[dict], list[str]]: The merged system, the added
+            instruments, and notes.
+    """
+    notes = []
+    result = copy.deepcopy(system)
+    kept = [] if replace else list(result.get("instruments") or [])
+    names = {instrument.get("name") or "Default" for instrument in kept}
+    added = []
+    for instrument in built["instruments"]:
+        instrument["name"] = _unique_name(instrument["name"], names)
+        names.add(instrument["name"])
+        added.append(instrument)
+    attitude = built.get("attitude")
+    if attitude is not None:
+        # the attitude sets the velocity frame of the body
+        framed = [i for i in kept if i.pop("velocity_frame", None) is not None]
+        if framed:
+            notes.append(
+                "The velocity frames of "
+                + ", ".join(i.get("name") or "Default" for i in framed)
+                + " are removed, as the attitude sets the body's."
+            )
+        result["attitude"] = attitude
+    else:
+        result.pop("attitude", None)
+    result["instruments"] = kept + added
+    return result, added, notes
+
+
+def add_instrument(
     entry: InstrumentEntry, request: CatalogInstrumentRequest
 ) -> CatalogInstrumentResult:
     """
@@ -241,8 +283,7 @@ def add_instrument(  # pylint: disable=too-many-locals
     system = _SPACE_SYSTEM.validate_python(request.system)
     notes: list[str] = []
     key = entry.select_configuration(request.configuration)
-    with _BUILD_LOCK, warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
+    with capture_catalog_warnings(notes):
         payload = entry.build(
             configuration=key,
             orbit=system.orbit,
@@ -258,39 +299,21 @@ def add_instrument(  # pylint: disable=too-many-locals
             instruments=payload.instruments,
             attitude=payload.attitude,
         ).model_dump(mode="json", exclude_none=True)
-    notes.extend(str(warning.message) for warning in caught)
 
-    result = copy.deepcopy(request.system)
-    kept = [] if request.replace else list(result.get("instruments") or [])
-    names = {instrument.get("name") or "Default" for instrument in kept}
-    added = []
-    for instrument in built["instruments"]:
-        instrument["name"] = _unique_name(instrument["name"], names)
-        names.add(instrument["name"])
-        added.append(instrument)
-    attitude = built.get("attitude")
+    result, added, merge_notes = _merge_instruments(
+        request.system, built, request.replace
+    )
+    notes.extend(merge_notes)
+    kept = len(result["instruments"]) - len(added)  # instruments kept
     changed = (None if system.attitude is None else system.attitude.model_dump()) != (
         None if payload.attitude is None else payload.attitude.model_dump()
     )
-    if attitude is not None:
-        # the attitude sets the velocity frame of the body
-        framed = [i for i in kept if i.pop("velocity_frame", None) is not None]
-        if framed:
-            notes.append(
-                "The velocity frames of "
-                + ", ".join(i.get("name") or "Default" for i in framed)
-                + " are removed, as the attitude sets the body's."
-            )
-        result["attitude"] = attitude
-    else:
-        result.pop("attitude", None)
-    result["instruments"] = kept + added
-    if changed and kept:
+    if changed and kept > 0:
         notes.append(
             f"The attitude is now {entry.name}'s validated attitude, which also "
             "orients the other instruments."
         )
-    grouping = _describe_grouping(entry, key, len(kept))
+    grouping = _describe_grouping(entry, key, kept)
     if grouping:
         notes.append(grouping)
     if entry.configurations[key].tilt_schedule is not None:
@@ -307,6 +330,6 @@ def add_instrument(  # pylint: disable=too-many-locals
         entry=entry.id,
         configuration=key,
         added=[instrument["name"] for instrument in added],
-        attitude_changed=changed and bool(kept),
+        attitude_changed=changed and kept > 0,
         notes=list(dict.fromkeys(notes)),
     )

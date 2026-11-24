@@ -18,8 +18,6 @@ for the GP orbit, as some tailor their fields of view to the orbit.
 from __future__ import annotations
 
 import functools
-import threading
-import warnings
 from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 
@@ -37,17 +35,13 @@ from tatc.schemas import Satellite
 from tatc.schemas.orbit import AllOrbits
 
 from ..celestrak.catalog import CelestrakObject
+from .capture import capture_catalog_warnings
 
 MAX_ELEMENT_AGE = timedelta(days=14)
 """Difference between element epochs and the start beyond which to warn."""
 
 MAX_DURATION = timedelta(days=366)
 """Longest period for which to build instruments (some schedule by day)."""
-
-# the library's catalog reports what it does not validate with warnings,
-# which are collected per build (and `warnings.catch_warnings` is not
-# thread-safe)
-_BUILD_LOCK = threading.Lock()
 
 
 class CatalogInstrument(BaseModel):
@@ -345,6 +339,48 @@ def _build_payload(
     )
 
 
+def _try_build_payload(
+    references: list[str],
+    spacecraft: Spacecraft,
+    orbit: AllOrbits,
+    request: CatalogBuildRequest,
+) -> InstrumentPayload | None:
+    """
+    Builds a payload, or returns `None` if its instruments have different
+    attitudes (which a satellite cannot carry together).
+    """
+    try:
+        return _build_payload(references, spacecraft, orbit, request)
+    except ValueError as error:
+        if "different attitudes" in str(error):
+            return None
+        raise
+
+
+def _fit_payload(
+    references: list[str],
+    spacecraft: Spacecraft,
+    orbit: AllOrbits,
+    request: CatalogBuildRequest,
+) -> tuple[InstrumentPayload, list[str]]:
+    """
+    Builds a payload of instruments, leaving out those whose attitudes differ
+    from those of the instruments before them.
+
+    Returns:
+        tuple[InstrumentPayload, list[str]]: The payload and the references
+            of the instruments left out.
+    """
+    payload = _try_build_payload(references, spacecraft, orbit, request)
+    if payload is not None:
+        return payload, []
+    carried, omitted = [], []
+    for reference in references:
+        fits = _try_build_payload(carried + [reference], spacecraft, orbit, request)
+        (carried if fits is not None else omitted).append(reference)
+    return _build_payload(carried, spacecraft, orbit, request), omitted
+
+
 def _build_satellite(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     system: SatelliteSystem,
     spacecraft: Spacecraft,
@@ -371,20 +407,8 @@ def _build_satellite(  # pylint: disable=too-many-arguments,too-many-positional-
                 "180 degrees)."
             )
         return Satellite(name=spacecraft.name, orbit=orbit)
-    try:
-        payload = _build_payload(references, spacecraft, orbit, request)
-    except ValueError as error:
-        if "different attitudes" not in str(error):
-            raise
-        carried, omitted = [], []
-        for reference in references:
-            try:
-                _build_payload(carried + [reference], spacecraft, orbit, request)
-                carried.append(reference)
-            except ValueError as other:
-                if "different attitudes" not in str(other):
-                    raise
-                omitted.append(reference)
+    payload, omitted = _fit_payload(references, spacecraft, orbit, request)
+    if omitted:
         notes.append(
             f"{spacecraft.name} omits "
             + ", ".join(get_entry(reference).name for reference in omitted)
@@ -392,7 +416,6 @@ def _build_satellite(  # pylint: disable=too-many-arguments,too-many-positional-
             "attitudes: select which instruments to carry, or load the "
             "spacecraft again with the others."
         )
-        payload = _build_payload(carried, spacecraft, orbit, request)
     return payload.to_satellite(orbit, name=spacecraft.name)
 
 
@@ -413,7 +436,52 @@ def _parse_epoch(epoch: str) -> datetime:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
-def build_satellites(  # pylint: disable=too-many-locals
+def _cataloged_orbits(
+    system: SatelliteSystem, uncoordinated: list[Spacecraft], start: datetime
+) -> tuple[dict[str, AllOrbits], str | None]:
+    """
+    Builds the cataloged orbits of spacecraft without GP elements, at the
+    start of the analysis (with phases spaced evenly among them).
+
+    Returns:
+        tuple[dict[str, AllOrbits], str | None]: The orbits by spacecraft
+            identifier, and a note (if any spacecraft).
+    """
+    if not uncoordinated:
+        return {}, None
+    identifiers = [s.id for s in uncoordinated]
+    configuration = system.configurations[system.default_configuration]
+    orbits = dict(zip(identifiers, configuration.build_orbits(identifiers, start)))
+    note = (
+        "CelesTrak has no GP elements for "
+        + ", ".join(f"{s.name} ({s.norad_id})" for s in uncoordinated)
+        + ", so "
+        + ("it has its" if len(uncoordinated) == 1 else "they have their")
+        + " cataloged orbit, whose phase is not coordinated with other "
+        "satellites."
+    )
+    return orbits, note
+
+
+def _stale_elements_note(
+    member: Spacecraft, celestrak: CelestrakObject | None, start: datetime
+) -> str | None:
+    """
+    Notes GP elements whose epoch is far from the start, if any.
+    """
+    if (
+        celestrak is None
+        or abs(_parse_epoch(celestrak.epoch) - start) <= MAX_ELEMENT_AGE
+    ):
+        return None
+    return (
+        f"The GP elements of {member.name} are from "
+        f"{celestrak.epoch[:10]}, more than {MAX_ELEMENT_AGE.days} "
+        "days from the start, so its position is less accurate."
+    )
+
+
+def build_satellites(
     system: SatelliteSystem,
     spacecraft: list[Spacecraft],
     objects: dict[int, CelestrakObject | None],
@@ -438,30 +506,15 @@ def build_satellites(  # pylint: disable=too-many-locals
     """
     notes: list[str] = []
     references = select_references(system, spacecraft, request.instruments)
-    with _BUILD_LOCK, warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        # spacecraft without GP elements keep their cataloged orbits, at the
-        # start of the analysis (with phases spaced evenly among them)
-        uncoordinated = [s for s in spacecraft if objects.get(s.norad_id) is None]
-        cataloged = {}
-        if uncoordinated:
-            configuration = system.configurations[system.default_configuration]
-            cataloged = dict(
-                zip(
-                    [s.id for s in uncoordinated],
-                    configuration.build_orbits(
-                        [s.id for s in uncoordinated], request.start
-                    ),
-                )
-            )
-            notes.append(
-                "CelesTrak has no GP elements for "
-                + ", ".join(f"{s.name} ({s.norad_id})" for s in uncoordinated)
-                + ", so "
-                + ("it has its" if len(uncoordinated) == 1 else "they have their")
-                + " cataloged orbit, whose phase is not coordinated with other "
-                "satellites."
-            )
+    with capture_catalog_warnings(notes):
+        # spacecraft without GP elements keep their cataloged orbits
+        cataloged, note = _cataloged_orbits(
+            system,
+            [s for s in spacecraft if objects.get(s.norad_id) is None],
+            request.start,
+        )
+        if note:
+            notes.append(note)
         satellites, members = [], []
         for member in spacecraft:
             celestrak = objects.get(member.norad_id)
@@ -479,16 +532,9 @@ def build_satellites(  # pylint: disable=too-many-locals
                     epoch=None if celestrak is None else celestrak.epoch,
                 )
             )
-            if (
-                celestrak is not None
-                and abs(_parse_epoch(celestrak.epoch) - request.start) > MAX_ELEMENT_AGE
-            ):
-                notes.append(
-                    f"The GP elements of {member.name} are from "
-                    f"{celestrak.epoch[:10]}, more than {MAX_ELEMENT_AGE.days} "
-                    "days from the start, so its position is less accurate."
-                )
-    notes.extend(str(warning.message) for warning in caught)
+            note = _stale_elements_note(member, celestrak, request.start)
+            if note:
+                notes.append(note)
     return CatalogBuildResult(
         system=system.id,
         name=system.name,

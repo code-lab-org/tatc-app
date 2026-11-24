@@ -6,7 +6,7 @@ Task specifications for coverage analysis endpoints.
 
 import json
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import List
 
 import geopandas as gpd
 from tatc.analysis import (
@@ -17,11 +17,15 @@ from tatc.analysis import (
 )
 from tatc.schemas import Satellite
 
-from ..czml import assign_colors
-from ..tracking.tasks import combine_tracks
-from ..utils.analysis import deserialize_members, tag, untag
+from ..analysis.tasks import (
+    combine_animation,
+    deserialize_members,
+    get_cell_targets,
+    tag,
+    untag,
+)
+from ..analysis.timeline import build_timeline
 from ..utils.serialization import concat, from_geojson, to_geojson
-from ..utils.timeline import build_timeline
 from ..worker import app
 from .schemas import CoverageAnalysisResult
 
@@ -90,38 +94,12 @@ def collect_coverage_task(points: str, satellites: list, start: str, end: str) -
     return tag("obs", to_geojson(results))
 
 
-def get_cell_targets(
-    points: gpd.GeoDataFrame, cells: gpd.GeoDataFrame
-) -> Dict[str, List[int]]:
-    """
-    Gets the indices of points within each cell.
-
-    Args:
-        points (geopandas.GeoDataFrame): The points.
-        cells (geopandas.GeoDataFrame): The cells (with a `cell_id` column).
-
-    Returns:
-        Dict[str, List[int]]: The point indices by `cell_id`.
-    """
-    if points.empty or cells.empty:
-        return {}
-    joined = gpd.sjoin(
-        gpd.GeoDataFrame(geometry=points.geometry.values, crs="EPSG:4326"),
-        cells[["cell_id", "geometry"]],
-        predicate="intersects",
-    )
-    return {
-        str(cell_id): sorted(int(i) for i in group.index)
-        for cell_id, group in joined.groupby("cell_id")
-    }
-
-
 def compute_coverage(
     observations: gpd.GeoDataFrame,
     points: gpd.GeoDataFrame,
     cells: gpd.GeoDataFrame,
     epoch: datetime,
-    members: Optional[List[str]] = None,
+    members: List[str],
 ) -> dict:
     """
     Reduces aggregated observations to coverage statistics of points and
@@ -132,8 +110,7 @@ def compute_coverage(
         points (geopandas.GeoDataFrame): The points.
         cells (geopandas.GeoDataFrame): The cells.
         epoch (datetime.datetime): The reference time.
-        members (Optional[List[str]]): The member satellite names (default:
-            those with observations).
+        members (List[str]): The member satellite names.
 
     Returns:
         dict: The `points`, `cells`, `timeline`, and `cell_targets`.
@@ -144,7 +121,7 @@ def compute_coverage(
         observations,
         epoch,
         reduced["target_hash"].tolist(),
-        members or sorted(set(observations["satellite"])),
+        members,
     )
     return {
         "points": json.loads(to_geojson(reduced)),
@@ -172,7 +149,7 @@ def combine_coverage_task(
     Returns:
         str: JSON serialized `CoverageAnalysisResult`.
     """
-    epoch = datetime.fromisoformat(start)
+    animation = combine_animation(results, start, colors)
     observations = concat(
         from_geojson(
             data,
@@ -182,15 +159,14 @@ def combine_coverage_task(
         )
         for data in untag(results, "obs")
     )
-    tracks = combine_tracks(results, epoch)
     return CoverageAnalysisResult(
         **compute_coverage(
             observations,
             from_geojson(points),
             from_geojson(cells, columns=["cell_id", "geometry"]),
-            epoch,
-            [track.name for track in tracks.tracks],
+            animation.epoch,
+            animation.members,
         ),
-        tracks=tracks,
-        colors=assign_colors([track.name for track in tracks.tracks], colors),
+        tracks=animation.tracks,
+        colors=animation.colors,
     ).model_dump_json()

@@ -16,7 +16,7 @@ from typing import List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 from pydantic import AwareDatetime, BaseModel, Field
-from shapely.geometry import MultiPolygon, Polygon
+from shapely.geometry import Polygon
 from shapely.geometry.base import BaseGeometry
 
 # tolerance (degrees) to simplify footprints, and decimals to round coordinates
@@ -186,21 +186,25 @@ class OrbitTracks(BaseModel):
         )
 
 
-def _footprint_polygons(geometry: Optional[BaseGeometry]) -> List[List[List[float]]]:
+def polygon_parts(geometry: Optional[BaseGeometry]) -> List[Polygon]:
     """
-    Converts a footprint to a list of polygons, each a list of rings of
-    interleaved coordinates (see `InstrumentTrack.footprints`), simplified
-    and rounded to keep payloads small.
+    Gets the (non-empty) polygons of a geometry: a polygon, or the polygons
+    of a multi-polygon or geometry collection.
     """
-    if geometry is None or geometry.is_empty:
+    if geometry is None:
         return []
-    geometry = geometry.simplify(FOOTPRINT_TOLERANCE, preserve_topology=True)
-    if isinstance(geometry, Polygon):
-        parts = [geometry]
-    elif isinstance(geometry, MultiPolygon):
-        parts = list(geometry.geoms)
-    else:
-        parts = [g for g in getattr(geometry, "geoms", []) if isinstance(g, Polygon)]
+    parts = (
+        [geometry] if isinstance(geometry, Polygon) else getattr(geometry, "geoms", [])
+    )
+    return [part for part in parts if isinstance(part, Polygon) and not part.is_empty]
+
+
+def encode_polygons(polygons: Sequence[Polygon]) -> List[List[List[float]]]:
+    """
+    Encodes polygons as lists of rings (the exterior, then any holes) of
+    interleaved [longitude, latitude, ...] coordinates, not closed and
+    rounded to keep payloads small (see `InstrumentTrack.footprints`).
+    """
     return [
         [
             [
@@ -208,11 +212,35 @@ def _footprint_polygons(geometry: Optional[BaseGeometry]) -> List[List[List[floa
                 for x, y, *_ in ring.coords[:-1]
                 for v in (x, y)
             ]
-            for ring in [part.exterior, *part.interiors]
+            for ring in [polygon.exterior, *polygon.interiors]
         ]
-        for part in parts
-        if not part.is_empty
+        for polygon in polygons
     ]
+
+
+def decode_polygons(polygons: Sequence[Sequence[Sequence[float]]]) -> List[Polygon]:
+    """
+    Decodes polygons encoded by `encode_polygons`.
+    """
+    return [
+        Polygon(
+            list(zip(rings[0][0::2], rings[0][1::2])),
+            [list(zip(ring[0::2], ring[1::2])) for ring in rings[1:]],
+        )
+        for rings in polygons
+    ]
+
+
+def _footprint_polygons(geometry: Optional[BaseGeometry]) -> List[List[List[float]]]:
+    """
+    Encodes a footprint (see `InstrumentTrack.footprints`), simplified to
+    keep payloads small.
+    """
+    if geometry is None or geometry.is_empty:
+        return []
+    return encode_polygons(
+        polygon_parts(geometry.simplify(FOOTPRINT_TOLERANCE, preserve_topology=True))
+    )
 
 
 def build_footprints(

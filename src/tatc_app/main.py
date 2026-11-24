@@ -52,68 +52,22 @@ app.add_middleware(
     same_site="lax",
     https_only=(authenticator.public_url or "").startswith("https://"),
 )
-# include the router for authentication
+# Include the router for authentication
 app.include_router(authenticator.router, prefix="/auth", tags=["auth"])
-# Include the router for the /tasks route
-app.include_router(
-    celery_router,
-    prefix="/tasks",
-    dependencies=[Depends(current_user)],
-)
-# Include the router for the /celestrak route
-app.include_router(
-    celestrak_router,
-    prefix="/celestrak",
-    dependencies=[Depends(current_user)],
-)
-# Include the router for the /catalog route
-app.include_router(
-    system_catalog_router,
-    prefix="/catalog",
-    dependencies=[Depends(current_user)],
-)
-# Include the router for the /cesium route
-app.include_router(
-    get_cesium_router(CESIUM_TOKEN),
-    prefix="/cesium",
-    dependencies=[Depends(current_user)],
-)
-# Include the router for the /generate route
-app.include_router(
-    generation_router,
-    prefix="/generate",
-    dependencies=[Depends(current_user)],
-)
-# Include the router for the /validate route
-app.include_router(
-    validation_router,
-    prefix="/validate",
-    dependencies=[Depends(current_user)],
-)
-# Include the router for the /analyze route
-app.include_router(
-    overflight_router,
-    prefix="/analyze",
-    dependencies=[Depends(current_user)],
-)
-# Include the router for the /analyze route
-app.include_router(
-    tracking_router,
-    prefix="/analyze",
-    dependencies=[Depends(current_user)],
-)
-# Include the router for the /analyze route
-app.include_router(
-    coverage_router,
-    prefix="/analyze",
-    dependencies=[Depends(current_user)],
-)
-# Include the router for the /analyze route
-app.include_router(
-    latency_router,
-    prefix="/analyze",
-    dependencies=[Depends(current_user)],
-)
+# Include the routers of all other endpoints, which require a signed-in user
+for router, prefix in [
+    (celery_router, "/tasks"),
+    (celestrak_router, "/celestrak"),
+    (system_catalog_router, "/catalog"),
+    (get_cesium_router(CESIUM_TOKEN), "/cesium"),
+    (generation_router, "/generate"),
+    (validation_router, "/validate"),
+    (overflight_router, "/analyze"),
+    (tracking_router, "/analyze"),
+    (coverage_router, "/analyze"),
+    (latency_router, "/analyze"),
+]:
+    app.include_router(router, prefix=prefix, dependencies=[Depends(current_user)])
 
 # Mount a static directory to the root (/) route for any other requests
 app.mount("/", StaticFiles(directory="src/static", html=True), name="frontend")

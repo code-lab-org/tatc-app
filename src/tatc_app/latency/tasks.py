@@ -6,7 +6,7 @@ Task specifications for latency analysis endpoints.
 
 import json
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 import geopandas as gpd
 from tatc.analysis import (
@@ -18,12 +18,9 @@ from tatc.analysis import (
 )
 from tatc.schemas import GroundStation, Satellite
 
-from ..coverage.tasks import get_cell_targets
-from ..czml import assign_colors
-from ..tracking.tasks import combine_tracks
-from ..utils.analysis import tag, untag
+from ..analysis.tasks import combine_animation, get_cell_targets, tag, untag
+from ..analysis.timeline import build_timeline
 from ..utils.serialization import concat, from_geojson, to_geojson
-from ..utils.timeline import build_timeline
 from ..worker import app
 from .schemas import LatencyAnalysisResult
 
@@ -132,7 +129,7 @@ def compute_latency(
     cells: gpd.GeoDataFrame,
     stations: List[GroundStation],
     epoch: datetime,
-    members: Optional[List[str]] = None,
+    members: List[str],
 ) -> dict:
     """
     Reduces latencies of observations to statistics of points and cells, and
@@ -145,13 +142,12 @@ def compute_latency(
         cells (geopandas.GeoDataFrame): The cells.
         stations (List[tatc.schemas.GroundStation]): The ground stations.
         epoch (datetime.datetime): The reference time.
-        members (Optional[List[str]]): The member satellite names.
+        members (List[str]): The member satellite names.
 
     Returns:
         dict: The `points`, `cells`, `timeline`, `contacts`, `stations`, and
             `cell_targets`.
     """
-    members = members or sorted(set(latencies["satellite"]))
     reduced = reduce_latencies(latencies, targets=points).reset_index(drop=True)
     gridded = grid_latencies(reduced, cells)
     return {
@@ -195,7 +191,7 @@ def combine_latency_task(
     Returns:
         str: JSON serialized `LatencyAnalysisResult`.
     """
-    epoch = datetime.fromisoformat(start)
+    animation = combine_animation(results, start, colors)
     data = untag(results, "lat")
     latencies = concat(
         from_geojson(
@@ -211,7 +207,6 @@ def combine_latency_task(
         for d in data
         if d["contacts"] is not None
     )
-    tracks = combine_tracks(results, epoch)
     return LatencyAnalysisResult(
         **compute_latency(
             latencies,
@@ -219,9 +214,9 @@ def combine_latency_task(
             from_geojson(points),
             from_geojson(cells, columns=["cell_id", "geometry"]),
             [GroundStation.model_validate_json(station) for station in stations],
-            epoch,
-            [track.name for track in tracks.tracks],
+            animation.epoch,
+            animation.members,
         ),
-        tracks=tracks,
-        colors=assign_colors([track.name for track in tracks.tracks], colors),
+        tracks=animation.tracks,
+        colors=animation.colors,
     ).model_dump_json()

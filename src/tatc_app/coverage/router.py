@@ -8,15 +8,18 @@ import logging
 from typing import List
 from uuid import UUID
 
-from celery import chord, group
 from fastapi import APIRouter
 
+from ..analysis.endpoints import (
+    MSGPACK_RESPONSES,
+    chunk,
+    enqueue_analysis,
+    get_analysis_result,
+)
+from ..analysis.tasks import serialize_members
 from ..celery.schemas import CeleryTask
-from ..celery.utils import enqueue, get_task_result
-from ..czml import document_packet, satellite_packets
-from ..generation.utils import chunk, resolve_cells, resolve_points
-from ..tracking.tasks import member_track_signatures
-from ..utils.analysis import serialize_members
+from ..cesium.czml import animation_packets
+from ..generation.utils import resolve_cells, resolve_points
 from ..utils.serialization import to_geojson
 from .schemas import CoverageAnalysisRequest, CoverageAnalysisResult
 from .tasks import collect_coverage_task, combine_coverage_task
@@ -38,36 +41,34 @@ def enqueue_coverage_analysis(request: CoverageAnalysisRequest):
     Returns:
         CeleryTask: Queued task.
     """
-    members = serialize_members(request.get_members())
+    members = request.get_members()
+    serialized = serialize_members(members)
     points = resolve_points(request.points)
     cells = resolve_cells(request.cells)
-    return enqueue(
-        chord(
-            group(
-                [
-                    collect_coverage_task.s(
-                        to_geojson(points_chunk),
-                        members,
-                        request.start.isoformat(),
-                        request.end.isoformat(),
-                    )
-                    for points_chunk in chunk(points)
-                ]
-                + member_track_signatures(members, request)
-            ),
-            combine_coverage_task.s(
-                to_geojson(points),
-                to_geojson(cells),
+    return enqueue_analysis(
+        request,
+        members,
+        [
+            collect_coverage_task.s(
+                to_geojson(points_chunk),
+                serialized,
                 request.start.isoformat(),
-                request.get_member_colors(),
-            ),
-        )
+                request.end.isoformat(),
+            )
+            for points_chunk in chunk(points)
+        ],
+        combine_coverage_task.s(
+            to_geojson(points),
+            to_geojson(cells),
+            request.start.isoformat(),
+            request.get_member_colors(),
+        ),
     )
 
 
 def _get_coverage_result(task_id: UUID) -> CoverageAnalysisResult:
-    return CoverageAnalysisResult.model_validate_json(
-        get_task_result(task_id, "Coverage analysis", logger)
+    return get_analysis_result(
+        CoverageAnalysisResult, task_id, "Coverage analysis", logger
     )
 
 
@@ -75,9 +76,7 @@ def _get_coverage_result(task_id: UUID) -> CoverageAnalysisResult:
     "/coverage/{task_id}",
     response_model=CoverageAnalysisResult,
     response_model_exclude_none=True,
-    responses={
-        "200": {"content": {"application/json": {}, "application/x-msgpack": {}}}
-    },
+    responses=MSGPACK_RESPONSES,
 )
 def retrieve_coverage_analysis(task_id: UUID):
     """
@@ -105,9 +104,4 @@ def retrieve_coverage_analysis_czml(task_id: UUID):
     Returns:
         List[dict]: CZML packets.
     """
-    result = _get_coverage_result(task_id)
-    return [
-        document_packet(
-            "Coverage analysis", result.tracks.epoch, result.tracks.get_end()
-        )
-    ] + satellite_packets(result.tracks, result.colors)
+    return animation_packets("Coverage analysis", _get_coverage_result(task_id))

@@ -86,7 +86,25 @@ def expand_members(systems: Iterable[SpaceSystem]) -> List[Satellite]:
     Returns:
         List[Satellite]: The member satellites.
     """
-    members = [member for system in systems for member in generate_members(system)]
+    return check_unique_names(
+        [member for system in systems for member in generate_members(system)]
+    )
+
+
+def check_unique_names(members: List[Satellite]) -> List[Satellite]:
+    """
+    Checks that member satellites have unique names (as required by analyses
+    that identify observations by satellite name).
+
+    Args:
+        members (List[Satellite]): The member satellites.
+
+    Raises:
+        HTTPException: (422) if two members share a name.
+
+    Returns:
+        List[Satellite]: The member satellites.
+    """
     names = set()
     for member in members:
         if member.name in names:

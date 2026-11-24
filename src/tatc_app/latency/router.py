@@ -8,15 +8,18 @@ import logging
 from typing import List
 from uuid import UUID
 
-from celery import chord, group
 from fastapi import APIRouter
 
+from ..analysis.endpoints import (
+    MSGPACK_RESPONSES,
+    chunk,
+    enqueue_analysis,
+    get_analysis_result,
+)
+from ..analysis.tasks import serialize_members
 from ..celery.schemas import CeleryTask
-from ..celery.utils import enqueue, get_task_result
-from ..czml import document_packet, link_packets, satellite_packets, site_packets
-from ..generation.utils import chunk, resolve_cells, resolve_points
-from ..tracking.tasks import member_track_signatures
-from ..utils.analysis import serialize_members
+from ..cesium.czml import animation_packets, link_packets, site_packets
+from ..generation.utils import resolve_cells, resolve_points
 from ..utils.serialization import to_geojson
 from .schemas import LatencyAnalysisRequest, LatencyAnalysisResult
 from .tasks import collect_latencies_task, combine_latency_task
@@ -38,43 +41,40 @@ def enqueue_latency_analysis(request: LatencyAnalysisRequest):
     Returns:
         CeleryTask: Queued task.
     """
-    members = serialize_members(request.get_members())
+    members = request.get_members()
     points = resolve_points(request.points)
     cells = resolve_cells(request.cells)
     stations = [station.model_dump_json() for station in request.stations]
     chunks = [to_geojson(points_chunk) for points_chunk in chunk(points)]
-    return enqueue(
-        chord(
-            group(
-                [
-                    collect_latencies_task.s(
-                        points_chunk,
-                        member,
-                        stations,
-                        request.start.isoformat(),
-                        request.end.isoformat(),
-                        request.during_contact,
-                        i == 0,
-                    )
-                    for member in members
-                    for i, points_chunk in enumerate(chunks)
-                ]
-                + member_track_signatures(members, request)
-            ),
-            combine_latency_task.s(
-                to_geojson(points),
-                to_geojson(cells),
+    return enqueue_analysis(
+        request,
+        members,
+        [
+            collect_latencies_task.s(
+                points_chunk,
+                member,
                 stations,
                 request.start.isoformat(),
-                request.get_member_colors(),
-            ),
-        )
+                request.end.isoformat(),
+                request.during_contact,
+                i == 0,
+            )
+            for member in serialize_members(members)
+            for i, points_chunk in enumerate(chunks)
+        ],
+        combine_latency_task.s(
+            to_geojson(points),
+            to_geojson(cells),
+            stations,
+            request.start.isoformat(),
+            request.get_member_colors(),
+        ),
     )
 
 
 def _get_latency_result(task_id: UUID) -> LatencyAnalysisResult:
-    return LatencyAnalysisResult.model_validate_json(
-        get_task_result(task_id, "Latency analysis", logger)
+    return get_analysis_result(
+        LatencyAnalysisResult, task_id, "Latency analysis", logger
     )
 
 
@@ -82,9 +82,7 @@ def _get_latency_result(task_id: UUID) -> LatencyAnalysisResult:
     "/latency/{task_id}",
     response_model=LatencyAnalysisResult,
     response_model_exclude_none=True,
-    responses={
-        "200": {"content": {"application/json": {}, "application/x-msgpack": {}}}
-    },
+    responses=MSGPACK_RESPONSES,
 )
 def retrieve_latency_analysis(task_id: UUID):
     """
@@ -114,12 +112,7 @@ def retrieve_latency_analysis_czml(task_id: UUID):
     """
     result = _get_latency_result(task_id)
     return (
-        [
-            document_packet(
-                "Latency analysis", result.tracks.epoch, result.tracks.get_end()
-            )
-        ]
-        + satellite_packets(result.tracks, result.colors)
+        animation_packets("Latency analysis", result)
         + site_packets(
             "gs",
             [(s.name, s.name, s.longitude, s.latitude) for s in result.stations],
