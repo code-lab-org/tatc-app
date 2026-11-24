@@ -77,6 +77,27 @@ function clearAnalysisLayers() {
   hideLegend();
 }
 
+// Tests whether an analysis includes a satellite or constellation since
+// removed from (or renamed in) the design.
+function hasRemovedSatellites(payload) {
+  const names = _.map(design.satellites, "system.name");
+  return _.some(payload.satellites, function(system) { return !_.includes(names, system.name); });
+}
+
+// Drops the analysis results if they include a removed satellite, so it no
+// longer shows in the viewer.
+function dropStaleAnalysis() {
+  if (!analysisResult || !hasRemovedSatellites(analysisResult.payload)) {
+    return;
+  }
+  clearAnalysisLayers();
+  analysisResult = null;
+  $("#analysis-data").prop("disabled", true);
+  if ($("#nav-analysis-tab").hasClass("active")) {
+    changeAnalysisType();
+  }
+}
+
 function showAnalysisLayers(show) {
   if (targetLayer) {
     targetLayer.show(show);
@@ -237,6 +258,11 @@ function runSelectedAnalysis() {
     progress: $("#analysis-progress"),
     error: $("#analysis-error"),
     onResult: function(result, taskId) {
+      // a satellite may be removed while the analysis runs
+      if (hasRemovedSatellites(payload)) {
+        $("#analysis-error").text("A satellite of this analysis was removed from the design. Run the analysis again.").show();
+        return;
+      }
       clearAnalysisLayers();
       showRegionGrid(false);
       const period = getAnalysisPeriod();
@@ -648,6 +674,8 @@ $(document).ready(function() {
     setPickingTargets(false);
     stationSource.show = false;
   });
+
+  onDesignChange(dropStaleAnalysis);
 
   renderStations();
   renderTargets();
