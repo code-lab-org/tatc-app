@@ -221,7 +221,8 @@ class CzmlTestCase(unittest.TestCase):
         positions = first["polygon"]["positions"]
         self.assertEqual(len(positions), 2)
         self.assertEqual(positions[0]["cartographicDegrees"][:6], [0, 0, 0, 1, 0, 0])
-        self.assertEqual(len(positions[1]["cartographicDegrees"]), 12)
+        # (edges divided into segments of at most 2 degrees)
+        self.assertEqual(len(positions[1]["cartographicDegrees"]), 24)
         self.assertEqual(
             first["polygon"]["holes"][1]["cartographicDegrees"],
             [[3, 3, 0, 4, 3, 0, 4, 4, 0, 3, 4, 0]],
@@ -289,9 +290,12 @@ class CzmlTestCase(unittest.TestCase):
         )
 
     def test_display_polygons(self):
-        # polygons away from the poles are drawn as is, with rhumb lines
+        # polygons away from the poles are drawn as is, with rhumb lines, with
+        # edges divided into segments (so Cesium triangulates long edges far
+        # from the equator correctly)
         ((polygon, arc_type),) = display_polygons([box(0, 0, 10, 10)])
         self.assertTrue(polygon.equals(box(0, 0, 10, 10)))
+        self.assertEqual(len(polygon.exterior.coords), 21)
         self.assertEqual(arc_type, "RHUMB")
         # TAT-C splits a geometry that covers a pole at the antimeridian, with
         # edges along the pole (which Cesium cannot draw): the parts are
@@ -409,8 +413,9 @@ class CzmlTestCase(unittest.TestCase):
             packets[0]["availability"],
             "2022-01-01T00:10:00.000Z/2022-01-01T01:00:00.000Z",
         )
+        # (edges divided into segments of at most 2 degrees)
         self.assertEqual(
-            len(packets[0]["polygon"]["positions"]["cartographicDegrees"]), 12
+            len(packets[0]["polygon"]["positions"]["cartographicDegrees"]), 60
         )
         # without instruments, segments take the satellite color
         colors = {

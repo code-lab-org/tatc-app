@@ -38,6 +38,9 @@ POLE_TOLERANCE = 1e-6
 # polygons re-formed around a pole (see `display_polygons`)
 POLAR_SEAM_TOLERANCE = 10
 POLAR_SIMPLIFY_TOLERANCE = 1000
+# maximum length (degrees) of the edges of polygons drawn with rhumb lines
+# (see `display_polygons`)
+RHUMB_SEGMENT_LENGTH = 2.0
 # area (square degrees) of footprint polygons drawn as static entities, as
 # Cesium takes too long to rebuild larger time-varying polygons every frame
 # (about 2 seconds for the full disk of a geostationary imager), and the
@@ -335,7 +338,12 @@ def display_polygons(polygons: Sequence[Polygon]) -> List[Tuple[Polygon, str]]:
     swaths) to draw in Cesium, with the arc type of their edges.
 
     Polygons are drawn with rhumb lines (`RHUMB`), which follow their
-    longitude/latitude edges, except those that touch a pole. TAT-C splits
+    longitude/latitude edges, except those that touch a pole. Their edges
+    are divided into segments of at most `RHUMB_SEGMENT_LENGTH`: Cesium
+    triangulates a polygon between its vertices as if its edges were
+    geodesics, which, for long rhumb lines far from the equator (as edges
+    of the full disk of a geostationary imager), fills the wrong area
+    between them. TAT-C splits
     a geometry that covers a pole at the antimeridian, with edges along the
     pole (or, as one ring, with a zero-width spike out to the pole and back),
     which Cesium cannot draw: rhumb lines to a pole are undefined, and such
@@ -363,7 +371,7 @@ def display_polygons(polygons: Sequence[Polygon]) -> List[Tuple[Polygon, str]]:
         elif _touches_pole(polygon, -1):
             polar[-1].append(polygon)
         else:
-            results.append((polygon, "RHUMB"))
+            results.append((shapely.segmentize(polygon, RHUMB_SEGMENT_LENGTH), "RHUMB"))
     for sign, parts in polar.items():
         if not parts:
             continue
