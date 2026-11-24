@@ -220,8 +220,14 @@ function signedOut() {
   });
 }
 
-function getUserInformation() {
-  $.get("/auth/me").done(signedIn).fail(signedOut);
+function getUserInformation(onArrival) {
+  $.get("/auth/me").done(signedIn).fail(function(xhr) {
+    signedOut();
+    // prompt to sign in on arrival (not after signing out or on other errors)
+    if (onArrival && xhr.status == 401) {
+      $("#login-dialog").modal("show");
+    }
+  });
 }
 
 // --- Drawer ---
@@ -281,5 +287,8 @@ $(document).ready(function() {
       })
       .fail(function(xhr) { alert(formatError(xhr)); });
   });
-  getUserInformation();
+  $("#login-dialog").on("shown.bs.modal", function() {
+    $("#login-dialog-link").trigger("focus");
+  });
+  getUserInformation(true);
 });
