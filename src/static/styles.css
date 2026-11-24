@@ -32,17 +32,18 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .rail-btn:hover, .rail-btn:focus { color: #fff; background: rgba(255, 255, 255, 0.12); text-decoration: none; }
 .rail-btn.active { color: #fff; background: #007bff; }
 .rail-bottom { margin-top: auto; display: flex; flex-direction: column; align-items: center; }
-/* the drawer and display panel */
+/* the drawer and display panel (dark and translucent like the rail; see
+   the dark theme of their contents below) */
 #drawer, #display-panel {
   position: absolute; z-index: 20;
   display: flex; flex-direction: column; overflow: hidden;
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(33, 37, 41, 0.88); color: #e9ecef; color-scheme: dark;
   -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
   border-radius: 6px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 .overlay-header {
   flex: none; display: flex; justify-content: space-between; align-items: center;
-  padding: 6px 6px 6px 12px; border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  padding: 6px 6px 6px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.12);
 }
 /* The drawer is as tall as its content, up to the space above Cesium's
    widgets: then the list of the active tab (satellites, ground stations, or
@@ -91,7 +92,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .display-toggle.active { background: #48b; border-color: #aef; }
 .display-body { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
 .display-section { flex: none; padding: 6px 10px; }
-.display-section + .display-section { border-top: 1px solid rgba(0, 0, 0, 0.1); }
+.display-section + .display-section { border-top: 1px solid rgba(255, 255, 255, 0.12); }
 .display-section-title { font-size: 80%; font-weight: 700; }
 #layer-filter { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
 #layer-filter-list { flex: 0 1 auto; min-height: 4em; overflow-y: auto; }
@@ -113,12 +114,45 @@ input:invalid { background-color: #fcc; }
 .mono { font-family: monospace; font-size: 11px; }
 .list-badge { font-size: 10px; }
 /* the satellite and instrument filter (filter.js) */
-.filter-system + .filter-system { border-top: 1px solid rgba(0, 0, 0, 0.08); padding-top: 2px; }
+.filter-system + .filter-system { border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 2px; }
 .filter-details { padding-left: 1.25rem; }
 .filter-unchecked { opacity: 0.5; }
 .filter-members { max-height: 8em; overflow-y: auto; }
 .filter-swatch {
   display: inline-block; width: 10px; height: 10px; margin-right: 4px;
-  border-radius: 2px; border: 1px solid rgba(0, 0, 0, 0.3); vertical-align: -1px;
+  border-radius: 2px; border: 1px solid rgba(255, 255, 255, 0.4); vertical-align: -1px;
 }
 .filter-swatch-none { background: repeating-linear-gradient(45deg, #ccc, #ccc 2px, #fff 2px, #fff 4px); }
+/* Dark theme of the contents of the drawer and display panel: Bootstrap 4
+   styles them for a light background (dialogs keep it). */
+:is(#drawer, #display-panel) a:not(.btn):not(.list-group-item) { color: #6cb2ff; }
+:is(#drawer, #display-panel) .text-muted { color: #adb5bd !important; }
+:is(#drawer, #display-panel) .text-secondary { color: #adb5bd !important; }
+:is(#drawer, #display-panel) .text-secondary:hover { color: #fff !important; }
+:is(#drawer, #display-panel) .btn-link:not(.text-secondary) { color: #6cb2ff; }
+:is(#drawer, #display-panel) .form-control,
+:is(#drawer, #display-panel) .input-group-text {
+  color: #f8f9fa; background-color: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+:is(#drawer, #display-panel) .input-group-text { color: #ced4da; background-color: rgba(255, 255, 255, 0.14); }
+:is(#drawer, #display-panel) .form-control:focus {
+  color: #fff; background-color: rgba(255, 255, 255, 0.12); border-color: #4da3ff;
+}
+:is(#drawer, #display-panel) .form-control:disabled,
+:is(#drawer, #display-panel) .form-control[readonly] {
+  color: #adb5bd; background-color: rgba(255, 255, 255, 0.03);
+}
+:is(#drawer, #display-panel) option { color: #f8f9fa; background-color: #343a40; }
+:is(#drawer, #display-panel) input:invalid { background-color: rgba(220, 53, 69, 0.35); }
+:is(#drawer, #display-panel) .list-group-item {
+  color: #e9ecef; background-color: transparent; border-color: rgba(255, 255, 255, 0.12);
+}
+:is(#drawer, #display-panel) .list-group-item-action:hover,
+:is(#drawer, #display-panel) .list-group-item-action:focus { color: #fff; background-color: rgba(255, 255, 255, 0.08); }
+:is(#drawer, #display-panel) .list-group-item.active { color: #fff; background-color: #007bff; border-color: #007bff; }
+:is(#drawer, #display-panel) .btn-outline-secondary { color: #ced4da; border-color: rgba(255, 255, 255, 0.3); }
+:is(#drawer, #display-panel) .btn-outline-secondary:hover { color: #fff; background-color: rgba(255, 255, 255, 0.14); }
+:is(#drawer, #display-panel) .btn-secondary:disabled { color: #adb5bd; background-color: #495057; border-color: #495057; }
+:is(#drawer, #display-panel) .alert-danger { color: #f8d7da; background-color: rgba(220, 53, 69, 0.25); border-color: rgba(220, 53, 69, 0.5); }
+:is(#drawer, #display-panel) .progress { background-color: rgba(255, 255, 255, 0.15); }
