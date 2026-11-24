@@ -33,7 +33,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .rail-btn.active { color: #fff; background: #007bff; }
 .rail-bottom { margin-top: auto; display: flex; flex-direction: column; align-items: center; }
 /* Panels dark and translucent like the rail: the drawer, the display panel,
-   and the satellite dialog (see the dark theme of their contents below). */
+   and dialogs (see the dark theme of their contents below). */
 .dark-panel {
   background: rgba(33, 37, 41, 0.88); color: #e9ecef; color-scheme: dark;
   -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
@@ -128,7 +128,7 @@ input:invalid { background-color: #fcc; }
 }
 .filter-swatch-none { background: repeating-linear-gradient(45deg, #ccc, #ccc 2px, #fff 2px, #fff 4px); }
 /* Dark theme of the contents of dark panels: Bootstrap 4 styles them for a
-   light background (other dialogs keep it). */
+   light background. */
 .dark-panel a:not(.btn):not(.list-group-item) { color: #6cb2ff; }
 .dark-panel .text-muted { color: #adb5bd !important; }
 .dark-panel .text-secondary { color: #adb5bd !important; }
@@ -148,6 +148,9 @@ input:invalid { background-color: #fcc; }
   color: #adb5bd; background-color: rgba(255, 255, 255, 0.03);
 }
 .dark-panel option { color: #f8f9fa; background-color: #343a40; }
+/* options of list boxes are on the select's background (not a menu's) */
+.dark-panel select[size] option { background-color: transparent; }
+.dark-panel select[size] option:checked { background-color: rgba(0, 123, 255, 0.6); }
 .dark-panel input:invalid { background-color: rgba(220, 53, 69, 0.35); }
 .dark-panel .list-group-item {
   color: #e9ecef; background-color: transparent; border-color: rgba(255, 255, 255, 0.12);
@@ -172,7 +175,21 @@ input:invalid { background-color: #fcc; }
   border-color: rgba(255, 255, 255, 0.2) rgba(255, 255, 255, 0.2) transparent;
 }
 /* dialogs (modals) */
-.modal-content.dark-panel { border-color: rgba(255, 255, 255, 0.12); }
+/* dialogs are opaque (of the same color), as they may open over another (such
+   as CelesTrak over the satellite dialog), and their backdrop dims the globe */
+.modal-content.dark-panel {
+  background: rgb(33, 37, 41); border-color: rgba(255, 255, 255, 0.12);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
 .dark-panel .modal-header, .dark-panel .modal-footer { border-color: rgba(255, 255, 255, 0.12); }
 .dark-panel .close { color: #e9ecef; text-shadow: none; opacity: 0.6; }
 .dark-panel .close:hover { color: #fff; }
+/* selects with Bootstrap's arrow (DataTables' page length), in a light color */
+.dark-panel .custom-select {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='4' height='5' viewBox='0 0 4 5'%3e%3cpath fill='%23ced4da' d='M2 0L0 2h4zm0 5L0 3h4z'/%3e%3c/svg%3e");
+}
+/* the pagination of tables (DataTables, in the results dialog) */
+.dark-panel .page-link { color: #6cb2ff; background-color: transparent; border-color: rgba(255, 255, 255, 0.2); }
+.dark-panel .page-link:hover { color: #fff; background-color: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.2); }
+.dark-panel .page-item.active .page-link { color: #fff; background-color: #007bff; border-color: #007bff; }
+.dark-panel .page-item.disabled .page-link { color: #6c757d; background-color: transparent; border-color: rgba(255, 255, 255, 0.12); }
