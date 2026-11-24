@@ -6,24 +6,22 @@ import pandas as pd
 import shapely
 from shapely.geometry import MultiPolygon, Polygon, box
 
-from tatc_app.czml import (
-    assign_colors,
+from tatc_app.analysis.colors import assign_colors, instrument_color
+from tatc_app.analysis.timeline import Timeline, build_timeline
+from tatc_app.analysis.tracks import (
+    InstrumentTrack,
+    MemberTrack,
+    OrbitTracks,
+    build_footprints,
+)
+from tatc_app.cesium.czml import (
     display_polygons,
     document_packet,
-    instrument_color,
     link_packets,
     rgba,
     satellite_packets,
     site_packets,
     swath_packets,
-)
-from tatc_app.utils.timeline import (
-    InstrumentTrack,
-    MemberTrack,
-    OrbitTracks,
-    Timeline,
-    build_footprints,
-    build_timeline,
 )
 
 EPOCH = datetime(2022, 1, 1, tzinfo=timezone.utc)
@@ -362,9 +360,20 @@ class CzmlTestCase(unittest.TestCase):
         }
         self.assertEqual(len(colors), 1)
         # with instruments, segments of each instrument take distinct colors
-        packets = swath_packets(
-            swaths, end, {"s1": "#4e79a7"}, instruments={"s1": ["a", "b"]}
+        tracks = OrbitTracks(
+            epoch=EPOCH,
+            tracks=[
+                MemberTrack(
+                    name="s1",
+                    positions=[],
+                    instruments=[
+                        InstrumentTrack(name=name, swath_widths=[])
+                        for name in ("a", "b")
+                    ],
+                )
+            ],
         )
+        packets = swath_packets(swaths, end, {"s1": "#4e79a7"}, tracks=tracks)
         self.assertEqual(
             packets[0]["polygon"]["material"]["solidColor"]["color"]["rgba"],
             rgba("#4e79a7", 150),
@@ -375,13 +384,8 @@ class CzmlTestCase(unittest.TestCase):
         )
         self.assertEqual(packets[1]["name"], "s1 b swath")
         # chosen instrument colors replace derived colors
-        packets = swath_packets(
-            swaths,
-            end,
-            {"s1": "#4e79a7"},
-            instruments={"s1": ["a", "b"]},
-            instrument_colors={"s1": [None, "#00ff00"]},
-        )
+        tracks.tracks[0].instruments[1].color = "#00ff00"
+        packets = swath_packets(swaths, end, {"s1": "#4e79a7"}, tracks=tracks)
         self.assertEqual(
             [p["polygon"]["material"]["solidColor"]["color"]["rgba"] for p in packets],
             [rgba("#4e79a7", 150)] + [rgba("#00ff00", 150)] * 2,

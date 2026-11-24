@@ -10,16 +10,13 @@ const activeRuns = {};
 //
 // options:
 //   name:       name of the analysis (one active run per name)
-//   url:        endpoint to enqueue the analysis (POST)
+//   url:        endpoint to enqueue the analysis (POST), and of its results
+//               (GET `url`/{task_id})
 //   payload:    request body (serialized to JSON)
-//   resultUrl:  function(taskId) returning the endpoint of results (GET)
 //   button:     jQuery button to disable (with a spinner) while running
 //   progress:   jQuery progress element to show group progress
 //   error:      jQuery element to show errors
 //   onResult:   function(result, taskId) called with the results
-//   onError:    optional function(message) called on failure
-//
-// Returns a run object with a `cancel()` method.
 function runAnalysis(options) {
   if (activeRuns[options.name]) {
     activeRuns[options.name].cancel();
@@ -75,9 +72,6 @@ function runAnalysis(options) {
     if (options.error) {
       options.error.text(message).show();
     }
-    if (options.onError) {
-      options.onError(message);
-    }
   }
 
   if (options.error) {
@@ -116,7 +110,7 @@ function runAnalysis(options) {
           setTimeout(function() { pollStatus(taskId); }, POLL_INTERVAL);
           return;
         }
-        $.get(options.resultUrl(taskId))
+        $.get(options.url + "/" + taskId)
           .done(function(result) {
             if (run.cancelled) {
               return;
@@ -129,13 +123,7 @@ function runAnalysis(options) {
       .fail(function(xhr) { fail(formatError(xhr)); });
   }
 
-  $.ajax({
-    url: options.url,
-    type: "POST",
-    contentType: "application/json",
-    dataType: "json",
-    data: JSON.stringify(options.payload)
-  })
+  postJson(options.url, options.payload)
     .done(function(task) {
       run.task = task;
       if (run.cancelled) {
@@ -149,8 +137,6 @@ function runAnalysis(options) {
       pollStatus(task.task_id);
     })
     .fail(function(xhr) { fail(formatError(xhr)); });
-
-  return run;
 }
 
 // Cancels the active run of a named analysis, if any: its results are dropped

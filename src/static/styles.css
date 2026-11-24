@@ -1,0 +1,83 @@
+/* Overlay geometry: the rail and drawer float over the globe, clear of
+   Cesium's animation widget and timeline at the bottom-left. */
+:root {
+  --overlay-gap: 8px;
+  --overlay-bottom: 120px;
+  --rail-width: 48px;
+  --drawer-width: 440px;
+}
+html, body { height: 100%; margin: 0; overflow: hidden; }
+#viewer, #cesiumContainer { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
+#rail {
+  position: absolute; z-index: 20;
+  top: var(--overlay-gap); bottom: var(--overlay-bottom); left: var(--overlay-gap);
+  width: var(--rail-width); padding: 6px 0;
+  display: flex; flex-direction: column; align-items: center;
+  background: rgba(33, 37, 41, 0.88); border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+#rail .nav { flex-direction: column; align-items: center; flex-wrap: nowrap; }
+.rail-brand { color: #fff; font-weight: 700; font-size: 11px; margin-bottom: 8px; }
+.rail-brand:hover { color: #fff; text-decoration: none; }
+.rail-btn {
+  width: 36px; height: 36px; margin: 2px 0; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: #adb5bd; border-radius: 4px; font-size: 16px;
+}
+.rail-btn:hover, .rail-btn:focus { color: #fff; background: rgba(255, 255, 255, 0.12); text-decoration: none; }
+.rail-btn.active { color: #fff; background: #007bff; }
+.rail-bottom { margin-top: auto; display: flex; flex-direction: column; align-items: center; }
+/* The drawer is as tall as its content, up to the space above Cesium's
+   widgets (then its body scrolls). */
+#drawer {
+  position: absolute; z-index: 20;
+  top: var(--overlay-gap);
+  max-height: calc(100% - var(--overlay-gap) - var(--overlay-bottom));
+  left: calc(2 * var(--overlay-gap) + var(--rail-width));
+  width: var(--drawer-width); min-width: 300px;
+  max-width: calc(100vw - 3 * var(--overlay-gap) - var(--rail-width));
+  display: flex; flex-direction: column;
+  overflow: hidden; resize: horizontal;
+  background: rgba(255, 255, 255, 0.92);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  border-radius: 6px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  transition: transform 0.2s ease, opacity 0.2s ease, visibility 0.2s;
+}
+#drawer.collapsed { transform: translateX(-16px); opacity: 0; visibility: hidden; pointer-events: none; }
+.drawer-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 6px 6px 12px; border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+.drawer-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+/* lists grow with their items, up to a maximum height */
+.list-group.form-control { height: auto; min-height: 2.5em; }
+#stations, #targets { max-height: 6em; }
+#catalog-instruments { max-height: 7em; }
+#satellites, #catalog-members { max-height: 9em; }
+#layer-filter-list { max-height: 16em; }
+#results-dialog .modal-body { max-height: 40em; }
+#drawer .form-control, #drawer .input-group-text { padding-left: 0.5rem; padding-right: 0.5rem; }
+#drawer select.form-control { padding-right: 0.25rem; }
+input:invalid { background-color: #fcc; }
+.colorbar { display: flex; height: 14px; border: 1px solid #999; }
+.colorbar span { flex: 1 1 0; }
+.colorbar-labels { display: flex; justify-content: space-between; font-size: 11px; }
+.mono { font-family: monospace; font-size: 11px; }
+.legend-overlay {
+  position: absolute; right: 8px; bottom: 40px; z-index: 10; min-width: 220px;
+  background: rgba(40, 40, 40, 0.8); color: #fff; padding: 6px 8px; border-radius: 4px;
+  font-size: 12px; display: none;
+}
+.legend-overlay .colorbar { border-color: #666; }
+.list-badge { font-size: 10px; }
+.analysis-panel { display: none; }
+/* the satellite and instrument filter (filter.js) */
+.filter-system + .filter-system { border-top: 1px solid #eee; padding-top: 2px; }
+.filter-details { padding-left: 1.25rem; }
+.filter-unchecked { opacity: 0.5; }
+.filter-members { max-height: 8em; overflow-y: auto; }
+.filter-swatch {
+  display: inline-block; width: 10px; height: 10px; margin-right: 4px;
+  border-radius: 2px; border: 1px solid rgba(0, 0, 0, 0.3); vertical-align: -1px;
+}
+.filter-swatch-none { background: repeating-linear-gradient(45deg, #ccc, #ccc 2px, #fff 2px, #fff 4px); }

@@ -217,6 +217,50 @@ async def download_omm_object(catalog_number: int) -> dict | None:
     return None
 
 
+# errors of a failed download from CelesTrak
+DOWNLOAD_ERRORS = (aiohttp.ClientError, asyncio.TimeoutError, RuntimeError)
+
+
+def _write_json_atomic(path: Path | None, data, what: str) -> None:
+    """
+    Writes data to a JSON file (if any), via a temporary file that then
+    replaces it, so the file is never left partially written.
+    """
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = path.with_suffix(".tmp")
+        temporary_path.write_text(json.dumps(data), encoding="utf-8")
+        os.replace(temporary_path, path)
+    except OSError as error:
+        logger.warning("Cannot cache %s: %s", what, error)
+
+
+def _try_convert(record: dict) -> CelestrakObject | None:
+    """
+    Converts an OMM record to an object, or logs and skips an invalid record.
+    """
+    try:
+        return to_celestrak_object(record)
+    except (KeyError, TypeError, ValueError) as error:
+        logger.warning("Skipping invalid CelesTrak record: %s", error)
+        return None
+
+
+def _index_records(records: list[dict] | None) -> dict[int, dict]:
+    """
+    Indexes OMM records by catalog number (skipping invalid records).
+    """
+    index = {}
+    for record in records or []:
+        try:
+            index[int(record["NORAD_CAT_ID"])] = record
+        except (KeyError, TypeError, ValueError):
+            continue
+    return index
+
+
 class CelestrakCatalog:  # pylint: disable=too-many-instance-attributes
     """
     Catalog of a CelesTrak group, downloaded at most once every two hours,
@@ -262,9 +306,8 @@ class CelestrakCatalog:  # pylint: disable=too-many-instance-attributes
         self._downloaded: datetime | None = None
         self._last_failure: float | None = None
         self._lock = asyncio.Lock()
-        # the group's records by catalog number, for the records indexed
+        # the group's records by catalog number
         self._index: dict[int, dict] = {}
-        self._indexed: list[dict] | None = None
         # objects queried by catalog number: (time queried, record or None)
         self._objects: dict[int, tuple[datetime, dict | None]] | None = None
         self._last_object_failure: float | None = None
@@ -275,10 +318,27 @@ class CelestrakCatalog:  # pylint: disable=too-many-instance-attributes
         """Time the catalog was downloaded from CelesTrak, if any."""
         return self._downloaded
 
-    def _is_fresh(self) -> bool:
+    def _set_records(self, records: list[dict], downloaded: datetime) -> None:
+        self._records = records
+        self._index = _index_records(records)
+        self._downloaded = downloaded
+
+    def _can_retry(self, last_failure: float | None) -> bool:
+        """
+        Checks whether no download has failed within the retry interval.
+        """
         return (
-            self._downloaded is not None
-            and datetime.now(timezone.utc) - self._downloaded < self.refresh_interval
+            last_failure is None
+            or time.monotonic() - last_failure >= self.retry_interval.total_seconds()
+        )
+
+    def _is_fresh(self, downloaded: datetime | None) -> bool:
+        """
+        Checks whether data downloaded at a time is within the refresh interval.
+        """
+        return (
+            downloaded is not None
+            and datetime.now(timezone.utc) - downloaded < self.refresh_interval
         )
 
     def _read_cache(self) -> None:
@@ -286,31 +346,18 @@ class CelestrakCatalog:  # pylint: disable=too-many-instance-attributes
             return
         try:
             cache = json.loads(self.cache_path.read_text(encoding="utf-8"))
-            self._records = cache["records"]
-            self._downloaded = datetime.fromisoformat(cache["downloaded"])
+            self._set_records(
+                cache["records"], datetime.fromisoformat(cache["downloaded"])
+            )
         except (OSError, ValueError, KeyError, TypeError) as error:
             logger.warning("Ignoring CelesTrak cache %s: %s", self.cache_path, error)
 
     def _write_cache(self) -> None:
-        if self.cache_path is None:
-            return
-        try:
-            self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-            # write to a temporary file, then replace, so the cache is
-            # never left partially written
-            temporary_path = self.cache_path.with_suffix(".tmp")
-            temporary_path.write_text(
-                json.dumps(
-                    {
-                        "downloaded": self._downloaded.isoformat(),
-                        "records": self._records,
-                    }
-                ),
-                encoding="utf-8",
-            )
-            os.replace(temporary_path, self.cache_path)
-        except OSError as error:
-            logger.warning("Cannot cache CelesTrak data: %s", error)
+        _write_json_atomic(
+            self.cache_path,
+            {"downloaded": self._downloaded.isoformat(), "records": self._records},
+            "CelesTrak data",
+        )
 
     async def get_records(self) -> list[dict]:
         """
@@ -328,23 +375,15 @@ class CelestrakCatalog:  # pylint: disable=too-many-instance-attributes
         async with self._lock:
             if self._records is None:
                 await asyncio.to_thread(self._read_cache)
-            if not self._is_fresh() and (
-                self._last_failure is None
-                or time.monotonic() - self._last_failure
-                >= self.retry_interval.total_seconds()
-            ):
+            fresh = self._is_fresh(self._downloaded)
+            if not fresh and self._can_retry(self._last_failure):
                 try:
                     records = await self._download(self.group)
-                except (
-                    aiohttp.ClientError,
-                    asyncio.TimeoutError,
-                    RuntimeError,
-                ) as error:
+                except DOWNLOAD_ERRORS as error:
                     self._last_failure = time.monotonic()
                     logger.warning("Cannot download CelesTrak data: %s", error)
                 else:
-                    self._records = records
-                    self._downloaded = datetime.now(timezone.utc)
+                    self._set_records(records, datetime.now(timezone.utc))
                     self._last_failure = None
                     await asyncio.to_thread(self._write_cache)
             if self._records is None:
@@ -375,31 +414,14 @@ class CelestrakCatalog:  # pylint: disable=too-many-instance-attributes
         for _, _, record in matches:
             if len(objects) >= limit:
                 break
-            try:
-                objects.append(to_celestrak_object(record))
-            except (KeyError, TypeError, ValueError) as error:
-                logger.warning("Skipping invalid CelesTrak record: %s", error)
+            if (converted := _try_convert(record)) is not None:
+                objects.append(converted)
         return CelestrakSearchResult(
             group=self.group,
             downloaded=self._downloaded,
             total=len(matches),
             objects=objects,
         )
-
-    def _get_index(self, records: list[dict]) -> dict[int, dict]:
-        """
-        Gets the group's records by catalog number.
-        """
-        if records is not self._indexed:
-            index = {}
-            for record in records:
-                try:
-                    index[int(record["NORAD_CAT_ID"])] = record
-                except (KeyError, TypeError, ValueError):
-                    continue
-            self._index = index
-            self._indexed = records
-        return self._index
 
     def _read_objects_cache(self) -> dict[int, tuple[datetime, dict | None]]:
         if self.objects_cache_path is None or not self.objects_cache_path.is_file():
@@ -417,23 +439,14 @@ class CelestrakCatalog:  # pylint: disable=too-many-instance-attributes
             return {}
 
     def _write_objects_cache(self) -> None:
-        if self.objects_cache_path is None:
-            return
-        try:
-            self.objects_cache_path.parent.mkdir(parents=True, exist_ok=True)
-            temporary_path = self.objects_cache_path.with_suffix(".tmp")
-            temporary_path.write_text(
-                json.dumps(
-                    {
-                        str(number): {"queried": queried.isoformat(), "record": record}
-                        for number, (queried, record) in self._objects.items()
-                    }
-                ),
-                encoding="utf-8",
-            )
-            os.replace(temporary_path, self.objects_cache_path)
-        except OSError as error:
-            logger.warning("Cannot cache CelesTrak objects: %s", error)
+        _write_json_atomic(
+            self.objects_cache_path,
+            {
+                str(number): {"queried": queried.isoformat(), "record": record}
+                for number, (queried, record) in self._objects.items()
+            },
+            "CelesTrak objects",
+        )
 
     async def _get_object_records(self, numbers: list[int]) -> dict[int, dict | None]:
         """
@@ -456,23 +469,13 @@ class CelestrakCatalog:  # pylint: disable=too-many-instance-attributes
             for number in numbers:
                 cached = self._objects.get(number)
                 records[number] = cached[1] if cached else None
-                if cached and (
-                    datetime.now(timezone.utc) - cached[0] < self.refresh_interval
-                ):
+                if cached and self._is_fresh(cached[0]):
                     continue
-                if (
-                    self._last_object_failure is not None
-                    and time.monotonic() - self._last_object_failure
-                    < self.retry_interval.total_seconds()
-                ):
+                if not self._can_retry(self._last_object_failure):
                     continue
                 try:
                     record = await self._download_object(number)
-                except (
-                    aiohttp.ClientError,
-                    asyncio.TimeoutError,
-                    RuntimeError,
-                ) as error:
+                except DOWNLOAD_ERRORS as error:
                     # stop querying (for every object) until the retry interval
                     self._last_object_failure = time.monotonic()
                     logger.warning(
@@ -503,22 +506,17 @@ class CelestrakCatalog:  # pylint: disable=too-many-instance-attributes
         """
         numbers = list(dict.fromkeys(int(number) for number in catalog_numbers))
         try:
-            index = self._get_index(await self.get_records())
+            await self.get_records()
         except RuntimeError:
-            index = {}
-        records = {number: index.get(number) for number in numbers}
+            pass  # no group records: query each object
+        records = {number: self._index.get(number) for number in numbers}
         missing = [number for number, record in records.items() if record is None]
         if missing:
             records.update(await self._get_object_records(missing))
-        objects = {}
-        for number, record in records.items():
-            objects[number] = None
-            if record is not None:
-                try:
-                    objects[number] = to_celestrak_object(record)
-                except (KeyError, TypeError, ValueError) as error:
-                    logger.warning("Skipping invalid CelesTrak record: %s", error)
-        return objects
+        return {
+            number: None if record is None else _try_convert(record)
+            for number, record in records.items()
+        }
 
 
 @functools.cache

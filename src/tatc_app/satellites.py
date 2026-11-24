@@ -15,7 +15,6 @@ validation. A request without a `type` is treated as a `Satellite`.
 
 from typing import Annotated, Any, Iterable, List, Union
 
-from fastapi import HTTPException
 from pydantic import Discriminator, Tag
 from tatc.schemas import (
     MOGConstellation,
@@ -86,14 +85,31 @@ def expand_members(systems: Iterable[SpaceSystem]) -> List[Satellite]:
     Returns:
         List[Satellite]: The member satellites.
     """
-    members = [member for system in systems for member in generate_members(system)]
+    return check_unique_names(
+        [member for system in systems for member in generate_members(system)]
+    )
+
+
+def check_unique_names(members: List[Satellite]) -> List[Satellite]:
+    """
+    Checks that member satellites have unique names (as required by analyses
+    that identify observations by satellite name).
+
+    Args:
+        members (List[Satellite]): The member satellites.
+
+    Raises:
+        ValueError: If two members share a name.
+
+    Returns:
+        List[Satellite]: The member satellites.
+    """
     names = set()
     for member in members:
         if member.name in names:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Duplicate satellite name '{member.name}': "
-                "each satellite and constellation member must have a unique name.",
+            raise ValueError(
+                f"Duplicate satellite name '{member.name}': each satellite "
+                "and constellation member must have a unique name."
             )
         names.add(member.name)
     return members

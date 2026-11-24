@@ -53,14 +53,49 @@ It also sets the satellite's attitude to the validated one, which orients the
 satellite's other instruments too, so the response reports when the attitude
 changes.
 
+## API Endpoints
+
+All endpoints except those under `/auth` require a signed-in user (see
+[Authentication](#authentication)). A running server documents every
+endpoint interactively at `/docs`, and the documentation (see
+[Documentation](#documentation)) includes a schema reference of the request
+and response bodies.
+
+| Endpoint | Description |
+| --- | --- |
+| `POST /analyze/{analysis}` | Enqueue an analysis (`coverage`, `swaths`, `latency`, or `overflight`) and respond with its task identifiers |
+| `GET /analyze/{analysis}/{task_id}` | Retrieve the results of a completed analysis |
+| `GET /analyze/{analysis}/{task_id}/czml` | Retrieve the animated results of a completed analysis as a CZML document |
+| `POST /analyze/orbit-track`, `POST /analyze/ground-track` | Enqueue orbit tracks or ground tracks (with `GET .../{task_id}` to retrieve them) |
+| `GET /tasks/{task_id}/status` | Get the status of a task |
+| `GET /tasks/{group_id}/progress` | Get the progress of a group of parallel tasks |
+| `POST /tasks/{task_id}/revoke` | Cancel a task (and, with `group_id`, its group of parallel tasks) |
+| `POST /generate/points`, `POST /generate/cells` | Generate points or cells (GeoJSON) |
+| `POST /validate/space-system` | Validate a satellite or constellation and summarize its members |
+| `GET /catalog/systems`, `POST /catalog/systems/{system_id}/build` | List and build satellite systems of the TAT-C system catalog |
+| `GET /catalog/instruments`, `POST /catalog/instruments/{entry_id}/add` | List and add instruments of the TAT-C instrument catalog |
+| `GET /celestrak/search` | Search CelesTrak for orbital elements by name or catalog number |
+| `GET /cesium/token` | Get the Cesium access token of the GUI |
+| `GET /auth/me`, `GET /auth/token` | Get the current user, or the ID token of the current session |
+
+Responses are JSON, or MessagePack for requests with the header
+`Accept: application/x-msgpack`.
+
 ## Configuration
 
-For the Manual Docker Containers and Python development methods (see
-[Development](#development) below), the web application is configured with
-environment variables, typically set in a `.env` file in the project root
-directory. (The Docker Compose development method and the Deployment compose
-files set these environment variables directly instead — see those sections
-for details.)
+The web application is configured with environment variables, typically set
+in a `.env` file in the project root directory. The Manual Docker Containers
+and Python development methods (see [Development](#development) below) read
+the `.env` file directly. The compose files instead set the application's
+environment variables themselves, filling in a few values (such as
+`TATC_CESIUM_TOKEN` and, for deployment, credentials) from the `.env` file in
+the same directory.
+
+For local development without sign in, a minimal `.env` file is:
+```
+TATC_AUTH=none
+TATC_CESIUM_TOKEN=your alphanumeric access token here
+```
 
 ### Cesium Access Token and Assets
 
@@ -77,10 +112,10 @@ TATC_CESIUM_TOKEN=your alphanumeric access token here
 ### Environment Variables
 
 The web application references the following environment variables. Unless
-installing via the "Docker Compose" method, set `TATC_BROKER` and
-`TATC_BACKEND` if the broker and backend do not run at their defaults, to
-identify the protocol, credentials (if required), domain name/URL, and port
-number of the broker and backend components.
+using a compose file, set `TATC_BROKER` and `TATC_BACKEND` if the broker and
+backend do not run at their defaults, to identify the protocol, credentials
+(if required), domain name/URL, and port number of the broker and backend
+components.
 
  * `TATC_BROKER`: broker connection string (default: `amqp://localhost:5672//`
    when running with Python, assuming a broker on the same machine;
@@ -90,6 +125,13 @@ number of the broker and backend components.
    when running with Python, assuming a backend on the same machine;
    `redis://backend:6379/` in the Docker images, assuming a container named
    `backend`)
+ * `TATC_BROKER_SSL_CERT_REQS` / `TATC_BACKEND_SSL_CERT_REQS`: certificate
+   verification of a TLS broker (`amqps://`) or backend (`rediss://`)
+   connection: `REQUIRED` (default), `OPTIONAL`, or `NONE`
+ * `TATC_BROKER_SSL_CA_CERTS`, `TATC_BROKER_SSL_CERTFILE`, and
+   `TATC_BROKER_SSL_KEYFILE` (and the same for `TATC_BACKEND_`): optional
+   paths of a custom certificate authority bundle and a client certificate
+   and key for a TLS broker or backend connection
  * `TATC_AUTH`: authentication mode (default: `oidc`): `oidc` requires users to
    sign in with an OpenID Connect provider such as Dex (see
    [Authentication](#authentication)); `none` disables authentication for
@@ -108,6 +150,9 @@ number of the broker and backend components.
  * `TATC_CELESTRAK_CACHE_DIR`: directory in which the CelesTrak group (and
    objects queried by catalog number) are cached so restarts do not download
    them again (default: `tatc-app` in the system's temporary directory)
+ * `TATC_CHUNK_SIZE`: number of points (or other items) analyzed by each
+   parallel worker task (default: `250`); set it for the server, which splits
+   analyses into tasks
 
 ## Development
 
@@ -116,7 +161,7 @@ testing. For running a publicly-accessible instance, see
 [Deployment](#deployment) below instead.
 
 Due to the architectural complexity and dependencies for the parallel
-task-queuing system (Celery), we strongly recommended using Docker containers
+task-queuing system (Celery), we strongly recommend using Docker containers
 to install and run TAT-C, either via Docker Compose (recommended) or manually
 built containers. A pure-Python setup is also available for tighter
 edit/reload cycles on the server or worker code.
@@ -133,17 +178,17 @@ runs the broker and backend without authentication or TLS and exposes their
 ports directly on the host. Do not use it to deploy a publicly-accessible
 instance; see [Deployment](#deployment) below for that.
 
-From the project root directory (`/`), build and run the Docker compose file
-which provides the server, worker, broker, and backend components:
+Set `TATC_CESIUM_TOKEN` in the `.env` file (see
+[Cesium Access Token and Assets](#cesium-access-token-and-assets)). Then,
+from the project root directory, build and run the Docker compose file which
+provides the server, worker, broker, and backend components:
 ```shell
-docker compose -f compose.dev.yml up
+docker compose -f compose.dev.yml up --build
 ```
-By default, the client-side GUI is available at <http://localhost:8000/>. The
-server's user-account database is stored in the `tatc-data` Docker volume, so
-accounts persist across `docker compose down` / `up` (though not the broker's
-or backend's in-flight data, which are not persisted in this file — see
-[Environment Variables](#environment-variables) above and
-[Deployment](#deployment) below for the persisted production equivalents).
+(`--build` rebuilds the server and worker images after code changes.) The
+client-side GUI is available at <http://localhost:8000/>, without sign in.
+The broker's and backend's data (queued tasks and results) are not persisted
+across `docker compose down` / `up`.
 
 ### Manual Docker Containers
 
@@ -154,10 +199,12 @@ multiple hosts by hand.
 The broker and backend services can use the third-party Docker images
 [rabbitmq](https://hub.docker.com/_/rabbitmq) and
 [redis](https://hub.docker.com/_/redis), respectively. Specify the connection
-strings for both in the `.env` file as described above.
+strings for both in the `.env` file as described above. The server requires
+sign in unless the `.env` file sets `TATC_AUTH=none` (see
+[Configuration](#configuration)).
 
 For the server application, first build the `tatc_server` Docker image from the
-project root (`/`).
+project root.
 ```shell
 docker build --target tatc_server --tag tatc_server .
 ```
@@ -170,7 +217,7 @@ The client-side GUI is available at <http://localhost:8000/>. Note that the
 server needs at least one worker to process tasks.
 
 For the worker application, first build the `tatc_worker` Docker image from the
-project root (`/`).
+project root.
 ```shell
 docker build --target tatc_worker --tag tatc_worker .
 ```
@@ -187,7 +234,7 @@ components must already be running (e.g., see Manual Docker Containers above).
 If they do not run on the same machine at their default ports, specify the
 connection strings for both in the `.env` file as described above.
 
-This requires Python 3.11 or later. Install the web application and its
+This requires Python 3.11 to 3.14. Install the web application and its
 dependencies, including [TAT-C](https://github.com/code-lab-org/tatc), from
 the project root:
 ```shell
@@ -195,10 +242,11 @@ pip install -e .
 ```
 
 For local development without sign in, set `TATC_AUTH=none` in the `.env`
-file (`compose.dev.yml` does this for the Docker Compose method). To start the
-TAT-C server application, run the command:
+file (see [Configuration](#configuration)). To start the TAT-C server
+application, run the command from the project root (the server serves the GUI
+from `src/static`):
 ```shell
-uvicorn tatc_app.main:app --reload --reload-dir tatc_app
+uvicorn tatc_app.main:app --reload --reload-dir src
 ```
 The client-side GUI is available at <http://localhost:8000/>.
 
@@ -215,10 +263,15 @@ celery -A tatc_app.worker worker --loglevel=INFO --pool=solo
 
 ### Documentation
 
-Generate documentation from the `docs` directory using the command:
+The documentation (this README and a schema reference of the API's request
+and response bodies) is built with Sphinx. Install the `docs` optional
+dependencies, then generate the documentation from the `docs` directory:
 ```shell
+pip install -e ".[docs]"
+cd docs
 make html
 ```
+The pages are written to `docs/_build/html`.
 
 ### Testing
 
@@ -231,8 +284,9 @@ pytest
 
 By default, tests run Celery tasks eagerly (in-process) with an in-memory
 result backend, so they do not require a broker, backend, or worker (see
-`tests/conftest.py`). To instead run tests against running components
-configured by `TATC_BROKER` and `TATC_BACKEND`, set `TATC_TEST_LIVE=1`.
+`tests/conftest.py`). To instead run tests against a running broker, backend,
+and worker (configured by `TATC_BROKER` and `TATC_BACKEND`), set
+`TATC_TEST_LIVE=1`.
 
 ### Code Style
 
@@ -251,8 +305,8 @@ instead of `compose.dev.yml`. Unlike the development file, these:
    GUI, broker, and backend are only reachable over HTTPS/AMQPS/TLS-Redis;
  * require authenticated broker and backend connections (no `guest` account or
    unauthenticated Redis access); and
- * persist RabbitMQ, Redis, and the server's user-account database in named
-   Docker volumes across restarts.
+ * persist the RabbitMQ, Redis, and Dex (user sign in) data in named Docker
+   volumes across restarts.
 
 `compose.server.yml` runs the reverse proxy, server, worker, broker, and
 backend on a single host and is suitable for most deployments.
@@ -297,10 +351,15 @@ the GUI/API, broker, and backend. It requires:
  * `TATC_CESIUM_TOKEN`: Cesium access token (see
    [Cesium Access Token and Assets](#cesium-access-token-and-assets) above)
 
+`compose.server.yml` sets `TATC_LOGIN_LIFETIME_SECONDS` to `7200` (two
+hours); edit it there to change the time until users must sign in again.
+
 `compose.server.yml` and `compose.worker.yml` pull the `tatc-server` and
-`tatc-worker` images from GHCR (built and pushed by
-[Build and push GHCR images](.github/workflows/ghcr-push-image.yml) on every
-merge to `main`) rather than building them locally. Leave
+`tatc-worker` images from the GitHub Container Registry (GHCR) rather than
+building them locally. The
+[Build and push GHCR images](https://github.com/code-lab-org/tatc-app/blob/main/.github/workflows/ghcr-push-image.yml)
+workflow builds and pushes them on every push to `main` (or when run
+manually). Leave
 `TATC_SERVER_IMAGE_TAG` / `TATC_WORKER_IMAGE_TAG` unset (or `latest`) so
 [Auto-deploy](#auto-deploy) picks up new images automatically, or pin them in
 `.env` to a specific commit SHA for a reproducible, rollback-able deploy that
@@ -344,7 +403,7 @@ Previous versions stored user accounts in a SQLite database in the `tatc-data`
 Docker volume, which is no longer used and may be removed
 (`docker volume rm tatc-data`).
 
-A `redis.acl` file must also exist alongside `compose.server.yml` — see
+A `redis.acl` file must also exist alongside `compose.server.yml`: see
 [Redis ACL File](#redis-acl-file) below.
 
 ### Worker Deployment
@@ -368,16 +427,29 @@ The Redis backend in `compose.server.yml` is started with `--aclfile` pointing
 at a `redis.acl` file (mounted read-only from the project root), so a
 `redis.acl` file must exist alongside `compose.server.yml` before deployment.
 This file must define a user whose name and password match `BACKEND_USER`
-and `BACKEND_PASSWORD` above. A placeholder `redis.acl` is included as a
-template:
+and `BACKEND_PASSWORD` above. Copy the template `redis.acl.example`:
+```shell
+cp redis.acl.example redis.acl
+```
+which contains:
 ```
 user default off
 user username on >password ~* &* +@all -@admin -@dangerous
 ```
 Replace `username` and `password` with the actual `BACKEND_USER` and
-`BACKEND_PASSWORD` values before deploying. Treat `redis.acl` as a secret
-once populated with real credentials — avoid committing a version containing
-production passwords to version control.
+`BACKEND_PASSWORD` values before deploying. Treat `redis.acl` as a secret:
+`.gitignore` lists it so it is not committed by accident, and changes to it
+do not block [Auto-deploy](#auto-deploy).
+
+Earlier versions tracked `redis.acl` itself in the repository. To upgrade a
+deployment whose `redis.acl` holds real credentials, keep a copy while
+updating the checkout (the update removes the tracked file), then restore it:
+```shell
+cp redis.acl redis.acl.local
+git checkout -- redis.acl
+git pull --ff-only
+mv redis.acl.local redis.acl
+```
 
 ### Auto-deploy
 
@@ -388,15 +460,16 @@ production passwords to version control.
   GHCR rather than racing them).
 
 Both triggers run the same thing: `config/deploy/deploy.sh` on the instance,
-which does `git merge --ff-only` then `docker compose -f
-compose.server.yml pull && ... up -d`. It fails loudly rather than
-overwriting anything if the checkout has diverged from `main`.
+which fast-forwards the checkout to `main` (`git merge --ff-only`), pulls the
+images and restarts the containers (`docker compose -f compose.server.yml
+pull` and `up -d`), and prunes unused images. It fails loudly rather than
+overwriting anything if the checkout has diverged from `main` or has local
+changes to tracked files.
 
 Because GitHub-hosted runners don't have a small, stable IP range, this means
 opening inbound port 22 on the instance broadly rather than allowlisting
 GitHub. To keep that safe, the deploy key is restricted with a forced
-command so it can never be used for anything but running that one script,
-even though the workflow only ever asks it to:
+command, so even a leaked key can only run that one script:
 
 1. On the EC2 instance, in the deploy user's `~/.ssh/authorized_keys`
    (that user needs passwordless `docker`/`docker compose` access and a
@@ -429,7 +502,8 @@ even though the workflow only ever asks it to:
 
 ## License
 
-This project is distributed under the [BSD 3-Clause License](LICENSE).
+This project is distributed under the
+[BSD 3-Clause License](https://github.com/code-lab-org/tatc-app/blob/main/LICENSE).
 
 ## Contact
 
@@ -440,6 +514,6 @@ Paul T. Grogan <paul.grogan@asu.edu>
 This project was supported in part by the National Aeronautics and Space
 Administration (NASA) Earth Science Division (ESD) Earth Science Technology
 Office (ESTO) Advanced Information Systems Technology (AIST) program under
-grant numbers: NNX17AE06G, 80NSSC17K0586, 80NSSC20K1118, 80NSSC21K1515, 
-80NSSC22K1705 and 80NSSC24K0575 and NASA Jet Propulsion Laboratory 
+grant numbers: NNX17AE06G, 80NSSC17K0586, 80NSSC20K1118, 80NSSC21K1515,
+80NSSC22K1705 and 80NSSC24K0575 and NASA Jet Propulsion Laboratory
 contracts: 1074657, 1689594, 1686623, 1705655.

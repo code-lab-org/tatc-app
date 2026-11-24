@@ -23,7 +23,7 @@ from authlib.integrations.starlette_client import OAuth, OAuthError
 from authlib.jose import JsonWebKey, JsonWebToken
 from authlib.jose.errors import JoseError
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
@@ -42,6 +42,13 @@ class User(BaseModel):
     id: str = Field(..., description="Unique user identifier (OIDC subject).")
     email: Optional[str] = Field(None, description="Email address.")
     name: Optional[str] = Field(None, description="Display name.")
+
+    @classmethod
+    def from_claims(cls, claims: dict) -> "User":
+        """
+        Gets the user identified by the claims of an ID token.
+        """
+        return cls(id=claims["sub"], email=claims.get("email"), name=claims.get("name"))
 
 
 class AuthInfo(BaseModel):
@@ -203,9 +210,7 @@ class Authenticator:
                 detail=f"Invalid token: {error}",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        return User(
-            id=claims["sub"], email=claims.get("email"), name=claims.get("name")
-        )
+        return User.from_claims(claims)
 
     async def current_user(
         self,
@@ -245,13 +250,16 @@ class Authenticator:
             return "/"
 
         @router.get("/login", include_in_schema=False)
-        async def auth_login(request: Request, next: Optional[str] = None):
+        async def auth_login(
+            request: Request, next_path: Optional[str] = Query(None, alias="next")
+        ):
             """
-            Redirects the browser to sign in with the OIDC provider.
+            Redirects the browser to sign in with the OIDC provider, then to
+            the (local) path `next`.
             """
             if self.mode == "none":
-                return RedirectResponse(safe_next(next))
-            request.session["next"] = safe_next(next)
+                return RedirectResponse(safe_next(next_path))
+            request.session["next"] = safe_next(next_path)
             return await self.client.authorize_redirect(
                 request, self._redirect_uri(request)
             )
@@ -270,9 +278,7 @@ class Authenticator:
                     status_code=401, detail=f"Sign in failed: {exc.description}"
                 ) from exc
             claims = token.get("userinfo") or {}
-            user = User(
-                id=claims["sub"], email=claims.get("email"), name=claims.get("name")
-            )
+            user = User.from_claims(claims)
             expires = min(
                 time.time() + self.session_lifetime,
                 float(claims.get("exp", time.time() + self.session_lifetime)),
@@ -298,8 +304,12 @@ class Authenticator:
             """
             return AuthInfo(mode=self.mode, user=user)
 
-        @router.get("/token", response_class=PlainTextResponse)
-        async def auth_token(request: Request, user: User = Depends(self.current_user)):
+        @router.get(
+            "/token",
+            response_class=PlainTextResponse,
+            dependencies=[Depends(self.current_user)],
+        )
+        async def auth_token(request: Request):
             """
             Gets the ID token of the current session, to authenticate programmatic
             clients (`Authorization: Bearer <token>`) until it expires.

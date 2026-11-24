@@ -4,15 +4,15 @@ Schema specifications for overflight (point access) analysis endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from geojson_pydantic import FeatureCollection
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
 from tatc.schemas import Point
 
+from ..analysis.schemas import AnalysisRequest, AnimatedResult
+from ..analysis.timeline import Timeline
 from ..satellites import validate_instrument_index
-from ..utils.analysis import AnalysisRequest
-from ..utils.timeline import OrbitTracks, Timeline
 
 # maximum number of points in an overflight analysis (to analyze more, use a
 # coverage analysis)
@@ -39,7 +39,7 @@ class OverflightAnalysisRequest(AnalysisRequest):
     )
 
     @model_validator(mode="after")
-    def valid_instrument_index(self) -> "OverflightAnalysisRequest":
+    def validate_instruments(self) -> "OverflightAnalysisRequest":
         """
         Validates the instrument index is in bounds.
         """
@@ -47,7 +47,7 @@ class OverflightAnalysisRequest(AnalysisRequest):
         return self
 
 
-class OverflightAnalysisResult(BaseModel):
+class OverflightAnalysisResult(AnimatedResult):
     """
     Response to provide overflight analysis results.
     """
@@ -69,5 +69,3 @@ class OverflightAnalysisResult(BaseModel):
     timeline: Timeline = Field(
         ..., description="Observations of points (in the order of `points`)."
     )
-    tracks: OrbitTracks = Field(..., description="Orbit tracks of satellites.")
-    colors: Dict[str, str] = Field({}, description="Display color of satellites.")

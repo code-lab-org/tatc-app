@@ -1,8 +1,26 @@
 // Region of interest and grids of points and cells for coverage and latency
 // analyses.
 
+// vertices (Cartesian3) of a custom region, and its polygon on the map
 let regionPoints = [];
 let regionEntity = null;
+
+// primitive collections of the generated grid of points and cells
+const gridPoints = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+const gridCells = viewer.scene.primitives.add(new Cesium.PrimitiveCollection());
+const gridCellOutlines = viewer.scene.primitives.add(new Cesium.PolylineCollection());
+
+// Gets the type of the edges of cells in the region: geodesic for global
+// regions (rhumb lines cannot reach the poles), and rhumb lines otherwise.
+function getArcType() {
+  const type = $("#region-type").val();
+  const latMin = Number($("#region-latitude-min").val());
+  const latMax = Number($("#region-latitude-max").val());
+  if (type == "global" || (type == "latitude" && (latMin <= -90 || latMax >= 90))) {
+    return Cesium.ArcType.GEODESIC;
+  }
+  return Cesium.ArcType.RHUMB;
+}
 
 function getRegionCoordinates() {
   const ellipsoid = viewer.scene.globe.ellipsoid;
@@ -66,19 +84,30 @@ function getCellsSpec() {
 }
 
 function clearRegionGrid() {
-  points.removeAll();
-  cells.removeAll();
-  cellOutlines.removeAll();
+  gridPoints.removeAll();
+  gridCells.removeAll();
+  gridCellOutlines.removeAll();
 }
 
 function showRegionGrid(show) {
-  points.show = show;
-  cells.show = show;
-  cellOutlines.show = show;
+  gridPoints.show = show;
+  gridCells.show = show;
+  gridCellOutlines.show = show;
 }
 
-// Adds cell polygons (GeoJSON features) as ground primitives with outlines.
-function addCellPrimitives(features, collection, outlines, colorFunction) {
+// Shows (generating the grid if needed) or hides the region and its grid.
+function showRegion(show) {
+  regionEntity.show = show && $("#region-type").val() == "custom";
+  if (show && gridPoints.length == 0) {
+    generateRegionGrid();
+  } else {
+    showRegionGrid(show);
+  }
+}
+
+// Adds cell polygons (GeoJSON features) as ground primitives (with edges of
+// an arc type) and outlines (if a collection is given).
+function addCellPrimitives(features, collection, outlines, arcType, colorFunction) {
   const instances = _.map(features, function(feature, i) {
     const vertices = Cesium.Cartesian3.fromDegreesArray(_.flatten(
       _.map(feature.geometry.coordinates[0], function(c) { return [c[0], c[1]]; })
@@ -95,7 +124,7 @@ function addCellPrimitives(features, collection, outlines, colorFunction) {
       id: feature.properties.cell_id || i,
       geometry: new Cesium.PolygonGeometry({
         polygonHierarchy: new Cesium.PolygonHierarchy(vertices),
-        arcType: getArcType()
+        arcType: arcType
       }),
       attributes: {
         color: Cesium.ColorGeometryInstanceAttribute.fromColor(colorFunction(feature, i))
@@ -112,46 +141,34 @@ function addCellPrimitives(features, collection, outlines, colorFunction) {
   }));
 }
 
-const GRID_ERROR_PREFIX = "Grid: ";
-
-// Hides a grid error (but not other analysis errors sharing the alert).
-function clearGridError() {
-  const error = $("#analysis-error");
-  if (_.startsWith(error.text(), GRID_ERROR_PREFIX)) {
-    error.hide().text("");
-  }
-}
-
 let gridRequest = 0;
 function generateRegionGrid() {
   const request = ++gridRequest;
-  clearGridError();
+  $("#grid-error").hide().text("");
   $("#region-generate").prop("disabled", true).find(".spinner-border").show();
   clearRegionGrid();
   showRegionGrid(true);
-  function post(url, data) {
-    return $.ajax({ url: url, type: "POST", contentType: "application/json", dataType: "json", data: JSON.stringify(data) });
-  }
-  $.when(post("/generate/points", getPointsSpec()), post("/generate/cells", getCellsSpec()))
+  const arcType = getArcType();
+  $.when(postJson("/generate/points", getPointsSpec()), postJson("/generate/cells", getCellsSpec()))
     .done(function(pointsResponse, cellsResponse) {
       if (request != gridRequest) {
         return;
       }
       _.forEach(pointsResponse[0].features, function(feature) {
-        points.add({
+        gridPoints.add({
           position: Cesium.Cartesian3.fromDegrees(feature.geometry.coordinates[0], feature.geometry.coordinates[1]),
           color: Cesium.Color.DODGERBLUE,
           pixelSize: 4
         });
       });
-      addCellPrimitives(cellsResponse[0].features, cells, cellOutlines, function() {
+      addCellPrimitives(cellsResponse[0].features, gridCells, gridCellOutlines, arcType, function() {
         return Cesium.Color.DODGERBLUE.withAlpha(0.15);
       });
     })
     .fail(function(xhr) {
       // ignore failures of superseded requests
       if (request == gridRequest) {
-        $("#analysis-error").text(GRID_ERROR_PREFIX + formatError(xhr)).show();
+        $("#grid-error").text(formatError(xhr)).show();
       }
     })
     .always(function() {
@@ -168,9 +185,17 @@ function updateCoordinatesText() {
   })));
 }
 
-function setRegionCoordinates(coordinates) {
-  regionPoints = Cesium.Cartesian3.fromDegreesArray(_.flatten(coordinates));
+// Sets the vertices (Cartesian3) of the custom region, updating its polygon
+// and coordinates.
+function setRegionPoints(points) {
+  regionPoints = points;
   regionEntity.polygon.hierarchy = new Cesium.PolygonHierarchy(regionPoints);
+  updateCoordinatesText();
+}
+
+// Sets the vertices of the custom region from [longitude, latitude] pairs.
+function setRegionCoordinates(coordinates) {
+  setRegionPoints(Cesium.Cartesian3.fromDegreesArray(_.flatten(coordinates)));
 }
 
 function changeRegionType() {
@@ -203,7 +228,6 @@ $(document).ready(function() {
     show: false
   });
   setRegionCoordinates([[-130, 20], [-130, 50], [-60, 50], [-60, 20]]);
-  updateCoordinatesText();
 
   let editingCoordinates = false;
   $("#edit-coordinates").click(function() {
@@ -224,37 +248,35 @@ $(document).ready(function() {
         generateRegionGrid();
       } catch (e) {
         alert("Invalid coordinates: " + e.message);
+        updateCoordinatesText();
       }
-      updateCoordinatesText();
     }
   });
 
-  function pickListener(e) {
-    const rect = viewer.canvas.getBoundingClientRect();
-    const position = new Cesium.Cartesian2(e.clientX - rect.left, e.clientY - rect.top);
-    const cartesian = viewer.camera.pickEllipsoid(position, viewer.scene.globe.ellipsoid);
-    if (cartesian) {
-      regionPoints.push(cartesian);
-      regionEntity.polygon.hierarchy = new Cesium.PolygonHierarchy(regionPoints);
-      updateCoordinatesText();
-    }
+  // picks the vertices of a custom region: the grid is generated once
+  // picking is done (picking stopped otherwise, such as by leaving the tab,
+  // leaves the grid to generate when the region shows again)
+  const selectButton = $("#select-coordinates");
+  let formerPoints = [];
+  function addRegionPoint(cartesian) {
+    setRegionPoints(regionPoints.concat([cartesian]));
   }
-  let picking = false;
-  $("#select-coordinates").click(function() {
-    picking = !picking;
-    $(this).toggleClass("btn-success", picking).toggleClass("btn-secondary", !picking);
-    $(this).children("i").toggleClass("fa-check", picking).toggleClass("fa-map-marker", !picking);
-    viewer.canvas.style.cursor = picking ? "crosshair" : "default";
-    if (picking) {
-      clearRegionGrid();
-      regionPoints = [];
-      regionEntity.polygon.hierarchy = new Cesium.PolygonHierarchy([]);
-      viewer.canvas.addEventListener("click", pickListener);
-    } else {
-      viewer.canvas.removeEventListener("click", pickListener);
-      updateCoordinatesText();
+  function stoppedPicking() {
+    selectButton.children("i").addClass("fa-map-marker").removeClass("fa-check");
+    // too few vertices for a region: keep the former region
+    setRegionPoints(regionPoints.length < 3 ? formerPoints : regionPoints);
+  }
+  selectButton.click(function() {
+    if (isMapPicking(selectButton)) {
+      stopMapPick();
       generateRegionGrid();
+      return;
     }
+    startMapPick(selectButton, addRegionPoint, stoppedPicking);
+    selectButton.children("i").addClass("fa-check").removeClass("fa-map-marker");
+    clearRegionGrid();
+    formerPoints = regionPoints;
+    setRegionPoints([]);
   });
 
   $("#region-latitude-min, #region-latitude-max").change(function() {
@@ -266,6 +288,7 @@ $(document).ready(function() {
     $("#region-longitude-max").attr("min", $("#region-longitude-min").val());
   });
   $("#region-type").change(function() {
+    stopMapPick(selectButton);
     changeRegionType();
     generateRegionGrid();
   });

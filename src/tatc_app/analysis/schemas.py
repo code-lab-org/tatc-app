@@ -1,31 +1,27 @@
 """
-Shared schemas and utilities for analysis requests and results.
-
-Analyses are enqueued as a Celery chord: a group of parallel tasks (each
-returning a result tagged by `kind`, for example a chunk of observations or
-the orbit track of one satellite) followed by one task that combines them.
+Shared schemas of analysis requests and results.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
 from datetime import timedelta
-from typing import Annotated, Dict, List, Optional
+from typing import Annotated, Dict, List, Optional, Sequence, Tuple, TypeVar, Union
 
 import pandas as pd
-from fastapi import HTTPException
 from pydantic import (
     AwareDatetime,
     BaseModel,
-    ConfigDict,
     Field,
+    PrivateAttr,
     StringConstraints,
     model_validator,
 )
-from pydantic.alias_generators import to_camel
-from tatc.schemas import Satellite
+from tatc.schemas import Point, Satellite
 
-from ..generation.schemas import TimeGenerator
-from ..satellites import SpaceSystemInput, expand_members, generate_members
+from ..generation.schemas import Cell, CellGenerator, PointGenerator, TimeGenerator
+from ..satellites import SpaceSystemInput, check_unique_names, generate_members
+from ..utils.schemas import CamelModel
+from .tracks import OrbitTracks
 
 # default and maximum durations of the display window of animated results
 DEFAULT_DISPLAY_DURATION = timedelta(days=1)
@@ -35,20 +31,26 @@ MAX_DISPLAY_STEPS = 20000
 # a display color (`#rrggbb`)
 HexColor = Annotated[str, StringConstraints(pattern=r"^#[0-9a-fA-F]{6}$")]
 
+T = TypeVar("T")
 
-class AnalysisRequest(BaseModel):
+
+def _item(values: Optional[Sequence[T]], index: int) -> Optional[T]:
+    """
+    Gets an item of an optional, possibly short, list (`None` if missing).
+    """
+    return values[index] if values and index < len(values) else None
+
+
+class AnalysisRequest(CamelModel):
     """
     Base class for requests to analyze satellites and constellations over a
     period of time.
     """
 
-    model_config = ConfigDict(
-        from_attributes=True, populate_by_name=True, alias_generator=to_camel
-    )
     satellites: List[SpaceSystemInput] = Field(
         ..., min_length=1, description="Satellites and constellations to analyze."
     )
-    colors: Optional[List[Optional[str]]] = Field(
+    colors: Optional[List[Optional[HexColor]]] = Field(
         None,
         description="Display colors (`#rrggbb`) of each satellite or "
         "constellation (applied to its members) in animated results.",
@@ -80,6 +82,10 @@ class AnalysisRequest(BaseModel):
         description="Times at which to sample orbit tracks to animate results "
         "(default: 60 second steps over the first day of the analysis period).",
     )
+    # (index of the satellite or constellation, member) of each member
+    _system_members: Optional[List[Tuple[int, Satellite]]] = PrivateAttr(None)
+    # the member satellites to analyze
+    _members: Optional[List[Satellite]] = PrivateAttr(None)
 
     @model_validator(mode="after")
     def validate_period(self) -> "AnalysisRequest":
@@ -98,6 +104,22 @@ class AnalysisRequest(BaseModel):
         self.get_display_times()
         return self
 
+    @model_validator(mode="after")
+    def validate_members(self) -> "AnalysisRequest":
+        """
+        Validates the members have unique names and are not all excluded.
+        """
+        members = check_unique_names(
+            [member for _, member in self._get_system_members()]
+        )
+        if self.exclude_members:
+            excluded = set(self.exclude_members)
+            members = [member for member in members if member.name not in excluded]
+            if not members:
+                raise ValueError("All satellites are excluded from the analysis.")
+        self._members = members
+        return self
+
     def get_display_times(self) -> pd.DatetimeIndex:
         """
         Gets the times at which to sample orbit tracks to animate results.
@@ -112,28 +134,27 @@ class AnalysisRequest(BaseModel):
         )
         return display.to_index(MAX_DISPLAY_STEPS)
 
+    def _get_system_members(self) -> List[Tuple[int, Satellite]]:
+        """
+        Expands the satellites and constellations (once) into their members.
+        """
+        if self._system_members is None:
+            self._system_members = [
+                (i, member)
+                for i, system in enumerate(self.satellites)
+                for member in generate_members(system)
+            ]
+        return self._system_members
+
     def get_members(self) -> List[Satellite]:
         """
         Gets the member satellites to analyze: those of the satellites and
-        constellations, less any excluded members.
-
-        Raises:
-            HTTPException: (422) if two members share a name, or if all
-                members are excluded.
+        constellations, less any excluded members (see `validate_members`).
 
         Returns:
             List[Satellite]: The member satellites.
         """
-        members = expand_members(self.satellites)
-        if self.exclude_members:
-            excluded = set(self.exclude_members)
-            members = [member for member in members if member.name not in excluded]
-            if not members:
-                raise HTTPException(
-                    status_code=422,
-                    detail="All satellites are excluded from the analysis.",
-                )
-        return members
+        return self._members
 
     def get_member_colors(self) -> Dict[str, str]:
         """
@@ -143,13 +164,11 @@ class AnalysisRequest(BaseModel):
         Returns:
             Dict[str, str]: The color of each (colored) member, by name.
         """
-        colors = {}
-        for i, system in enumerate(self.satellites):
-            color = self.colors[i] if self.colors and i < len(self.colors) else None
-            if color:
-                for member in generate_members(system):
-                    colors[member.name] = color
-        return colors
+        return {
+            member.name: _item(self.colors, i)
+            for i, member in self._get_system_members()
+            if _item(self.colors, i)
+        }
 
     def get_member_instrument_colors(self) -> Dict[str, List[Optional[str]]]:
         """
@@ -161,17 +180,11 @@ class AnalysisRequest(BaseModel):
                 order, `None` to derive it from the satellite color) of each
                 member with instrument colors, by name.
         """
-        colors = {}
-        for i, system in enumerate(self.satellites):
-            instrument_colors = (
-                self.instrument_colors[i]
-                if self.instrument_colors and i < len(self.instrument_colors)
-                else None
-            )
-            if instrument_colors and any(instrument_colors):
-                for member in generate_members(system):
-                    colors[member.name] = list(instrument_colors)
-        return colors
+        return {
+            member.name: list(_item(self.instrument_colors, i))
+            for i, member in self._get_system_members()
+            if any(_item(self.instrument_colors, i) or [])
+        }
 
     def get_member_systems(self) -> Dict[str, int]:
         """
@@ -181,36 +194,28 @@ class AnalysisRequest(BaseModel):
             Dict[str, int]: The index (in `satellites`) of the satellite or
                 constellation of each member, by name.
         """
-        return {
-            member.name: i
-            for i, system in enumerate(self.satellites)
-            for member in generate_members(system)
-        }
+        return {member.name: i for i, member in self._get_system_members()}
 
 
-def tag(kind: str, data) -> dict:
+class PointsCellsAnalysisRequest(AnalysisRequest):
     """
-    Tags the result of a parallel task by kind.
+    Base class for requests to analyze observations of points, aggregated
+    into cells (coverage and latency analyses).
     """
-    return {"kind": kind, "data": data}
+
+    points: Union[List[Point], PointGenerator] = Field(
+        ..., description="Points from which to collect observations."
+    )
+    cells: Union[List[Cell], CellGenerator] = Field(
+        ..., description="Cells from which to aggregate observations."
+    )
 
 
-def untag(results: list, kind: str) -> list:
+class AnimatedResult(BaseModel):
     """
-    Gets the results of parallel tasks of a kind.
+    Base class for analysis results animated with the orbit tracks of
+    satellites.
     """
-    return [r["data"] for r in results if r["kind"] == kind]
 
-
-def serialize_members(members: List[Satellite]) -> List[str]:
-    """
-    Serializes member satellites to pass to tasks.
-    """
-    return [member.model_dump_json() for member in members]
-
-
-def deserialize_members(members: List[str]) -> List[Satellite]:
-    """
-    Deserializes member satellites passed to tasks.
-    """
-    return [Satellite.model_validate_json(member) for member in members]
+    tracks: OrbitTracks = Field(..., description="Orbit tracks of satellites.")
+    colors: Dict[str, str] = Field({}, description="Display color of satellites.")

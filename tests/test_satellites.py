@@ -1,6 +1,5 @@
 import unittest
 
-from fastapi import HTTPException
 from pydantic import TypeAdapter, ValidationError
 from tatc.schemas import (
     GeneralPerturbationsOrbit,
@@ -207,9 +206,8 @@ class SpaceSystemSchemaTestCase(unittest.TestCase):
 
     def test_duplicate_member_names_rejected(self):
         satellite = adapter.validate_python({"name": "Sat", "orbit": ORBITS["tle"]})
-        with self.assertRaises(HTTPException) as context:
+        with self.assertRaisesRegex(ValueError, "Duplicate satellite name"):
             expand_members([satellite, satellite])
-        self.assertEqual(context.exception.status_code, 422)
 
 
 class ValidateSpaceSystemTestCase(TatcTestCase):

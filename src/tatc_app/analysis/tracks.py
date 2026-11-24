@@ -1,11 +1,9 @@
 """
-Compact, columnar representations of time-dynamic analysis results used to
-animate results in a client: timelines of events (observations, contacts,
-data latencies) between targets and satellites, and orbit tracks of
-satellites.
+Compact, columnar orbit tracks of satellites (positions, swath widths, and
+instrument footprints) used to animate results in a client.
 
 Times are seconds since a common `epoch` to keep payloads small, compared to
-one GeoJSON feature per event or position.
+one GeoJSON feature per position.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -16,106 +14,14 @@ from typing import List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 from pydantic import AwareDatetime, BaseModel, Field
-from shapely.geometry import MultiPolygon, Polygon
+from shapely.geometry import Polygon
 from shapely.geometry.base import BaseGeometry
+
+from .timeline import seconds_since
 
 # tolerance (degrees) to simplify footprints, and decimals to round coordinates
 FOOTPRINT_TOLERANCE = 0.01
 FOOTPRINT_DECIMALS = 4
-
-
-class Timeline(BaseModel):
-    """
-    Events between targets (for example, points or ground stations) and
-    members (satellites), each spanning a `start` and (optional) `end` time.
-    """
-
-    epoch: AwareDatetime = Field(..., description="Reference time (t=0).")
-    targets: List[str] = Field(
-        ..., description="Target identifiers (for example, `target_hash`)."
-    )
-    members: List[str] = Field(..., description="Member satellite names.")
-    target: List[int] = Field(..., description="Target index of each event.")
-    member: List[int] = Field(..., description="Member index of each event.")
-    start: List[float] = Field(..., description="Event start (seconds since epoch).")
-    end: List[Optional[float]] = Field(
-        ..., description="Event end (seconds since epoch), or null if none."
-    )
-
-
-def _seconds_since(times: pd.Series, epoch: datetime) -> List[Optional[float]]:
-    seconds = (
-        pd.to_datetime(times, utc=True) - pd.Timestamp(epoch).tz_convert("UTC")
-    ).dt.total_seconds()
-    return [None if np.isnan(s) else round(float(s), 3) for s in seconds]
-
-
-def build_timeline(
-    events: pd.DataFrame,
-    epoch: datetime,
-    targets: Sequence[str],
-    members: Sequence[str],
-    target_column: str = "target_hash",
-    member_column: str = "satellite",
-    start_column: str = "start",
-    end_column: str = "end",
-) -> Timeline:
-    """
-    Builds a timeline from a data frame of events, sorted by start time.
-    Events with an unknown target or member are dropped; events attributed
-    to several members (as by `tatc.analysis.aggregate_observations`, which
-    merges overlapping observations) are attributed to the first.
-
-    Args:
-        events (pandas.DataFrame): The events.
-        epoch (datetime.datetime): The reference time.
-        targets (Sequence[str]): The target identifiers.
-        members (Sequence[str]): The member names.
-        target_column (str): The column identifying the target of an event.
-        member_column (str): The column identifying the member of an event.
-        start_column (str): The column of event start times.
-        end_column (str): The column of event end times.
-
-    Returns:
-        Timeline: The timeline.
-    """
-    targets = list(targets)
-    members = list(members)
-    if events is None or events.empty:
-        return Timeline(
-            epoch=epoch,
-            targets=targets,
-            members=members,
-            target=[],
-            member=[],
-            start=[],
-            end=[],
-        )
-    target = pd.Categorical(events[target_column], categories=targets).codes
-    # aggregated observations name all overlapping satellites ("a, b"):
-    # attribute them to the first
-    member = pd.Categorical(
-        events[member_column].astype(str).str.split(", ").str[0],
-        categories=members,
-    ).codes
-    frame = pd.DataFrame(
-        {
-            "target": target,
-            "member": member,
-            "start": pd.to_datetime(events[start_column], utc=True).values,
-            "end": pd.to_datetime(events[end_column], utc=True).values,
-        }
-    )
-    frame = frame[(frame.target >= 0) & (frame.member >= 0)].sort_values("start")
-    return Timeline(
-        epoch=epoch,
-        targets=targets,
-        members=members,
-        target=frame.target.astype(int).tolist(),
-        member=frame.member.astype(int).tolist(),
-        start=_seconds_since(frame.start, epoch),
-        end=_seconds_since(frame.end, epoch),
-    )
 
 
 class InstrumentTrack(BaseModel):
@@ -186,21 +92,25 @@ class OrbitTracks(BaseModel):
         )
 
 
-def _footprint_polygons(geometry: Optional[BaseGeometry]) -> List[List[List[float]]]:
+def polygon_parts(geometry: Optional[BaseGeometry]) -> List[Polygon]:
     """
-    Converts a footprint to a list of polygons, each a list of rings of
-    interleaved coordinates (see `InstrumentTrack.footprints`), simplified
-    and rounded to keep payloads small.
+    Gets the (non-empty) polygons of a geometry: a polygon, or the polygons
+    of a multi-polygon or geometry collection.
     """
-    if geometry is None or geometry.is_empty:
+    if geometry is None:
         return []
-    geometry = geometry.simplify(FOOTPRINT_TOLERANCE, preserve_topology=True)
-    if isinstance(geometry, Polygon):
-        parts = [geometry]
-    elif isinstance(geometry, MultiPolygon):
-        parts = list(geometry.geoms)
-    else:
-        parts = [g for g in getattr(geometry, "geoms", []) if isinstance(g, Polygon)]
+    parts = (
+        [geometry] if isinstance(geometry, Polygon) else getattr(geometry, "geoms", [])
+    )
+    return [part for part in parts if isinstance(part, Polygon) and not part.is_empty]
+
+
+def encode_polygons(polygons: Sequence[Polygon]) -> List[List[List[float]]]:
+    """
+    Encodes polygons as lists of rings (the exterior, then any holes) of
+    interleaved [longitude, latitude, ...] coordinates, not closed and
+    rounded to keep payloads small (see `InstrumentTrack.footprints`).
+    """
     return [
         [
             [
@@ -208,11 +118,35 @@ def _footprint_polygons(geometry: Optional[BaseGeometry]) -> List[List[List[floa
                 for x, y, *_ in ring.coords[:-1]
                 for v in (x, y)
             ]
-            for ring in [part.exterior, *part.interiors]
+            for ring in [polygon.exterior, *polygon.interiors]
         ]
-        for part in parts
-        if not part.is_empty
+        for polygon in polygons
     ]
+
+
+def decode_polygons(polygons: Sequence[Sequence[Sequence[float]]]) -> List[Polygon]:
+    """
+    Decodes polygons encoded by `encode_polygons`.
+    """
+    return [
+        Polygon(
+            list(zip(rings[0][0::2], rings[0][1::2])),
+            [list(zip(ring[0::2], ring[1::2])) for ring in rings[1:]],
+        )
+        for rings in polygons
+    ]
+
+
+def _footprint_polygons(geometry: Optional[BaseGeometry]) -> List[List[List[float]]]:
+    """
+    Encodes a footprint (see `InstrumentTrack.footprints`), simplified to
+    keep payloads small.
+    """
+    if geometry is None or geometry.is_empty:
+        return []
+    return encode_polygons(
+        polygon_parts(geometry.simplify(FOOTPRINT_TOLERANCE, preserve_topology=True))
+    )
 
 
 def build_footprints(
@@ -224,13 +158,15 @@ def build_footprints(
     the instrument does not observe (`valid_obs` is false).
 
     Args:
-        ground_track (geopandas.GeoDataFrame): The ground track.
+        ground_track (geopandas.GeoDataFrame): The ground track, with columns
+            `time`, `geometry`, and (optionally) `valid_obs`.
         epoch (datetime.datetime): The reference time.
 
     Returns:
-        List[Tuple[float, List[List[List[float]]]]]: The footprint samples.
+        List[Tuple[float, List[List[List[float]]]]]: The footprint samples
+            (see `InstrumentTrack.footprints`).
     """
-    times = _seconds_since(ground_track["time"], epoch)
+    times = seconds_since(ground_track["time"], epoch)
     valid = (
         ground_track["valid_obs"]
         if "valid_obs" in ground_track
@@ -269,7 +205,7 @@ def build_member_track(
     instruments = []
     ground_tracks = list(ground_tracks or [])
     for i, orbit_track in enumerate(orbit_tracks):
-        times = _seconds_since(orbit_track["time"], epoch)
+        times = seconds_since(orbit_track["time"], epoch)
         if i == 0:
             for t, geometry in zip(times, orbit_track.geometry):
                 positions.extend(

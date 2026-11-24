@@ -17,9 +17,10 @@ router = APIRouter()
 
 
 @router.get("/{task_id}/status", response_model=CeleryResultStatus)
-async def get_collect_coverage_statistics_task_status(task_id: UUID):
+async def get_task_status(task_id: UUID):
     """
-    Endpoint to retrieve enqueued task status.
+    Endpoint to retrieve enqueued task status. (The result backend does not
+    distinguish unknown tasks from pending ones: both are not ready.)
 
     Args:
         task_id (UUID): Task unique identifier.
@@ -28,13 +29,11 @@ async def get_collect_coverage_statistics_task_status(task_id: UUID):
         CeleryResultStatus: Task results status.
     """
     task = celery_app.AsyncResult(str(task_id))
-    if task is None:
-        raise HTTPException(status_code=404, detail="Task not found.")
     return {"ready": task.ready(), "successful": task.successful()}
 
 
 @router.get("/{group_id}/progress", response_model=CeleryResultProgress)
-async def get_collect_coverage_statistics_task_progress(group_id: UUID):
+async def get_group_progress(group_id: UUID):
     """
     Endpoint to retrieve enqueued group task progress.
 
@@ -44,7 +43,7 @@ async def get_collect_coverage_statistics_task_progress(group_id: UUID):
     Returns:
         CeleryResultProgress: Group task progress.
     """
-    task = GroupResult.restore(str(group_id))
+    task = GroupResult.restore(str(group_id), app=celery_app)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found.")
     return {"task_count": len(task.children), "completed_count": task.completed_count()}

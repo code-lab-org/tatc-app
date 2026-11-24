@@ -15,8 +15,12 @@
 //   options:  for selects, a list of {value, label} (values may be any JSON)
 //   showIf:   optional function(object) to show the field conditionally
 //   help:     optional tooltip
+//
+// Specs with `jsonOnly` have no form: their objects are edited in the JSON
+// tab of the satellite dialog.
 
-const EARTH_MEAN_RADIUS = 6371008.771415059;
+// placeholder elements (of the ISS in 2021) for a new TLE orbit, to replace
+// with current elements (for example, from CelesTrak)
 const DEFAULT_TLE = [
   "1 25544U 98067A   21156.30527927  .00003432  00000-0  70541-4 0  9993",
   "2 25544  51.6455  41.4969 0003508  68.0432  78.3395 15.48957534286754"
@@ -123,7 +127,7 @@ const ORBIT_SPECS = {
     fields: [{ type: "note", label: "Edit the elements of general perturbations orbits in the JSON tab." }]
   }
 };
-const ALL_ORBITS = ["tle", "circular", "sso", "keplerian", "geosynchronous", "molniya", "tundra", "repeat", "gp"];
+const ALL_ORBITS = _.keys(ORBIT_SPECS);
 
 const PLATFORM_SPECS = {
   satellite: { label: "Satellite", orbits: ALL_ORBITS, fields: [] },
@@ -206,6 +210,40 @@ const INSTRUMENT_SPECS = {
   }
 };
 
+// Fields (other than `type`) whose presence implies the type of an instrument
+// without one (as the library infers it, written before the field existed).
+const POINTED_KEYS = [
+  "along_track_field_of_view", "along_track_oversampling", "along_track_pixels",
+  "cross_track_field_of_view", "cross_track_oversampling", "cross_track_pixels",
+  "is_rectangular", "is_swept", "pitch_angle", "pitch_angle_profile", "roll_angle",
+  "roll_angle_profile", "scan_period", "velocity_frame", "view_geometry", "yaw_angle"
+];
+const CONICAL_KEYS = ["beam_width", "cone_angle", "scan_center_azimuth", "scan_half_width", "scan_sample_spacing"];
+const IN_SITU_KEYS = ["radius"];
+
+// Gets the type of an instrument: its `type` or, if omitted, the type its
+// fields imply (as the library does).
+function instrumentType(instrument) {
+  if (_.isString(instrument.type)) {
+    return instrument.type;
+  }
+  function has(keys) {
+    return _.some(keys, function(key) { return _.has(instrument, key); });
+  }
+  return has(IN_SITU_KEYS) ? "in_situ" : has(CONICAL_KEYS) ? "conical" : has(POINTED_KEYS) ? "pointed" : "instrument";
+}
+
+// Gets the spec of a type, or for a type without a form (such as an in-situ
+// instrument, which only surface platforms carry), a spec to edit it in JSON.
+function specOf(specs, type) {
+  return specs[type] || {
+    label: String(type) + " (JSON only)",
+    jsonOnly: true,
+    orbits: ALL_ORBITS,
+    fields: [{ type: "note", label: "This type has no form: edit it in the JSON tab." }]
+  };
+}
+
 const STATION_FIELDS = [
   { key: "name", label: "Name", type: "text", default: "Station" },
   _.assign({ key: "latitude", label: "Latitude", type: "number", min: -90, max: 90, default: 0 }, ANGLE),
@@ -239,7 +277,7 @@ function resolveDefault(field) {
 
 // Creates an object of a type with default values.
 function createDefault(spec, type) {
-  const object = { type: type };
+  const object = type === undefined ? {} : { type: type };
   _.forEach(spec.fields, function(field) {
     if (field.key && field.default !== undefined) {
       _.set(object, field.key, resolveDefault(field));
@@ -288,8 +326,6 @@ function fromFormValue(field, value) {
       return value ? (value.length == 5 ? value + ":00" : value) : undefined;
     case "tle":
       return _.filter(_.map(String(value).split(/\r?\n/), _.trim), function(line) { return line.length > 0; });
-    case "text":
-      return value;
     default:
       return value;
   }
@@ -428,9 +464,10 @@ function changeType(object, specs, type) {
 
 // Creates an instrument of a type, keeping the name and shared settings.
 function changeInstrumentType(instrument, type) {
-  const next = createDefault(INSTRUMENT_SPECS[type], type);
+  const spec = specOf(INSTRUMENT_SPECS, type);
+  const next = createDefault(spec, type);
   next.name = instrument.name || "Default";
-  _.forEach(specKeys(INSTRUMENT_SPECS[type]), function(key) {
+  _.forEach(specKeys(spec), function(key) {
     if (instrument[key] !== undefined && _.find(COMMON_INSTRUMENT_FIELDS, { key: key })) {
       next[key] = instrument[key];
     }
@@ -452,5 +489,5 @@ function createSatellite(name) {
 }
 
 function createStation(name) {
-  return _.assign(createDefault({ fields: STATION_FIELDS }, undefined), { name: name || "Station" });
+  return _.assign(createDefault({ fields: STATION_FIELDS }), { name: name || "Station" });
 }

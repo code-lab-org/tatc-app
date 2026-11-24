@@ -1,4 +1,5 @@
-// Cesium viewer, login, and shared utilities.
+// Cesium viewer, sign in, and utilities shared by the tabs: requests, map
+// picking, selectable lists, and tables of results.
 
 // Offline base layer bundled with Cesium (no access token required).
 function createOfflineBaseLayer() {
@@ -29,11 +30,6 @@ const viewer = new Cesium.Viewer("cesiumContainer", {
 });
 viewer.scene.globe.depthTestAgainstTerrain = false;
 
-// primitive collections for generated points and cells
-const points = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
-const cells = viewer.scene.primitives.add(new Cesium.PrimitiveCollection());
-const cellOutlines = viewer.scene.primitives.add(new Cesium.PolylineCollection());
-
 let cesiumIonInitialized = false;
 function initializeCesium() {
   if (cesiumIonInitialized) {
@@ -53,24 +49,98 @@ function initializeCesium() {
   });
 }
 
-// Removes the child entities of a parent entity.
-function clearEntities(parent) {
-  const entitiesToRemove = _.filter(viewer.entities.values, function(entity) {
-    return entity.parent === parent;
-  });
-  _.forEach(entitiesToRemove, function(entity) {
-    viewer.entities.remove(entity);
-  });
+// --- Map picking ---
+
+// The active pick mode: {button, onPick, onStop}. One mode is active at a
+// time: starting one stops the other.
+let mapPick = null;
+
+function mapPickListener(e) {
+  const rect = viewer.canvas.getBoundingClientRect();
+  const position = new Cesium.Cartesian2(e.clientX - rect.left, e.clientY - rect.top);
+  const cartesian = viewer.camera.pickEllipsoid(position, viewer.scene.globe.ellipsoid);
+  if (cartesian && mapPick) {
+    mapPick.onPick(cartesian);
+  }
 }
 
-function getArcType() {
-  const type = $("#region-type").val();
-  const latMin = Number($("#region-latitude-min").val());
-  const latMax = Number($("#region-latitude-max").val());
-  if (type == "global" || (type == "latitude" && (latMin <= -90 || latMax >= 90))) {
-    return Cesium.ArcType.GEODESIC;
+// Starts picking points on the map with a toggle button: calls
+// `onPick(cartesian)` for each click on the globe, and `onStop()` (if any)
+// once picking stops.
+function startMapPick(button, onPick, onStop) {
+  stopMapPick();
+  mapPick = { button: button, onPick: onPick, onStop: onStop };
+  button.addClass("btn-success").removeClass("btn-secondary");
+  viewer.canvas.style.cursor = "crosshair";
+  viewer.canvas.addEventListener("click", mapPickListener);
+}
+
+// Stops picking points on the map (only with a button, if given).
+function stopMapPick(button) {
+  if (!mapPick || (button && !isMapPicking(button))) {
+    return;
   }
-  return Cesium.ArcType.RHUMB;
+  const stopped = mapPick;
+  mapPick = null;
+  stopped.button.addClass("btn-secondary").removeClass("btn-success");
+  viewer.canvas.style.cursor = "default";
+  viewer.canvas.removeEventListener("click", mapPickListener);
+  if (stopped.onStop) {
+    stopped.onStop();
+  }
+}
+
+function isMapPicking(button) {
+  return Boolean(mapPick) && mapPick.button[0] === button[0];
+}
+
+// --- Selectable lists ---
+
+// Renders a list of items into a list group: `options.renderItem(item, i)`
+// returns the content of an item, clicking an item calls
+// `options.onSelect(i)`, double clicking it calls `options.onOpen(i)` (if
+// any), and `options.buttons` (a selector) are enabled with a selection.
+function renderSelectableList(container, items, selected, options) {
+  container.empty();
+  _.forEach(items, function(item, i) {
+    const entry = $("<a href='#'>")
+      .addClass("list-group-item list-group-item-action py-1 px-2 small")
+      .toggleClass("active", i == selected)
+      .append(options.renderItem(item, i))
+      .on("click", function(e) {
+        e.preventDefault();
+        options.onSelect(i);
+      });
+    if (options.onOpen) {
+      entry.on("dblclick", function(e) {
+        e.preventDefault();
+        options.onOpen(i);
+      });
+    }
+    container.append(entry);
+  });
+  $(options.buttons).prop("disabled", !(selected >= 0 && selected < items.length));
+}
+
+// Removes the selected item of a list, returning the index to select next.
+function removeSelected(items, selected) {
+  items.splice(selected, 1);
+  return Math.min(selected, items.length - 1);
+}
+
+// A name not among others: the (trimmed) name or, if blank, the fallback,
+// with a number appended if taken (for example, "Station (2)").
+function uniqueName(name, names, fallback) {
+  name = _.trim(name) || fallback || name;
+  if (!_.includes(names, name)) {
+    return name;
+  }
+  const base = name.replace(/ \(\d+\)$/, "");
+  let i = 2;
+  while (_.includes(names, base + " (" + i + ")")) {
+    i++;
+  }
+  return base + " (" + i + ")";
 }
 
 // --- Date time utilities (all times are UTC) ---
@@ -113,19 +183,29 @@ function toCsv(columns, rows) {
 }
 
 // Shows a table of results with JSON and CSV downloads.
-// `columns` is a list of {title, key, format?}; `rows` a list of objects;
-// `extras` a list of additional CSV downloads {label, filename, columns, rows};
-// `onRowClick` an optional function(row) called when a row is clicked.
+//
+// options:
+//   title:      dialog title
+//   columns:    list of {title, key, format?}
+//   rows:       list of objects
+//   filename:   name (without extension) of the JSON and CSV downloads
+//   note:       optional note shown above the table
+//   extras:     optional additional CSV downloads {label, filename, columns, rows}
+//   onRowClick: optional function(row) called when a row is clicked
 let resultsTable = null;
-function showResultsTable(title, columns, rows, filename, note, extras, onRowClick) {
-  $("#results-title").text(title);
-  $("#results-note").text(note || "");
+function showResultsTable(options) {
+  const columns = options.columns;
+  const rows = options.rows;
+  const filename = options.filename;
+  const onRowClick = options.onRowClick;
+  $("#results-title").text(options.title);
+  $("#results-note").text(options.note || "");
   if (resultsTable) {
     resultsTable.destroy();
     $("#results-table").empty().off("click");
   }
   $(".results-extra").remove();
-  _.forEach(extras || [], function(extra) {
+  _.forEach(options.extras || [], function(extra) {
     $("<button type='button'>")
       .addClass("btn btn-secondary results-extra")
       .append($("<span>").addClass("fa fa-download"), " " + extra.label)
@@ -176,6 +256,17 @@ function showResultsTable(title, columns, rows, filename, note, extras, onRowCli
   $("#results-dialog").modal("show");
 }
 
+// Posts JSON data, expecting a JSON response.
+function postJson(url, data) {
+  return $.ajax({
+    url: url,
+    type: "POST",
+    contentType: "application/json",
+    dataType: "json",
+    data: JSON.stringify(data)
+  });
+}
+
 // Formats an error response (including FastAPI validation errors).
 function formatError(xhr) {
   if (xhr && xhr.responseJSON && xhr.responseJSON.detail) {
@@ -196,6 +287,14 @@ function formatError(xhr) {
 
 // --- Authentication ---
 
+const signedInListeners = [];
+
+// Adds a listener called each time the user information shows the user is
+// signed in (or authentication is disabled).
+function onSignedIn(listener) {
+  signedInListeners.push(listener);
+}
+
 function signedIn(info) {
   $("#login-link").hide();
   $("#nav-info-tab").off("hide.bs.tab");
@@ -207,6 +306,7 @@ function signedIn(info) {
     $("#user-menu").hide();
   }
   initializeCesium();
+  _.forEach(signedInListeners, function(listener) { listener(info); });
 }
 
 function signedOut() {

@@ -1,86 +1,84 @@
 # Configuration file for the Sphinx documentation builder.
 #
-# This file only contains a selection of the most common options. For a full
-# list see the documentation:
+# For the full list of options, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
-# -- Path setup --------------------------------------------------------------
+import inspect
+import os
+import sys
 
-# If extensions (or modules to document with autodoc) are in another directory,
-# add these directories to sys.path here. If the directory is relative to the
-# documentation root, use os.path.abspath to make it absolute, like shown here.
-#
-# import os
-# import sys
-# sys.path.insert(0, os.path.abspath('.'))
+# document the application from its source (also without installing it)
+sys.path.insert(0, os.path.abspath("../src"))
 
+# authentication is not needed to import the application's modules
+os.environ.setdefault("TATC_AUTH", "none")
+
+import tatc_app  # pylint: disable=wrong-import-position
 
 # -- Project information -----------------------------------------------------
 
 project = "TAT-C Application"
-copyright = "2024, Stevens Institute of Technology"
-author = "Stevens Institute of Technology"
-
-# The full version, including alpha/beta/rc tags
-
-import tatc_app
-
+copyright = "2024, Paul T. Grogan"  # pylint: disable=redefined-builtin
+author = "Paul T. Grogan"
 release = tatc_app.__version__
-
 
 # -- General configuration ---------------------------------------------------
 
-# Add any Sphinx extension module names here, as strings. They can be
-# extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
-# ones.
 extensions = [
-    "myst_nb",
+    "myst_parser",
     "sphinx.ext.autodoc",
-    "sphinx.ext.doctest",
     "sphinx.ext.intersphinx",
-    "sphinx.ext.todo",
-    "sphinx.ext.coverage",
-    "sphinx.ext.mathjax",
-    "sphinx.ext.ifconfig",
-    "sphinx.ext.viewcode",
-    "sphinx.ext.githubpages",
     "sphinx.ext.napoleon",
     "sphinxcontrib.autodoc_pydantic",
 ]
 
+# anchors of README headings, for links such as `[Deployment](#deployment)`
+myst_heading_anchors = 3
+
+# docstrings use the Google style
 napoleon_google_docstring = True
-napoleon_numpy_docstring = True
-napoleon_include_init_with_doc = True
-napoleon_include_private_with_doc = True
-napoleon_include_special_with_doc = True
-napoleon_use_admonition_for_examples = False
-napoleon_use_admonition_for_notes = False
-napoleon_use_admonition_for_references = False
-napoleon_use_ivar = False
-napoleon_use_param = True
-napoleon_use_rtype = True
-autodoc_pydantic_model_show_json = True
-autodoc_pydantic_model_show_config = False
+napoleon_numpy_docstring = False
+
+# schemas list their fields (with types, defaults, and descriptions), without
+# their JSON schemas, configurations, or validators
+autodoc_pydantic_model_show_json = False
+autodoc_pydantic_model_show_config_summary = False
+autodoc_pydantic_model_show_validator_summary = False
+autodoc_pydantic_model_show_validator_members = False
+autodoc_pydantic_model_show_field_summary = False
+autodoc_pydantic_model_member_order = "bysource"
+# requests and results list the fields they inherit (but not the methods of
+# pydantic models)
+autodoc_default_options = {"inherited-members": "BaseModel"}
+autodoc_pydantic_field_list_validators = False
+autodoc_pydantic_field_show_constraints = True
+
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
+    "pydantic": ("https://docs.pydantic.dev/latest", None),
 }
 
-# Add any paths that contain templates here, relative to this directory.
-templates_path = ["_templates"]
-
-# List of patterns, relative to source directory, that match files and
-# directories to ignore when looking for source files.
-# This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+
+
+def skip_methods(
+    app, what, name, obj, skip, options
+):  # pylint: disable=unused-argument
+    """
+    Skips methods: the reference documents the data of schemas, not the
+    methods the server uses to process them.
+    """
+    return True if inspect.isroutine(obj) else None
+
+
+def setup(app):
+    """
+    Sets up this documentation.
+    """
+    app.connect("autodoc-skip-member", skip_methods)
+
 
 # -- Options for HTML output -------------------------------------------------
 
-# The theme to use for HTML and HTML Help pages.  See the documentation for
-# a list of builtin themes.
-#
 html_theme = "sphinx_rtd_theme"
-
-# Add any paths that contain custom static files (such as style sheets) here,
-# relative to this directory. They are copied after the builtin static files,
-# so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ["_static"]

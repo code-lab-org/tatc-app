@@ -1,5 +1,6 @@
 """
-Schema specifications for generation endpoints.
+Schema specifications to generate points, cells, and times: requests of the
+generation endpoints, and parts of analysis requests.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -11,15 +12,16 @@ from typing import Annotated, Optional, Union
 import pandas as pd
 from geojson_pydantic import Polygon
 from pydantic import (
+    AfterValidator,
     AwareDatetime,
-    BaseModel,
-    ConfigDict,
     Field,
     StringConstraints,
     model_validator,
 )
-from pydantic.alias_generators import to_camel
 from shapely.geometry import box, mapping
+
+from ..utils.schemas import CamelModel
+from .masks import KnownShape, country_codes
 
 
 class PointGeneratorMethod(str, Enum):
@@ -31,22 +33,29 @@ class PointGeneratorMethod(str, Enum):
     equally_spaced = "equally_spaced"
 
 
-class KnownShape(str, Enum):
-    """
-    Known shapes to use as masks.
-    """
-
-    conus = "conus"
+def _check_country_code(code: str) -> str:
+    if code not in country_codes():
+        raise ValueError(f"Unknown ISO 3166-1 alpha-3 country code: {code}")
+    return code
 
 
-class PointGenerator(BaseModel):
+# an ISO 3166-1 alpha-3 country code (case insensitive)
+CountryCode = Annotated[
+    str,
+    StringConstraints(min_length=3, max_length=3, to_upper=True),
+    AfterValidator(_check_country_code),
+]
+
+# a mask to limit the extent of generated points or cells: a polygon, a known
+# shape, or a country
+Mask = Union[Polygon, KnownShape, CountryCode]
+
+
+class PointGenerator(CamelModel):
     """
     Specification to generate points.
     """
 
-    model_config = ConfigDict(
-        from_attributes=True, populate_by_name=True, alias_generator=to_camel
-    )
     method: PointGeneratorMethod = Field(
         PointGeneratorMethod.equally_spaced, description="Point generation method."
     )
@@ -57,13 +66,7 @@ class PointGenerator(BaseModel):
         0,
         description="Elevation (meters) above datum in the WGS 84 coordinate system.",
     )
-    mask: Optional[
-        Union[
-            Polygon,
-            KnownShape,
-            Annotated[str, StringConstraints(min_length=3, max_length=3)],
-        ]
-    ] = Field(
+    mask: Optional[Mask] = Field(
         None,
         description="Mask to limit the extent of generated points. Allows ISO 3166-1 alpha-3 country codes.",
         examples=[Polygon(**mapping(box(-180, -90, 180, 90)))],
@@ -93,14 +96,11 @@ class CellStrips(str, Enum):
     longitude = "lon"
 
 
-class CellGenerator(BaseModel):
+class CellGenerator(CamelModel):
     """
     Specification to generate cells.
     """
 
-    model_config = ConfigDict(
-        from_attributes=True, populate_by_name=True, alias_generator=to_camel
-    )
     method: CellGeneratorMethod = Field(
         CellGeneratorMethod.equally_spaced, description="Cell generation method."
     )
@@ -111,13 +111,7 @@ class CellGenerator(BaseModel):
         0,
         description="Elevation (meters) above datum in the WGS 84 coordinate system.",
     )
-    mask: Optional[
-        Union[
-            Polygon,
-            KnownShape,
-            Annotated[str, StringConstraints(min_length=3, max_length=3)],
-        ]
-    ] = Field(
+    mask: Optional[Mask] = Field(
         None,
         description="Mask to limit the extent of generated cells. Allows ISO 3166-1 alpha-3 country codes.",
         examples=[Polygon(**mapping(box(-180, -90, 180, 90)))],
@@ -127,14 +121,11 @@ class CellGenerator(BaseModel):
     )
 
 
-class TimeGenerator(BaseModel):
+class TimeGenerator(CamelModel):
     """
     Specification to generate time series.
     """
 
-    model_config = ConfigDict(
-        from_attributes=True, populate_by_name=True, alias_generator=to_camel
-    )
     start: AwareDatetime = Field(
         ...,
         description="Start date time of the observation period.",
@@ -153,12 +144,14 @@ class TimeGenerator(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_start_end(self) -> "TimeGenerator":
+    def validate_period(self) -> "TimeGenerator":
         """
-        Validates the end time precedes the start time.
+        Validates the start precedes the end by at least one time step.
         """
-        if self.start is not None and self.end is not None and self.end < self.start:
+        if self.end <= self.start:
             raise ValueError("Invalid end: start must precede end.")
+        if self.delta > self.end - self.start:
+            raise ValueError("Invalid delta: must not exceed (end - start).")
         return self
 
     def to_index(self, max_count: int = 100000) -> "pd.DatetimeIndex":
@@ -179,17 +172,3 @@ class TimeGenerator(BaseModel):
                 f"Too many time steps: (end - start) / delta must be less than {max_count}."
             )
         return pd.date_range(self.start, self.end, freq=self.delta).tz_convert("UTC")
-
-    @model_validator(mode="after")
-    def validate_delta(self) -> "TimeGenerator":
-        """
-        Validates the delta is not smaller than end - start.
-        """
-        if (
-            self.start is not None
-            and self.end is not None
-            and self.delta is not None
-            and self.delta > self.end - self.start
-        ):
-            raise ValueError("Invalid delta: must be smaller than (end-start).")
-        return self

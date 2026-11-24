@@ -29,6 +29,32 @@ function appendNotes(container, notes) {
   }
 }
 
+// Renders options of items (by `id`) grouped by class: `labels` maps the
+// classes (values of `classKey`) to group labels, and empty groups are left out.
+function renderGroupedOptions(select, labels, items, classKey, optionText) {
+  select.empty();
+  _.forEach(labels, function(label, itemClass) {
+    const members = _.filter(items, function(item) { return item[classKey] == itemClass; });
+    if (members.length) {
+      select.append($("<optgroup>").attr("label", label).append(_.map(members, function(item) {
+        return $("<option>").val(item.id).text(optionText(item));
+      })));
+    }
+  });
+}
+
+// Renders the details of a catalog entry: a summary (with its validation
+// tier), how it was selected, and its limitations.
+function renderCatalogDetails(container, summary, entry) {
+  container.empty().append(
+    $("<div>").text(summary + " · validation: " + entry.tier),
+    $("<div>").text(entry.selection)
+  );
+  if (entry.limitations.length) {
+    container.append($("<div>").text("Limitations: " + entry.limitations.join(" ")));
+  }
+}
+
 function showCatalogStatus(text, className) {
   showStatus($("#catalog-status"), text, className);
 }
@@ -52,18 +78,9 @@ function isActive(spacecraft) {
 }
 
 function renderCatalogSystems() {
-  const select = $("#catalog-systems").empty();
-  _.forEach(SYSTEM_CLASS_LABELS, function(label, systemClass) {
-    const group = $("<optgroup>").attr("label", label);
-    _.forEach(_.filter(catalogSystems, { system_class: systemClass }), function(system) {
-      const active = _.filter(system.spacecraft, isActive).length;
-      group.append($("<option>").val(system.id).text(
-        system.name + " (" + active + " of " + system.spacecraft.length + " active)"
-      ));
-    });
-    if (group.children().length) {
-      select.append(group);
-    }
+  renderGroupedOptions($("#catalog-systems"), SYSTEM_CLASS_LABELS, catalogSystems, "system_class", function(system) {
+    const active = _.filter(system.spacecraft, isActive).length;
+    return system.name + " (" + active + " of " + system.spacecraft.length + " active)";
   });
   renderCatalogSystem();
 }
@@ -90,16 +107,8 @@ function renderCatalogSystem() {
     renderCatalogInstruments();
     return;
   }
-  details.append(
-    $("<div>").text(
-      system.operator + " · " + (system.role == "transmitting" ? "navigation (transmitting)" : "observing")
-      + " · validation: " + system.tier
-    ),
-    $("<div>").text(system.selection)
-  );
-  if (system.limitations.length) {
-    details.append($("<div>").text("Limitations: " + system.limitations.join(" ")));
-  }
+  renderCatalogDetails(details, system.operator + " · "
+    + (system.role == "transmitting" ? "navigation (transmitting)" : "observing"), system);
   _.forEach(system.spacecraft, function(spacecraft) {
     const id = "catalog-member-" + spacecraft.id;
     const label = $("<label>").addClass("form-check-label").attr("for", id).text(
@@ -178,23 +187,6 @@ function showCatalogResult(result, count) {
   appendNotes(status, result.warnings);
 }
 
-// Adds the satellites of a system to the design, in one color.
-function addCatalogSatellites(result) {
-  const color = COLORS[design.satellites.length % COLORS.length];
-  const names = _.map(design.satellites, "system.name");
-  const items = _.map(result.satellites, function(system) {
-    system.name = uniqueName(system.name, names);
-    names.push(system.name);
-    return { system: system, color: color, validation: { status: "unknown" } };
-  });
-  selectedSatellite = design.satellites.length;
-  design.satellites = design.satellites.concat(items);
-  renderSatelliteList();
-  _.forEach(items, validateItem);
-  notifyDesignChange();
-  return items.length;
-}
-
 function loadCatalogSystem() {
   const system = getCatalogSystem();
   const members = system ? getCatalogMembers(system) : [];
@@ -204,20 +196,15 @@ function loadCatalogSystem() {
   const period = getAnalysisPeriod();
   const button = $("#catalog-load").prop("disabled", true);
   showCatalogStatus("Loading " + system.name + " with GP elements from CelesTrak…");
-  $.ajax({
-    url: "/catalog/systems/" + encodeURIComponent(system.id) + "/build",
-    type: "POST",
-    contentType: "application/json",
-    dataType: "json",
-    data: JSON.stringify({
-      members: _.map(members, "id"),
-      instruments: getCatalogInstruments(),
-      time_step: Number($("#catalog-time-step").val()),
-      start: period.start.toISOString(),
-      end: period.end.toISOString()
-    })
+  postJson("/catalog/systems/" + encodeURIComponent(system.id) + "/build", {
+    members: _.map(members, "id"),
+    instruments: getCatalogInstruments(),
+    time_step: Number($("#catalog-time-step").val()),
+    start: period.start.toISOString(),
+    end: period.end.toISOString()
   }).done(function(result) {
-    showCatalogResult(result, addCatalogSatellites(result));
+    // the satellites of a system share one color
+    showCatalogResult(result, addSatellites(result.satellites).length);
   }).fail(function(xhr) {
     showCatalogStatus(formatError(xhr), "text-danger");
   }).always(function() {
@@ -261,16 +248,10 @@ function loadCatalogInstruments() {
 }
 
 function renderCatalogInstrumentEntries() {
-  const select = $("#instrument-catalog-entries").empty();
-  _.forEach(INSTRUMENT_CLASS_LABELS, function(label, instrumentClass) {
-    const group = $("<optgroup>").attr("label", label);
-    _.forEach(_.sortBy(_.filter(catalogInstruments, { instrument_class: instrumentClass }), "name"), function(entry) {
-      group.append($("<option>").val(entry.id).text(entry.name + " (" + entry.platforms.join(", ") + ")"));
-    });
-    if (group.children().length) {
-      select.append(group);
-    }
-  });
+  renderGroupedOptions(
+    $("#instrument-catalog-entries"), INSTRUMENT_CLASS_LABELS, _.sortBy(catalogInstruments, "name"),
+    "instrument_class", function(entry) { return entry.name + " (" + entry.platforms.join(", ") + ")"; }
+  );
   renderCatalogInstrumentEntry();
 }
 
@@ -287,13 +268,7 @@ function renderCatalogInstrumentEntry() {
     renderCatalogConfiguration();
     return;
   }
-  details.append(
-    $("<div>").text("Carried by " + entry.platforms.join(", ") + " · validation: " + entry.tier),
-    $("<div>").text(entry.selection)
-  );
-  if (entry.limitations.length) {
-    details.append($("<div>").text("Limitations: " + entry.limitations.join(" ")));
-  }
+  renderCatalogDetails(details, "Carried by " + entry.platforms.join(", "), entry);
   _.forEach(entry.configurations, function(configuration) {
     select.append($("<option>").val(configuration.id).text(
       configuration.id + " (" + configuration.grade.replace("_", " ") + ", " + configuration.tier
@@ -324,27 +299,25 @@ function hasDefaultInstruments(system) {
 
 function addCatalogInstrument() {
   const entry = getCatalogInstrumentEntry();
-  if (!entry || !editing) {
+  if (!entry || !getEditedSystem()) {
     return;
   }
   const period = getAnalysisPeriod();
+  const edit = currentEdit();
   const button = $("#instrument-catalog-add").prop("disabled", true);
   showInstrumentCatalogStatus("Adding " + entry.name + "…");
-  $.ajax({
-    url: "/catalog/instruments/" + encodeURIComponent(entry.id) + "/add",
-    type: "POST",
-    contentType: "application/json",
-    dataType: "json",
-    data: JSON.stringify({
-      system: editing.system,
-      configuration: $("#instrument-catalog-configurations").val(),
-      time_step: Number($("#instrument-catalog-time-step").val()),
-      start: period.start.toISOString(),
-      end: period.end.toISOString(),
-      replace: $("#instrument-catalog-replace").is(":checked")
-    })
+  postJson("/catalog/instruments/" + encodeURIComponent(entry.id) + "/add", {
+    system: getEditedSystem(),
+    configuration: $("#instrument-catalog-configurations").val(),
+    time_step: Number($("#instrument-catalog-time-step").val()),
+    start: period.start.toISOString(),
+    end: period.end.toISOString(),
+    replace: $("#instrument-catalog-replace").is(":checked")
   }).done(function(result) {
-    if (!editing) {
+    // the satellite dialog may close, edit another satellite, or change
+    // the system meanwhile
+    if (!isCurrentEdit(edit)) {
+      showInstrumentCatalogStatus(entry.name + " was not added: the satellite changed meanwhile.", "text-danger");
       return;
     }
     if (result.attitude_changed && !confirm(
@@ -354,14 +327,7 @@ function addCatalogInstrument() {
       showInstrumentCatalogStatus(entry.name + " was not added.");
       return;
     }
-    editing.system = result.system;
-    editing.instrument = result.system.instruments.length - result.added.length;
-    if (editing.instrument == 0) {
-      // the added instruments replaced all others (and their colors)
-      editing.instrumentColors = [];
-    }
-    renderSatelliteForm();
-    formChanged();
+    replaceEditedSystem(result.system, result.system.instruments.length - result.added.length);
     $("#instrument-catalog-replace").prop("checked", false);
     const status = $("#instrument-catalog-status").empty().append($("<div>").addClass("text-success").text(
       "Added " + result.added.join(", ") + " (" + result.configuration + ") to " + result.system.name + "."
@@ -378,7 +344,8 @@ $(document).ready(function() {
   $("#catalog-dialog").on("show.bs.modal", loadCatalogSystems);
   $("#instrument-catalog-dialog").on("show.bs.modal", function() {
     $("#instrument-catalog-status").empty();
-    $("#instrument-catalog-replace").prop("checked", Boolean(editing) && hasDefaultInstruments(editing.system));
+    const system = getEditedSystem();
+    $("#instrument-catalog-replace").prop("checked", Boolean(system) && hasDefaultInstruments(system));
     loadCatalogInstruments();
   });
   $("#instrument-catalog-entries").on("change", function() {

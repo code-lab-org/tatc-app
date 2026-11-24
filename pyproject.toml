@@ -57,9 +57,8 @@ dev = [
 ]
 docs = [
     "autodoc_pydantic >= 2",
-    "docutils",
-    "myst-nb",
-    "sphinx >= 7",
+    "myst-parser",
+    "sphinx >= 7, < 9",
     "sphinx-rtd-theme"
 ]
 

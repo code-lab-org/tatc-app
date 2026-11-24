@@ -9,18 +9,20 @@ import logging
 from typing import List
 from uuid import UUID
 
-import numpy as np
 from celery import chord, group
 from fastapi import APIRouter
 from geojson_pydantic import FeatureCollection
 
+from ..analysis.endpoints import (
+    chunk,
+    enqueue_analysis,
+    get_analysis_result,
+    serialize_members,
+)
 from ..celery.schemas import CeleryTask
 from ..celery.utils import enqueue, get_task_result
-from ..czml import document_packet, satellite_packets, swath_packets
-from ..satellites import expand_members
-from ..utils.analysis import serialize_members
-from ..utils.serialization import from_geojson
-from ..utils.tasks import merge_feature_collections_task
+from ..cesium.czml import animation_packets, swath_packets
+from ..utils.serialization import MSGPACK_RESPONSES, from_geojson
 from .schemas import (
     GroundTrackAnalysisRequest,
     OrbitTrackAnalysisRequest,
@@ -28,11 +30,12 @@ from .schemas import (
     SwathAnalysisResult,
 )
 from .tasks import (
+    SWATH_COLUMNS,
     collect_ground_track_task,
     collect_orbit_track_task,
     collect_swaths_task,
     combine_swaths_task,
-    member_track_signatures,
+    merge_feature_collections_task,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,23 +47,32 @@ TRACK_CHUNK_SIZE = 100
 
 
 def _enqueue_track(task, request: OrbitTrackAnalysisRequest) -> dict:
-    times = request.get_times()
-    members = expand_members([request.satellite])
-    mask = request.model_dump(mode="json").get("mask", None)
+    """
+    Enqueues tasks to collect the (orbit or ground) tracks of the members of
+    a satellite or constellation, in parallel by member and chunk of times,
+    followed by a task that merges their feature collections.
+
+    Args:
+        task (celery.Task): The task to collect a track.
+        request (OrbitTrackAnalysisRequest): The request.
+
+    Returns:
+        dict: The enqueued task (see `celery.utils.enqueue`).
+    """
+    members = serialize_members(request.get_members())
+    mask = request.mask.model_dump(mode="json") if request.mask else None
     return enqueue(
         chord(
             group(
                 task.s(
-                    satellite,
+                    member,
                     request.instrument_index,
-                    [time.isoformat() for time in chunk],
+                    [time.isoformat() for time in times],
                     request.elevation,
                     mask,
                 )
-                for chunk in np.array_split(
-                    times, max(1, len(times) // TRACK_CHUNK_SIZE)
-                )
-                for satellite in serialize_members(members)
+                for times in chunk(request.get_times(), TRACK_CHUNK_SIZE)
+                for member in members
             ),
             merge_feature_collections_task.s(),
         )
@@ -85,9 +97,7 @@ def enqueue_orbit_track_analysis(request: OrbitTrackAnalysisRequest):
     "/orbit-track/{task_id}",
     response_model=FeatureCollection,
     response_model_exclude_none=True,
-    responses={
-        "200": {"content": {"application/json": {}, "application/x-msgpack": {}}}
-    },
+    responses=MSGPACK_RESPONSES,
 )
 def retrieve_orbit_track_analysis(task_id: UUID):
     """
@@ -120,9 +130,7 @@ def enqueue_ground_track_analysis(request: GroundTrackAnalysisRequest):
     "/ground-track/{task_id}",
     response_model=FeatureCollection,
     response_model_exclude_none=True,
-    responses={
-        "200": {"content": {"application/json": {}, "application/x-msgpack": {}}}
-    },
+    responses=MSGPACK_RESPONSES,
 )
 def retrieve_ground_track_analysis(task_id: UUID):
     """
@@ -150,11 +158,11 @@ def enqueue_swath_analysis(request: SwathAnalysisRequest):
     Returns:
         CeleryTask: Queued task.
     """
-    members = serialize_members(request.get_members())
+    members = request.get_members()
     times = [time.isoformat() for time in request.get_display_times()]
-    tasks = member_track_signatures(members, request)
+    tasks = []
     if request.segment is not None:
-        tasks += [
+        tasks = [
             collect_swaths_task.s(
                 member,
                 times,
@@ -162,33 +170,29 @@ def enqueue_swath_analysis(request: SwathAnalysisRequest):
                 request.step.total_seconds(),
                 request.segment.total_seconds(),
             )
-            for member in members
+            for member in serialize_members(members)
         ]
-    return enqueue(
-        chord(
-            group(tasks),
-            combine_swaths_task.s(
-                request.start.isoformat(),
-                request.get_member_colors(),
-                request.get_member_systems(),
-            ),
-        )
+    return enqueue_analysis(
+        request,
+        members,
+        tasks,
+        combine_swaths_task.s(
+            request.start.isoformat(),
+            request.get_member_colors(),
+            request.get_member_systems(),
+        ),
     )
 
 
 def _get_swath_result(task_id: UUID) -> SwathAnalysisResult:
-    return SwathAnalysisResult.model_validate_json(
-        get_task_result(task_id, "Swath analysis", logger)
-    )
+    return get_analysis_result(SwathAnalysisResult, task_id, "Swath analysis", logger)
 
 
 @router.get(
     "/swaths/{task_id}",
     response_model=SwathAnalysisResult,
     response_model_exclude_none=True,
-    responses={
-        "200": {"content": {"application/json": {}, "application/x-msgpack": {}}}
-    },
+    responses=MSGPACK_RESPONSES,
 )
 def retrieve_swath_analysis(task_id: UUID):
     """
@@ -217,28 +221,11 @@ def retrieve_swath_analysis_czml(task_id: UUID):
         List[dict]: CZML packets.
     """
     result = _get_swath_result(task_id)
-    tracks = result.tracks
-    start = tracks.epoch
-    end = tracks.get_end()
     swaths = from_geojson(
         result.swaths.model_dump_json(),
         datetimes=["start", "end"],
-        columns=["satellite", "instrument", "start", "end", "geometry"],
+        columns=SWATH_COLUMNS,
     )
-    return (
-        [document_packet("Swath analysis", start, end)]
-        + satellite_packets(tracks, result.colors)
-        + swath_packets(
-            swaths,
-            end,
-            result.colors,
-            instruments={
-                track.name: [instrument.name for instrument in track.instruments]
-                for track in tracks.tracks
-            },
-            instrument_colors={
-                track.name: [instrument.color for instrument in track.instruments]
-                for track in tracks.tracks
-            },
-        )
+    return animation_packets("Swath analysis", result) + swath_packets(
+        swaths, result.tracks.get_end(), result.colors, tracks=result.tracks
     )

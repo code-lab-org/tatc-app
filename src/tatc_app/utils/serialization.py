@@ -14,6 +14,29 @@ from typing import Iterable, Optional
 import geopandas as gpd
 import pandas as pd
 
+# OpenAPI metadata of endpoints that also respond with MessagePack (for
+# requests with `Accept: application/x-msgpack`, see
+# `msgpack_asgi.MessagePackMiddleware`)
+MSGPACK_RESPONSES = {
+    "200": {"content": {"application/json": {}, "application/x-msgpack": {}}}
+}
+
+
+def empty_frame(columns: Iterable[str] = ()) -> gpd.GeoDataFrame:
+    """
+    Creates an empty geospatial data frame (in WGS 84), with columns.
+
+    Args:
+        columns (Iterable[str]): The columns (`geometry` is always last).
+
+    Returns:
+        geopandas.GeoDataFrame: The empty data frame.
+    """
+    return gpd.GeoDataFrame(
+        {column: [] for column in columns if column != "geometry"},
+        geometry=gpd.GeoSeries([], crs="EPSG:4326"),
+    )
+
 
 def to_geojson(gdf: gpd.GeoDataFrame) -> str:
     """
@@ -60,10 +83,7 @@ def from_geojson(
     """
     features = json.loads(data).get("features", [])
     if len(features) == 0:
-        gdf = gpd.GeoDataFrame(
-            {c: [] for c in (columns or []) if c != "geometry"},
-            geometry=gpd.GeoSeries([], crs="EPSG:4326"),
-        )
+        gdf = empty_frame(columns or [])
     else:
         gdf = gpd.GeoDataFrame.from_features(features, crs="EPSG:4326")
     for column in datetimes:
@@ -88,5 +108,5 @@ def concat(frames: Iterable[gpd.GeoDataFrame]) -> gpd.GeoDataFrame:
     frames = list(frames)
     non_empty = [frame for frame in frames if not frame.empty]
     if len(non_empty) == 0:
-        return frames[0] if frames else gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
+        return frames[0] if frames else empty_frame()
     return gpd.GeoDataFrame(pd.concat(non_empty, ignore_index=True), crs="EPSG:4326")

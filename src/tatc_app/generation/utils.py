@@ -4,33 +4,17 @@ Utility functions to resolve the points and cells of analysis requests.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import math
-import os
 from typing import List, Union
 
 import geopandas as gpd
-import numpy as np
 from shapely.geometry import Point as GeoPoint
 from shapely.geometry import shape
 from tatc.schemas import Point
 from tatc.utils.geometry import hash_geometry
 
 from ..utils.serialization import from_geojson
-from .schemas import (
-    Cell,
-    CellGenerator,
-    CellGeneratorMethod,
-    PointGenerator,
-    PointGeneratorMethod,
-)
-from .tasks import (
-    generate_equally_spaced_cells_task,
-    generate_equally_spaced_points_task,
-    generate_fibonacci_lattice_points_task,
-)
-
-# number of points analyzed by each parallel task
-CHUNK_SIZE = int(os.getenv("TATC_CHUNK_SIZE", "250"))
+from .schemas import Cell, CellGenerator, PointGenerator
+from .tasks import generate_cells_task, generate_points_task
 
 
 def generate_points_geojson(generator: PointGenerator) -> str:
@@ -43,16 +27,10 @@ def generate_points_geojson(generator: PointGenerator) -> str:
     Returns:
         str: The GeoJSON serialized points (with a `point_id` hash).
     """
-    mask = generator.model_dump(mode="json").get("mask", None)
-    if generator.method == PointGeneratorMethod.fibonacci_lattice:
-        task = generate_fibonacci_lattice_points_task.delay(
-            generator.distance, generator.elevation, mask
-        )
-    else:
-        task = generate_equally_spaced_points_task.delay(
-            generator.distance, generator.elevation, mask
-        )
-    return task.get()
+    data = generator.model_dump(mode="json")
+    return generate_points_task.delay(
+        data["method"], generator.distance, generator.elevation, data["mask"]
+    ).get()
 
 
 def generate_cells_geojson(generator: CellGenerator) -> str:
@@ -66,14 +44,9 @@ def generate_cells_geojson(generator: CellGenerator) -> str:
         str: The GeoJSON serialized cells (with a `cell_id` hash).
     """
     data = generator.model_dump(mode="json")
-    if generator.method == CellGeneratorMethod.equally_spaced:
-        task = generate_equally_spaced_cells_task.delay(
-            generator.distance,
-            generator.elevation,
-            data.get("mask", None),
-            data.get("strips", None),
-        )
-    return task.get()
+    return generate_cells_task.delay(
+        generator.distance, generator.elevation, data["mask"], data["strips"]
+    ).get()
 
 
 def resolve_points(points: Union[List[Point], PointGenerator]) -> gpd.GeoDataFrame:
@@ -126,24 +99,3 @@ def resolve_cells(cells: Union[List[Cell], CellGenerator]) -> gpd.GeoDataFrame:
         geometry=geometries,
         crs="EPSG:4326",
     ).drop_duplicates("cell_id", ignore_index=True)
-
-
-def chunk(gdf: gpd.GeoDataFrame, size: int = None) -> List[gpd.GeoDataFrame]:
-    """
-    Splits a data frame into chunks of (at most) a given size, to analyze in
-    parallel tasks.
-
-    Args:
-        gdf (geopandas.GeoDataFrame): The data frame.
-        size (int): The maximum chunk size (default: `TATC_CHUNK_SIZE`).
-
-    Returns:
-        List[geopandas.GeoDataFrame]: The chunks.
-    """
-    size = size or CHUNK_SIZE
-    count = max(1, math.ceil(len(gdf) / size))
-    return [
-        gdf.iloc[indices]
-        for indices in np.array_split(np.arange(len(gdf)), count)
-        if len(indices) > 0
-    ]

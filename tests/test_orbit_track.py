@@ -70,3 +70,21 @@ class AnalyzeTrackTestCase(TatcTestCase):
             },
         )
         self.assertEqual(response.status_code, 422)
+
+    def test_invalid_times(self):
+        satellite = self.satellite.model_dump(mode="json")
+        # naive times
+        response = self.client.post(
+            "/analyze/orbit-track",
+            json={"satellite": satellite, "times": ["2022-06-01T00:00:00"]},
+        )
+        self.assertEqual(response.status_code, 422)
+        # too many times
+        response = self.client.post(
+            "/analyze/orbit-track",
+            json={
+                "satellite": satellite,
+                "times": [self.times[0].isoformat()] * 20001,
+            },
+        )
+        self.assertEqual(response.status_code, 422)

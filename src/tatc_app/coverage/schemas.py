@@ -4,31 +4,22 @@ Schema specifications for coverage analysis endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from typing import Dict, List, Union
+from typing import Dict, List
 
 from geojson_pydantic import FeatureCollection
-from pydantic import BaseModel, Field
-from tatc.schemas import Point
+from pydantic import Field
 
-from ..generation.schemas import Cell, CellGenerator, PointGenerator
-from ..utils.analysis import AnalysisRequest
-from ..utils.timeline import OrbitTracks, Timeline
+from ..analysis.schemas import AnimatedResult, PointsCellsAnalysisRequest
+from ..analysis.timeline import Timeline
 
 
-class CoverageAnalysisRequest(AnalysisRequest):
+class CoverageAnalysisRequest(PointsCellsAnalysisRequest):
     """
     User request to perform coverage analysis.
     """
 
-    points: Union[List[Point], PointGenerator] = Field(
-        ..., description="Points from which to collect observations."
-    )
-    cells: Union[List[Cell], CellGenerator] = Field(
-        ..., description="Cells from which to aggregate observations."
-    )
 
-
-class CoverageAnalysisResult(BaseModel):
+class CoverageAnalysisResult(AnimatedResult):
     """
     Response to provide coverage analysis results.
     """
@@ -49,5 +40,3 @@ class CoverageAnalysisResult(BaseModel):
     cell_targets: Dict[str, List[int]] = Field(
         {}, description="Indices of the points within each cell, by `cell_id`."
     )
-    tracks: OrbitTracks = Field(..., description="Orbit tracks of satellites.")
-    colors: Dict[str, str] = Field({}, description="Display color of satellites.")

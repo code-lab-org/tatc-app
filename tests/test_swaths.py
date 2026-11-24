@@ -117,6 +117,21 @@ class AnalyzeSwathsTestCase(TatcTestCase):
                 start=self.start,
                 end=self.end,
             )
+        with self.assertRaises(ValueError):
+            SwathAnalysisRequest(
+                satellites=[self.constellation],
+                colors=["green"],
+                start=self.start,
+                end=self.end,
+            )
+        # swaths sample the whole period every step (not display times)
+        with self.assertRaises(ValueError):
+            SwathAnalysisRequest(
+                satellites=[self.constellation],
+                start=self.start,
+                end=self.end,
+                display={"start": self.start, "end": self.end, "delta": 60},
+            )
         # tracks carry the chosen colors of instruments
         request.instrument_colors = [[None, "#00ff00"]]
         task = self.run_analysis("/analyze/swaths", request)
@@ -180,6 +195,17 @@ class AnalyzeSwathsTestCase(TatcTestCase):
             },
         )
         self.assertEqual(response.status_code, 422)
+        # members of distinct constellations must have distinct names
+        response = self.client.post(
+            "/analyze/swaths",
+            json={
+                "satellites": [self.constellation.model_dump(mode="json")] * 2,
+                "start": "2022-06-01T00:00:00Z",
+                "end": "2022-06-01T03:00:00Z",
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("Duplicate satellite name", response.text)
 
     def test_too_many_steps(self):
         response = self.client.post(
