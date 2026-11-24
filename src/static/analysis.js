@@ -485,17 +485,40 @@ function showAnalysisData() {
 // shows the length actually animated. The requested length is kept, so it
 // returns when the duration grows again.
 const MAX_ANIMATE_HOURS = 168;
+let requestedAnimate = null; // hours, as last entered (or the default)
 
 function limitAnimation() {
   const animate = $("#analysis-animate");
+  if (requestedAnimate === null) {
+    requestedAnimate = Number(animate.val());
+  }
   const duration = Number($("#analysis-duration").val());
   if (!(duration > 0)) {
     return;
   }
   const limit = Math.round(Math.min(MAX_ANIMATE_HOURS, duration * 24) * 1000) / 1000;
-  const requested = Number(animate.data("requested") || animate.val());
   animate.attr("max", limit);
-  animate.val(Math.min(requested, limit));
+  animate.val(Math.min(requestedAnimate, limit));
+}
+
+// The swaths analysis suits short periods, so selecting it shortens a long
+// duration; the duration it replaced returns on selecting another analysis
+// (unless edited meanwhile).
+const SWATHS_MAX_DAYS = 3;
+const SWATHS_DEFAULT_DAYS = 0.25;
+let durationBeforeSwaths = null; // days
+
+function adjustDurationForType(type) {
+  const input = $("#analysis-duration");
+  if (type == "swaths") {
+    if (Number(input.val()) > SWATHS_MAX_DAYS) {
+      durationBeforeSwaths = input.val();
+      input.val(SWATHS_DEFAULT_DAYS);
+    }
+  } else if (durationBeforeSwaths !== null) {
+    input.val(durationBeforeSwaths);
+    durationBeforeSwaths = null;
+  }
 }
 
 function changeAnalysisType() {
@@ -505,9 +528,7 @@ function changeAnalysisType() {
   $(".region-panel").toggle(ANALYSES[type].region);
   $("#analysis-description").text(ANALYSES[type].description);
   $(".animate-control").toggle(type != "swaths");
-  if (type == "swaths" && Number($("#analysis-duration").val()) > 3) {
-    $("#analysis-duration").val(0.25);
-  }
+  adjustDurationForType(type);
   limitAnimation();
   // picking (region vertices or target points) applies to one analysis type
   stopMapPick();
@@ -551,9 +572,16 @@ $(document).ready(function() {
     viewer.clock.currentTime = viewer.clock.startTime.clone();
     changeAnalysisType();
   });
-  $("#analysis-duration").change(limitAnimation);
+  $("#analysis-duration").change(function() {
+    // an edited duration stays on leaving the swaths analysis
+    durationBeforeSwaths = null;
+    limitAnimation();
+  });
   $("#analysis-animate").change(function() {
-    $(this).data("requested", Number($(this).val()) || null);
+    const value = Number($(this).val());
+    if (value > 0) {
+      requestedAnimate = value;
+    }
     limitAnimation();
   });
   $("#analysis-run").click(runSelectedAnalysis);
