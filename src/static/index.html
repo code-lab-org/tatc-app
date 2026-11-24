@@ -483,6 +483,27 @@
     </div>
   </main>
 
+  <!-- Sign in prompt (shown on arrival when not signed in) -->
+  <div class="modal fade" id="login-dialog" tabindex="-1" role="dialog" aria-labelledby="login-dialog-title">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="login-dialog-title">Sign in to TAT-C</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-0">Sign in to design satellites and run analyses.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-dismiss="modal">Not now</button>
+          <a class="btn btn-primary" id="login-dialog-link" href="/auth/login"><i class="fas fa-sign-in-alt"></i> Sign in</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Satellite / constellation editor -->
   <div class="modal fade" id="satellite-dialog" role="dialog" data-backdrop="static">
     <div class="modal-dialog modal-lg" role="document">
