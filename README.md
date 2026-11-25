@@ -15,7 +15,7 @@ The TAT-C web application contains four major components:
 
 The web application is configured to support the RabbitMQ Broker and Redis Backend.
 
-The application requires TAT-C version 3.7 and accepts all of its space-domain
+The application requires TAT-C version 3.8 and accepts all of its space-domain
 platforms: satellites and Walker, train, MOG, and streets-of-coverage (SOC)
 constellations, with every orbit type (including two line elements and repeat
 ground track orbits), instrument type (simple, pointed, and conical), and

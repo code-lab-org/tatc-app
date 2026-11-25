@@ -83,10 +83,9 @@ def compute_sufficiency(  # pylint: disable=too-many-arguments,too-many-locals
         geometry=points.geometry.values,
         crs=points.crs or "EPSG:4326",
     )
-    if observations is None or observations.empty:
-        # as `estimate_sampling_error` gives targets without samples (tatc
-        # 3.7.0 fails for observations without any rows): no error, and no
-        # effective samples
+    if observations is None:
+        # as `estimate_sampling_error` gives observations without any rows
+        # (which need its columns): no error, and no effective samples
         error = pd.DataFrame(
             {
                 "target_hash": targets["target_hash"],
@@ -95,7 +94,7 @@ def compute_sufficiency(  # pylint: disable=too-many-arguments,too-many-locals
                 "effective_samples": 0.0,
             }
         )
-        observations = observations if observations is not None else pd.DataFrame()
+        observations = pd.DataFrame()
     else:
         error = estimate_sampling_error(
             observations,

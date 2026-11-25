@@ -43,6 +43,9 @@ MAX_ELEMENT_AGE = timedelta(days=14)
 MAX_DURATION = timedelta(days=366)
 """Longest period for which to build instruments (some schedule by day)."""
 
+NO_PAYLOAD_ROLES = ("transmitting", "relaying")
+"""Roles of systems whose satellites carry no cataloged instruments."""
+
 
 class CatalogInstrument(BaseModel):
     """An instrument a spacecraft carries: an entry of the instrument catalog."""
@@ -57,8 +60,8 @@ class CatalogSpacecraft(BaseModel):
     id: str = Field(..., description="Spacecraft identifier.")
     name: str = Field(..., description="Spacecraft name.")
     norad_id: int = Field(..., description="NORAD catalog number.")
-    status: Literal["operational", "extended", "retired"] = Field(
-        ..., description="Status on the date `as_of`."
+    status: Literal["operational", "extended", "storage", "retired"] = Field(
+        ..., description="Status on the date `as_of` (`storage` for a spare in orbit)."
     )
     as_of: date = Field(..., description="Date of the status.")
     instruments: list[CatalogInstrument] = Field(
@@ -77,7 +80,7 @@ class CatalogSatelliteSystem(BaseModel):
     system_class: str = Field(
         ..., description="System class (sun_synchronous, inclined, geostationary)."
     )
-    role: str = Field(..., description="Role (observing or transmitting).")
+    role: str = Field(..., description="Role (observing, transmitting, or relaying).")
     operator: str = Field(..., description="Organizations that operate it.")
     selection: str = Field(..., description="Why the system is cataloged.")
     tier: str = Field(..., description="Validation tier of the system.")
@@ -130,7 +133,7 @@ class CatalogBuildRequest(CatalogPeriod):
         None,
         min_length=1,
         description="Identifiers (or names) of the spacecraft to build "
-        + "(default: those not retired).",
+        + "(default: those neither retired nor in storage).",
     )
     instruments: bool | list[str] = Field(
         True,
@@ -170,7 +173,7 @@ def _get_references(system: SatelliteSystem, spacecraft: Spacecraft) -> list[str
     """
     Gets the identifiers of the cataloged instruments a spacecraft carries.
     """
-    if system.role == "transmitting":
+    if system.role in NO_PAYLOAD_ROLES:
         return []
     return system.get_payload_references(spacecraft.id)
 
@@ -255,20 +258,22 @@ def select_spacecraft(
     Args:
         system (SatelliteSystem): The system.
         members (list[str] | None): The identifiers or names of the
-            spacecraft, or None for those not retired.
+            spacecraft, or None for those neither retired nor in storage.
 
     Returns:
         list[Spacecraft]: The spacecraft (without duplicates).
 
     Raises:
         ValueError: If a member is unknown, or (by default) every spacecraft
-            is retired.
+            is retired or in storage.
     """
     if members is None:
-        selected = [s for s in system.spacecraft if s.status != "retired"]
+        defaults = system.get_default_members()
+        selected = [s for s in system.spacecraft if s.id in defaults]
         if not selected:
             raise ValueError(
-                f"Every spacecraft of {system.name} is retired: select members."
+                f"Every spacecraft of {system.name} is retired or in storage: "
+                "select members."
             )
         return selected
     selected = []
@@ -395,7 +400,7 @@ def _build_satellite(  # pylint: disable=too-many-arguments,too-many-positional-
     satellite cannot carry together) are left out.
     """
     if not references:
-        if request.instruments is not False and system.role != "transmitting":
+        if request.instruments is not False and system.role not in NO_PAYLOAD_ROLES:
             notes.append(
                 f"{spacecraft.name} carries "
                 + (
