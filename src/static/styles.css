@@ -1,10 +1,15 @@
-/* Overlay geometry: the rail and drawer float over the globe, clear of
-   Cesium's animation widget and timeline at the bottom-left. */
+/* Overlay geometry: the rail and drawer float over the globe at the left,
+   clear of Cesium's animation widget and timeline at the bottom-left, and
+   the display panel at the right, below Cesium's toolbar and clear of the
+   timeline and full screen button at the bottom-right. */
 :root {
   --overlay-gap: 8px;
   --overlay-bottom: 120px;
   --rail-width: 48px;
   --drawer-width: 440px;
+  --display-top: 44px;
+  --display-bottom: 40px;
+  --display-width: 270px;
 }
 html, body { height: 100%; margin: 0; overflow: hidden; }
 #viewer, #cesiumContainer { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
@@ -27,34 +32,89 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .rail-btn:hover, .rail-btn:focus { color: #fff; background: rgba(255, 255, 255, 0.12); text-decoration: none; }
 .rail-btn.active { color: #fff; background: #007bff; }
 .rail-bottom { margin-top: auto; display: flex; flex-direction: column; align-items: center; }
-/* The drawer is as tall as its content, up to the space above Cesium's
-   widgets (then its body scrolls). */
-#drawer {
+/* Panels dark and translucent like the rail: the drawer, the display panel,
+   and dialogs (see the dark theme of their contents below). */
+.dark-panel {
+  background: rgba(33, 37, 41, 0.88); color: #e9ecef; color-scheme: dark;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  border-radius: 6px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+#drawer, #display-panel {
   position: absolute; z-index: 20;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.overlay-header {
+  flex: none; display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 6px 6px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+/* The drawer is as tall as its content, up to the space above Cesium's
+   widgets: then the list of the active tab (satellites, ground stations, or
+   target points; `.fill-list`) shrinks to its minimum height, and then the
+   tab scrolls. So lists grow with their items into free vertical space. */
+#drawer {
   top: var(--overlay-gap);
   max-height: calc(100% - var(--overlay-gap) - var(--overlay-bottom));
   left: calc(2 * var(--overlay-gap) + var(--rail-width));
   width: var(--drawer-width); min-width: 300px;
   max-width: calc(100vw - 3 * var(--overlay-gap) - var(--rail-width));
-  display: flex; flex-direction: column;
-  overflow: hidden; resize: horizontal;
-  background: rgba(255, 255, 255, 0.92);
-  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-  border-radius: 6px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  resize: horizontal;
   transition: transform 0.2s ease, opacity 0.2s ease, visibility 0.2s;
 }
 #drawer.collapsed { transform: translateX(-16px); opacity: 0; visibility: hidden; pointer-events: none; }
-.drawer-header {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 6px 6px 6px 12px; border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+.drawer-body, #drawer .tab-content {
+  flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column;
 }
-.drawer-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
-/* lists grow with their items, up to a maximum height */
+#drawer .tab-content > .active {
+  flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column;
+  overflow-y: auto; overflow-x: hidden; padding: 0.5rem;
+}
+/* The wrappers of lists (the panel of the selected analysis type, see
+   analysis.js, and the form group of a list) leave no box, so that the input
+   group of a list is the one item of the tab to shrink, and no further than
+   its minimum height. */
+.analysis-panel { display: none; }
+.analysis-panel.shown, .fill-list { display: contents; }
+.fill-list > :last-child { margin-bottom: 1rem; }
+/* minimum heights fit the buttons beside lists (three, or four for satellites) */
+.fill-list > .input-group { flex: 0 1 auto; min-height: 5.85rem; flex-wrap: nowrap; }
+#nav-design .fill-list > .input-group { min-height: 7.75rem; }
+.fill-list .list-group.form-control { overflow-y: auto; }
+/* The display panel is as tall as its content, up to the space above the
+   timeline: then the list of satellites and instruments scrolls. */
+#display-panel {
+  top: var(--display-top); right: var(--overlay-gap);
+  max-height: calc(100% - var(--display-top) - var(--display-bottom));
+  width: var(--display-width);
+  max-width: calc(100vw - 2 * var(--overlay-gap));
+  transition: transform 0.2s ease, opacity 0.2s ease, visibility 0.2s;
+}
+#display-panel.collapsed { transform: translateY(-16px); opacity: 0; visibility: hidden; pointer-events: none; }
+/* the button of the panel in Cesium's toolbar (highlighted while expanded) */
+.display-toggle { font-size: 15px; line-height: 1; }
+.display-toggle.active { background: #48b; border-color: #aef; }
+.display-body { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+.display-section { flex: none; padding: 6px 10px; }
+.display-section + .display-section { border-top: 1px solid rgba(255, 255, 255, 0.12); }
+.display-section-title { font-size: 80%; font-weight: 700; }
+#layer-filter { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
+#layer-filter-list { flex: 0 1 auto; min-height: 4em; overflow-y: auto; }
+/* status over the map, above the timeline, while Cesium prepares graphics */
+#map-busy {
+  position: absolute; z-index: 20;
+  left: 50%; bottom: var(--display-bottom); transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; font-size: 13px; white-space: nowrap; pointer-events: none;
+}
+/* Cesium's toolbar (the options of its scene mode picker drop down) and info
+   box (of a selected entity) show over the display panel */
+.cesium-viewer-toolbar { z-index: 25; }
+.cesium-infoBox { z-index: 30; }
+/* lists grow with their items (in the drawer, see `.fill-list`) */
 .list-group.form-control { height: auto; min-height: 2.5em; }
-#stations, #targets { max-height: 6em; }
 #catalog-instruments { max-height: 7em; }
-#satellites, #catalog-members { max-height: 9em; }
-#layer-filter-list { max-height: 16em; }
+#catalog-members { max-height: 9em; }
+/* the instrument color beside its default checkbox (satellite dialog) */
+.instrument-color { flex: none; width: 4.5rem; }
 #results-dialog .modal-body { max-height: 40em; }
 #drawer .form-control, #drawer .input-group-text { padding-left: 0.5rem; padding-right: 0.5rem; }
 #drawer select.form-control { padding-right: 0.25rem; }
@@ -63,21 +123,80 @@ input:invalid { background-color: #fcc; }
 .colorbar span { flex: 1 1 0; }
 .colorbar-labels { display: flex; justify-content: space-between; font-size: 11px; }
 .mono { font-family: monospace; font-size: 11px; }
-.legend-overlay {
-  position: absolute; right: 8px; bottom: 40px; z-index: 10; min-width: 220px;
-  background: rgba(40, 40, 40, 0.8); color: #fff; padding: 6px 8px; border-radius: 4px;
-  font-size: 12px; display: none;
-}
-.legend-overlay .colorbar { border-color: #666; }
 .list-badge { font-size: 10px; }
-.analysis-panel { display: none; }
 /* the satellite and instrument filter (filter.js) */
-.filter-system + .filter-system { border-top: 1px solid #eee; padding-top: 2px; }
+.filter-system + .filter-system { border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 2px; }
 .filter-details { padding-left: 1.25rem; }
 .filter-unchecked { opacity: 0.5; }
 .filter-members { max-height: 8em; overflow-y: auto; }
 .filter-swatch {
   display: inline-block; width: 10px; height: 10px; margin-right: 4px;
-  border-radius: 2px; border: 1px solid rgba(0, 0, 0, 0.3); vertical-align: -1px;
+  border-radius: 2px; border: 1px solid rgba(255, 255, 255, 0.4); vertical-align: -1px;
 }
 .filter-swatch-none { background: repeating-linear-gradient(45deg, #ccc, #ccc 2px, #fff 2px, #fff 4px); }
+/* Dark theme of the contents of dark panels: Bootstrap 4 styles them for a
+   light background. */
+.dark-panel a:not(.btn):not(.list-group-item) { color: #6cb2ff; }
+.dark-panel .text-muted { color: #adb5bd !important; }
+.dark-panel .text-secondary { color: #adb5bd !important; }
+.dark-panel .text-secondary:hover { color: #fff !important; }
+.dark-panel .btn-link:not(.text-secondary) { color: #6cb2ff; }
+.dark-panel .form-control,
+.dark-panel .input-group-text {
+  color: #f8f9fa; background-color: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.dark-panel .input-group-text { color: #ced4da; background-color: rgba(255, 255, 255, 0.14); }
+.dark-panel .form-control:focus {
+  color: #fff; background-color: rgba(255, 255, 255, 0.12); border-color: #4da3ff;
+}
+.dark-panel .form-control:disabled,
+.dark-panel .form-control[readonly] {
+  color: #adb5bd; background-color: rgba(255, 255, 255, 0.03);
+}
+.dark-panel option { color: #f8f9fa; background-color: #343a40; }
+/* options of list boxes are on the select's background (not a menu's) */
+.dark-panel select[size] option { background-color: transparent; }
+.dark-panel select[size] option:checked { background-color: rgba(0, 123, 255, 0.6); }
+.dark-panel input:invalid { background-color: rgba(220, 53, 69, 0.35); }
+.dark-panel .list-group-item {
+  color: #e9ecef; background-color: transparent; border-color: rgba(255, 255, 255, 0.12);
+}
+.dark-panel .list-group-item-action:hover,
+.dark-panel .list-group-item-action:focus { color: #fff; background-color: rgba(255, 255, 255, 0.08); }
+.dark-panel .list-group-item.active { color: #fff; background-color: #007bff; border-color: #007bff; }
+.dark-panel .btn-outline-secondary { color: #ced4da; border-color: rgba(255, 255, 255, 0.3); }
+.dark-panel .btn-outline-secondary:hover { color: #fff; background-color: rgba(255, 255, 255, 0.14); }
+.dark-panel .btn-secondary:disabled { color: #adb5bd; background-color: #495057; border-color: #495057; }
+.dark-panel .alert-danger { color: #f8d7da; background-color: rgba(220, 53, 69, 0.25); border-color: rgba(220, 53, 69, 0.5); }
+.dark-panel .progress { background-color: rgba(255, 255, 255, 0.15); }
+.dark-panel .invalid-feedback, .dark-panel .text-danger { color: #f1838e !important; }
+.dark-panel .text-success { color: #6fd08c !important; }
+.dark-panel .table { color: inherit; }
+.dark-panel .table th, .dark-panel .table td { border-color: rgba(255, 255, 255, 0.12); }
+.dark-panel .nav-tabs { border-bottom-color: rgba(255, 255, 255, 0.2); }
+.dark-panel .nav-tabs a.nav-link { color: #adb5bd; }
+.dark-panel .nav-tabs .nav-link:hover { color: #fff; border-color: transparent; }
+.dark-panel .nav-tabs .nav-link.active {
+  color: #fff; background-color: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2) rgba(255, 255, 255, 0.2) transparent;
+}
+/* dialogs (modals) */
+/* dialogs are opaque (of the same color), as they may open over another (such
+   as CelesTrak over the satellite dialog), and their backdrop dims the globe */
+.modal-content.dark-panel {
+  background: rgb(33, 37, 41); border-color: rgba(255, 255, 255, 0.12);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.dark-panel .modal-header, .dark-panel .modal-footer { border-color: rgba(255, 255, 255, 0.12); }
+.dark-panel .close { color: #e9ecef; text-shadow: none; opacity: 0.6; }
+.dark-panel .close:hover { color: #fff; }
+/* selects with Bootstrap's arrow (DataTables' page length), in a light color */
+.dark-panel .custom-select {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='4' height='5' viewBox='0 0 4 5'%3e%3cpath fill='%23ced4da' d='M2 0L0 2h4zm0 5L0 3h4z'/%3e%3c/svg%3e");
+}
+/* the pagination of tables (DataTables, in the results dialog) */
+.dark-panel .page-link { color: #6cb2ff; background-color: transparent; border-color: rgba(255, 255, 255, 0.2); }
+.dark-panel .page-link:hover { color: #fff; background-color: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.2); }
+.dark-panel .page-item.active .page-link { color: #fff; background-color: #007bff; border-color: #007bff; }
+.dark-panel .page-item.disabled .page-link { color: #6c757d; background-color: transparent; border-color: rgba(255, 255, 255, 0.12); }

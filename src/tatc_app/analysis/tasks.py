@@ -23,6 +23,12 @@ from ..worker import app
 from .colors import assign_colors
 from .tracks import MemberTrack, OrbitTracks, build_member_track
 
+# maximum swath width (meters) of a footprint drawn as a circle: Cesium
+# tessellates wider circles on the ground with gaps (and breaks up circles
+# spanning about a quarter of the Earth, as the full disk of a geostationary
+# imager), so wider footprints are drawn with polygons computed by TAT-C
+MAX_CIRCULAR_SWATH_WIDTH = 6000e3
+
 
 def tag(kind: str, data) -> dict:
     """
@@ -55,14 +61,22 @@ def parse_times(times: List[str]) -> pd.DatetimeIndex:
     )
 
 
-def has_circular_footprint(instrument) -> bool:
+def has_circular_footprint(
+    instrument, orbit_track: Optional[pd.DataFrame] = None
+) -> bool:
     """
     Checks whether an instrument's footprint is the circle spanned by its
     swath width: a (simple) instrument, whose view is a cone centered on
-    nadir spanning its field of regard. Footprints of other instruments
-    (pointed, conical, or in situ) are computed by TAT-C to animate results.
+    nadir spanning its field of regard, with a swath width (in its orbit
+    track, if given) of at most `MAX_CIRCULAR_SWATH_WIDTH`. Footprints of
+    other instruments (pointed, conical, or in situ), and wider circles,
+    are computed by TAT-C to animate results.
     """
-    return isinstance(instrument, Instrument) and instrument.type == "instrument"
+    if not (isinstance(instrument, Instrument) and instrument.type == "instrument"):
+        return False
+    if orbit_track is None or orbit_track.empty:
+        return True
+    return not (orbit_track["swath_width"] > MAX_CIRCULAR_SWATH_WIDTH).any()
 
 
 def compute_member_track(
@@ -81,13 +95,16 @@ def compute_member_track(
         MemberTrack: The member track.
     """
     indices = range(len(satellite.instruments))
+    orbit_tracks = [collect_orbit_track(satellite, times, index) for index in indices]
     return build_member_track(
-        [collect_orbit_track(satellite, times, index) for index in indices],
+        orbit_tracks,
         epoch,
         [
             (
                 None
-                if has_circular_footprint(satellite.instruments[index])
+                if has_circular_footprint(
+                    satellite.instruments[index], orbit_tracks[index]
+                )
                 else collect_ground_track(satellite, times, index)
             )
             for index in indices

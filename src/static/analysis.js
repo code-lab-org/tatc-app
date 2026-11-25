@@ -96,15 +96,17 @@ function clearAnalysisLayers() {
   showLegend(false);
 }
 
-// Shows (or hides) the legend of the target layer: the overlay in the viewer
-// and the color scale settings of this tab.
+// Shows (or hides) the legend of the target layer in the display panel: the
+// display mode, its color scale, and the settings of the scale.
 function showLegend(show) {
-  $("#legend-overlay, #colorbar-group").toggle(show);
+  $("#legend-section").toggle(show);
 }
 
-// Shows the color scale of a display mode in the legend.
-function renderLegend(title, scale, unit) {
-  $("#legend-title, #colorbar-title").text(title);
+// Shows the color scale of a display mode of results of a type in the
+// legend.
+function renderLegend(type, scale, unit) {
+  $(".legend-mode").hide();
+  $("#" + type + "-mode").show();
   renderColorbar($("#legend-colorbar"), scale);
   $("#legend-min").text(formatNumber(scale.min) + " " + unit);
   $("#legend-max").text(formatNumber(scale.max) + " " + unit);
@@ -195,12 +197,12 @@ function rangeOfValues(property, scale) {
 const DISPLAY_MODES = {
   coverage: [
     {
-      value: "samples", label: "Observations so far (animated)", title: "Observations so far", unit: "",
+      value: "samples", label: "Observations so far (animated)", unit: "",
       range: rangeFromZero("samples"),
       pointValue: function(i, t) { return targetLayer.countStarted(i, t); }
     },
     {
-      value: "since", label: "Time since last observation (animated)", title: "Time since last observation", unit: "h",
+      value: "since", label: "Time since last observation (animated)", unit: "h",
       reverse: true,
       range: function(features) {
         const revisits = finiteValues(features, "revisit", 1 / 3600);
@@ -209,25 +211,25 @@ const DISPLAY_MODES = {
       pointValue: function(i, t) { return targetLayer.timeSince(i, t) / 3600; }
     },
     {
-      value: "revisit", label: "Mean revisit time (final)", title: "Mean revisit time", unit: "h",
+      value: "revisit", label: "Mean revisit time (final)", unit: "h",
       reverse: true, property: "revisit", scale: 1 / 3600,
       range: rangeOfValues("revisit", 1 / 3600)
     },
     {
-      value: "final-samples", label: "Number of observations (final)", title: "Number of observations", unit: "",
+      value: "final-samples", label: "Number of observations (final)", unit: "",
       property: "samples",
       range: rangeFromZero("samples")
     }
   ],
   latency: [
     {
-      value: "pending", label: "Observations awaiting downlink (animated)", title: "Observations awaiting downlink", unit: "",
+      value: "pending", label: "Observations awaiting downlink (animated)", unit: "",
       reverse: true,
       range: function() { return [0, Math.max(1, targetLayer.maxPending())]; },
       pointValue: function(i, t) { return targetLayer.countPending(i, t); }
     },
     {
-      value: "latency", label: "Mean data latency (final)", title: "Mean data latency", unit: "h",
+      value: "latency", label: "Mean data latency (final)", unit: "h",
       reverse: true, property: "latency", scale: 1 / 3600,
       range: rangeOfValues("latency", 1 / 3600)
     }
@@ -257,7 +259,7 @@ function applyDisplayMode() {
     mode = { animated: true, pointValue: spec.pointValue };
   }
   mode.scale = createColorScale(range[0], range[1], spec.reverse);
-  renderLegend(spec.title, mode.scale, spec.unit);
+  renderLegend(type, mode.scale, spec.unit);
   targetLayer.setMode(mode);
 }
 
@@ -351,7 +353,8 @@ function runSelectedAnalysis() {
         });
         applyDisplayMode();
       }
-      loadCzmlLayer("analysis", endpoint + "/" + taskId + "/czml", { clock: false }).then(function() {
+      loadCzmlLayer("analysis", endpoint + "/" + taskId + "/czml", { clock: false }).then(function(source) {
+        applySatelliteDisplayOptions(source);
         // the analysis type may change while the CZML loads: then keep the
         // clock paused
         if (analysisResult && analysisResult.taskId === taskId && getAnalysisType() === type) {
@@ -478,16 +481,55 @@ function showAnalysisData() {
 
 // --- Panels ---
 
+// Limits the animation (hours) to the analysis duration (days), so the input
+// shows the length actually animated. The requested length is kept, so it
+// returns when the duration grows again.
+const MAX_ANIMATE_HOURS = 168;
+let requestedAnimate = null; // hours, as last entered (or the default)
+
+function limitAnimation() {
+  const animate = $("#analysis-animate");
+  if (requestedAnimate === null) {
+    requestedAnimate = Number(animate.val());
+  }
+  const duration = Number($("#analysis-duration").val());
+  if (!(duration > 0)) {
+    return;
+  }
+  const limit = Math.round(Math.min(MAX_ANIMATE_HOURS, duration * 24) * 1000) / 1000;
+  animate.attr("max", limit);
+  animate.val(Math.min(requestedAnimate, limit));
+}
+
+// The swaths analysis suits short periods, so selecting it shortens a long
+// duration; the duration it replaced returns on selecting another analysis
+// (unless edited meanwhile).
+const SWATHS_MAX_DAYS = 3;
+const SWATHS_DEFAULT_DAYS = 0.25;
+let durationBeforeSwaths = null; // days
+
+function adjustDurationForType(type) {
+  const input = $("#analysis-duration");
+  if (type == "swaths") {
+    if (Number(input.val()) > SWATHS_MAX_DAYS) {
+      durationBeforeSwaths = input.val();
+      input.val(SWATHS_DEFAULT_DAYS);
+    }
+  } else if (durationBeforeSwaths !== null) {
+    input.val(durationBeforeSwaths);
+    durationBeforeSwaths = null;
+  }
+}
+
 function changeAnalysisType() {
   const type = getAnalysisType();
-  $(".analysis-panel").hide();
-  $(".analysis-panel[data-analysis='" + type + "']").show();
+  $(".analysis-panel").removeClass("shown");
+  $(".analysis-panel[data-analysis='" + type + "']").addClass("shown");
   $(".region-panel").toggle(ANALYSES[type].region);
   $("#analysis-description").text(ANALYSES[type].description);
   $(".animate-control").toggle(type != "swaths");
-  if (type == "swaths" && Number($("#analysis-duration").val()) > 3) {
-    $("#analysis-duration").val(0.25);
-  }
+  adjustDurationForType(type);
+  limitAnimation();
   // picking (region vertices or target points) applies to one analysis type
   stopMapPick();
   const showResults = Boolean(analysisResult && analysisResult.type == type);
@@ -529,6 +571,18 @@ $(document).ready(function() {
     viewer.clock.shouldAnimate = false;
     viewer.clock.currentTime = viewer.clock.startTime.clone();
     changeAnalysisType();
+  });
+  $("#analysis-duration").change(function() {
+    // an edited duration stays on leaving the swaths analysis
+    durationBeforeSwaths = null;
+    limitAnimation();
+  });
+  $("#analysis-animate").change(function() {
+    const value = Number($(this).val());
+    if (value > 0) {
+      requestedAnimate = value;
+    }
+    limitAnimation();
   });
   $("#analysis-run").click(runSelectedAnalysis);
   $("#analysis-data").click(showAnalysisData);

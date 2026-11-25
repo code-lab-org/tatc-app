@@ -18,9 +18,10 @@ decayed objects), is cached in memory and on disk, as CelesTrak blocks clients
 that repeat requests that fail.
 
 Unlike two line elements (TLE), the OMM format is not limited to 5-character
-catalog numbers. Objects with catalog numbers up to 339999 are converted to
-TLE (using the Alpha-5 encoding above 99999); objects with larger catalog
-numbers are converted to GP orbits.
+catalog numbers. Each object has a GP orbit; objects with catalog numbers up
+to 339999 also have TLE (using the Alpha-5 encoding above 99999), which is
+their default orbit, while objects with larger catalog numbers can only be
+specified with GP orbits (OMM).
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -72,6 +73,11 @@ class CelestrakObject(BaseModel):
         description="Orbit: two line elements for catalog numbers up to "
         + f"{MAX_ALPHA5_CATALOG_NUMBER}, otherwise general perturbations.",
     )
+    gp_orbit: GeneralPerturbationsOrbit = Field(
+        ...,
+        description="Orbit as general perturbations elements (from the orbit "
+        + "mean-elements message), for any catalog number.",
+    )
 
 
 class CelestrakSearchResult(BaseModel):
@@ -100,7 +106,6 @@ def to_celestrak_object(record: dict) -> CelestrakObject:
     catalog_number = int(record["NORAD_CAT_ID"])
     if catalog_number <= MAX_ALPHA5_CATALOG_NUMBER:
         elements = GeneralPerturbationsElements.from_omm_dict(record)
-        orbit = TwoLineElements(type="tle", tle=elements.to_tle())
     else:
         # SGP4 (and hence TAT-C) cannot initialize a satellite with a catalog
         # number beyond the Alpha-5 range; since the catalog number does not
@@ -108,13 +113,18 @@ def to_celestrak_object(record: dict) -> CelestrakObject:
         elements = GeneralPerturbationsElements.from_omm_dict(
             dict(record, NORAD_CAT_ID=0)
         )
-        orbit = GeneralPerturbationsOrbit(type="gp", elements=[elements])
+    gp_orbit = GeneralPerturbationsOrbit(type="gp", elements=[elements])
+    if catalog_number <= MAX_ALPHA5_CATALOG_NUMBER:
+        orbit = TwoLineElements(type="tle", tle=elements.to_tle())
+    else:
+        orbit = gp_orbit
     return CelestrakObject(
         name=str(record.get("OBJECT_NAME") or catalog_number).strip(),
         norad_cat_id=catalog_number,
         object_id=record.get("OBJECT_ID"),
         epoch=record["EPOCH"],
         orbit=orbit,
+        gp_orbit=gp_orbit,
     )
 
 

@@ -22,6 +22,7 @@ import geopandas as gpd
 import numpy as np
 import shapely
 from pyproj import Transformer
+from shapely.affinity import translate
 from shapely.geometry import Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
@@ -38,6 +39,17 @@ POLE_TOLERANCE = 1e-6
 # polygons re-formed around a pole (see `display_polygons`)
 POLAR_SEAM_TOLERANCE = 10
 POLAR_SIMPLIFY_TOLERANCE = 1000
+# maximum length (degrees) of the edges of polygons drawn with rhumb lines
+# (see `display_polygons`)
+RHUMB_SEGMENT_LENGTH = 2.0
+# area (square degrees) of footprint polygons drawn as static entities, as
+# Cesium takes too long to rebuild larger time-varying polygons every frame
+# (about 2 seconds for the full disk of a geostationary imager), and of
+# footprints drawn with geodesics (see `display_polygons`), and the
+# tolerance (degrees) within which their shape is unchanged over time (see
+# `_footprint_polygon_packets`), as a fraction of their size
+STATIC_FOOTPRINT_AREA = 1000
+FOOTPRINT_MOTION_TOLERANCE = 0.01
 
 
 def iso(time: datetime) -> str:
@@ -227,8 +239,26 @@ def _footprint_packets(
     """
     Builds packets for the footprint of each instrument of a satellite: the
     polygons computed by TAT-C, if any, or else the circle spanned by the
-    swath width, following the position of the satellite packet.
+    swath width, centered below the satellite.
+
+    Circles are centered on the surface (the sub-satellite point), not at
+    the satellite: Cesium sweeps the radius of an ellipse as an arc about
+    its center's distance from the Earth's center, which shrinks circles
+    centered at the satellite by its geocentric radius over the Earth's
+    (about 10% for low Earth orbits, and 6.6 times for geostationary ones).
     """
+    nadir = {
+        "epoch": iso(epoch),
+        "cartographicDegrees": [
+            v
+            for t, x, y in zip(
+                track.positions[0::4], track.positions[1::4], track.positions[2::4]
+            )
+            for v in (t, x, y, 0)
+        ],
+        "interpolationAlgorithm": "LAGRANGE",
+        "interpolationDegree": 5,
+    }
     packets = []
     for index, instrument in enumerate(track.instruments):
         fill = _instrument_fill(track, index, color)
@@ -257,7 +287,7 @@ def _footprint_packets(
                 "id": f"fp/{track.name}/{index}",
                 "name": f"{track.name} {instrument.name}",
                 "availability": interval(start, end),
-                "position": {"reference": f"sat/{track.name}#position"},
+                "position": nadir,
                 "ellipse": {
                     "semiMajorAxis": axis,
                     "semiMinorAxis": axis,
@@ -304,14 +334,68 @@ def _reproject(geometry: BaseGeometry, transformer: Transformer) -> BaseGeometry
     )
 
 
-def display_polygons(polygons: Sequence[Polygon]) -> List[Tuple[Polygon, str]]:
+def _touches_antimeridian(polygon: Polygon, sign: int) -> bool:
+    """
+    Checks whether a polygon has a vertex at the antimeridian, at longitude
+    180 (`sign` 1) or -180 (`sign` -1).
+    """
+    return any(sign * x >= 180 - POLE_TOLERANCE for x, *_ in polygon.exterior.coords)
+
+
+def _join_antimeridian(polygons: Sequence[Polygon]) -> List[Polygon]:
+    """
+    Joins polygons (parts of one geometry) that TAT-C split at the
+    antimeridian, shifting those at longitude 180 by -360 degrees (so that
+    longitudes continue past -180), as edges along the antimeridian would
+    no longer coincide when drawn with geodesics. The vertices TAT-C added
+    at the antimeridian (on straight longitude/latitude lines, which kink
+    geodesics) are removed.
+    """
+    if not (
+        any(_touches_antimeridian(p, 1) for p in polygons)
+        and any(_touches_antimeridian(p, -1) for p in polygons)
+    ):
+        return list(polygons)
+    joined = unary_union(
+        [translate(p, -360) if _touches_antimeridian(p, 1) else p for p in polygons]
+    )
+
+    def ring(coordinates) -> list:
+        return [(x, y) for x, y, *_ in coordinates if abs(x + 180) > POLE_TOLERANCE]
+
+    results = []
+    for polygon in polygon_parts(joined):
+        cleaned = Polygon(
+            ring(polygon.exterior.coords),
+            [ring(interior.coords) for interior in polygon.interiors],
+        )
+        results.append(cleaned if cleaned.is_valid else polygon)
+    return results
+
+
+def display_polygons(
+    polygons: Sequence[Polygon], geodesic: bool = False
+) -> List[Tuple[Polygon, str]]:
     """
     Prepares polygons in longitude/latitude (as TAT-C's footprints and
     swaths) to draw in Cesium, with the arc type of their edges.
 
     Polygons are drawn with rhumb lines (`RHUMB`), which follow their
-    longitude/latitude edges, except those that touch a pole. TAT-C splits
-    a geometry that covers a pole at the antimeridian, with edges along the
+    longitude/latitude edges, or, if `geodesic`, with geodesics
+    (`GEODESIC`) between their vertices, except those that touch a pole.
+    Geodesics follow the boundary of a large footprint, whose vertices are
+    sampled on its curved boundary, more closely than rhumb lines, which
+    sag toward the equator far from it. Rhumb lines are divided into
+    segments of at most `RHUMB_SEGMENT_LENGTH`: Cesium triangulates a
+    polygon between its vertices as if its edges were geodesics, which, for
+    long rhumb lines far from the equator, fills the wrong area between
+    them.
+
+    Polygons drawn with geodesics that TAT-C split at the antimeridian are
+    joined (see `_join_antimeridian`).
+
+    TAT-C splits a geometry that covers a pole at the antimeridian, with
+    edges along the
     pole (or, as one ring, with a zero-width spike out to the pole and back),
     which Cesium cannot draw: rhumb lines to a pole are undefined, and such
     rings do not triangulate. Polygons that touch a pole are merged in an
@@ -323,6 +407,7 @@ def display_polygons(polygons: Sequence[Polygon]) -> List[Tuple[Polygon, str]]:
     Args:
         polygons (Sequence[shapely.geometry.Polygon]): The polygons (parts
             of one geometry).
+        geodesic (bool): `True`, to draw polygons with geodesics.
 
     Returns:
         List[Tuple[shapely.geometry.Polygon, str]]: The polygons to draw and
@@ -330,6 +415,7 @@ def display_polygons(polygons: Sequence[Polygon]) -> List[Tuple[Polygon, str]]:
     """
     results = []
     polar: Dict[int, List[Polygon]] = {1: [], -1: []}
+    others = []
     for polygon in polygons:
         if polygon.is_empty:
             continue
@@ -338,7 +424,14 @@ def display_polygons(polygons: Sequence[Polygon]) -> List[Tuple[Polygon, str]]:
         elif _touches_pole(polygon, -1):
             polar[-1].append(polygon)
         else:
-            results.append((polygon, "RHUMB"))
+            others.append(polygon)
+    if geodesic:
+        results.extend((polygon, "GEODESIC") for polygon in _join_antimeridian(others))
+    else:
+        results.extend(
+            (shapely.segmentize(polygon, RHUMB_SEGMENT_LENGTH), "RHUMB")
+            for polygon in others
+        )
     for sign, parts in polar.items():
         if not parts:
             continue
@@ -368,6 +461,33 @@ def _merge_intervals(spans: Sequence[Tuple[float, float]]) -> List[Tuple[float, 
     return merged
 
 
+def _footprint_runs(
+    samples: Sequence[Tuple[float, float, Polygon, str]],
+) -> List[Tuple[float, float, Polygon, str]]:
+    """
+    Merges consecutive samples (lower and upper bounds, shape, and arc type)
+    of a footprint polygon whose shape is unchanged, within a fraction
+    `FOOTPRINT_MOTION_TOLERANCE` of the size (square root of the area) of
+    the first shape of a run, into runs drawn with the first shape. The
+    tolerance is relative as the edges of large footprints, near the limb
+    of the Earth, move far for small changes of the satellite's position.
+    """
+    runs: List[Tuple[float, float, Polygon, str]] = []
+    for lower, upper, shape, arc_type in samples:
+        if runs:
+            run_lower, run_upper, run_shape, run_arc_type = runs[-1]
+            if (
+                lower <= run_upper
+                and arc_type == run_arc_type
+                and shape.hausdorff_distance(run_shape)
+                <= FOOTPRINT_MOTION_TOLERANCE * math.sqrt(run_shape.area)
+            ):
+                runs[-1] = (run_lower, max(run_upper, upper), run_shape, run_arc_type)
+                continue
+        runs.append((lower, upper, shape, arc_type))
+    return runs
+
+
 def _footprint_polygon_packets(  # pylint: disable=too-many-arguments,too-many-locals
     identifier: str,
     name: str,
@@ -381,15 +501,28 @@ def _footprint_polygon_packets(  # pylint: disable=too-many-arguments,too-many-l
     """
     Builds packets for the time-sampled footprint polygons of an instrument
     (see `InstrumentTrack.footprints`): a parent entity (`identifier`, to
-    show or hide the footprint) and one child entity for each polygon of a
-    (multi-part) footprint, whose positions change at the midpoints between
-    samples.
+    show or hide the footprint) and child entities (`<identifier>/<n>`) for
+    the polygons of a (multi-part) footprint, which change at the midpoints
+    between samples.
+
+    Each polygon of a footprint is one child entity whose positions change
+    over time, which Cesium rebuilds every frame. Large polygons (of at
+    least `STATIC_FOOTPRINT_AREA`), which take too long to rebuild, are
+    instead one static child entity for each run of samples whose shape is
+    unchanged (see `_footprint_runs`), shown only during its run: a few for
+    a geostationary satellite.
     """
     times = [t for t, _ in footprints]
     if not any(polygons for _, polygons in footprints):
         return []
     # polygons (and arc types) to draw at each sample
-    drawn = [display_polygons(decode_polygons(polygons)) for _, polygons in footprints]
+    # (large footprints with geodesics)
+    drawn = [
+        display_polygons(
+            parts, sum(part.area for part in parts) >= STATIC_FOOTPRINT_AREA
+        )
+        for parts in (decode_polygons(polygons) for _, polygons in footprints)
+    ]
     # each sample spans from the midpoints with its neighbors
     bounds = (
         [times[0]] + [(a + b) / 2 for a, b in zip(times[:-1], times[1:])] + [times[-1]]
@@ -400,6 +533,15 @@ def _footprint_polygon_packets(  # pylint: disable=too-many-arguments,too-many-l
             max(start, epoch + timedelta(seconds=lower)),
             min(end, epoch + timedelta(seconds=upper)),
         )
+
+    def child(polygon: dict, availability) -> dict:
+        return {
+            "id": f"{identifier}/{len(packets) - 1}",
+            "name": name,
+            "parent": identifier,
+            "availability": availability,
+            "polygon": {**polygon, "material": _solid(fill, alpha)},
+        }
 
     packets = [
         {
@@ -417,50 +559,67 @@ def _footprint_polygon_packets(  # pylint: disable=too-many-arguments,too-many-l
         ]
         if not samples:
             continue
-        arc_types = {arc_type for *_, arc_type in samples}
-        polygon = {
-            "positions": [
-                {
-                    "interval": when(lower, upper),
-                    "cartographicDegrees": _ring_degrees(shape.exterior.coords[:-1]),
-                }
-                for lower, upper, shape, _ in samples
-            ],
-            "arcType": (
-                arc_types.pop()
-                if len(arc_types) == 1
-                else [
-                    {"interval": when(lower, upper), "arcType": arc_type}
-                    for lower, upper, _, arc_type in samples
-                ]
-            ),
-            "material": _solid(fill, alpha),
-        }
-        if any(len(shape.interiors) > 0 for _, _, shape, _ in samples):
-            polygon["holes"] = [
-                {
-                    "interval": when(lower, upper),
-                    "cartographicDegrees": [
-                        _ring_degrees(ring.coords[:-1]) for ring in shape.interiors
-                    ],
-                }
-                for lower, upper, shape, _ in samples
-            ]
+        if max(shape.area for _, _, shape, _ in samples) >= STATIC_FOOTPRINT_AREA:
+            for lower, upper, shape, arc_type in _footprint_runs(samples):
+                packets.append(
+                    child(
+                        {**_polygon_positions(shape), "arcType": arc_type},
+                        when(lower, upper),
+                    )
+                )
+            continue
         packets.append(
-            {
-                "id": f"{identifier}/{j}",
-                "name": name,
-                "parent": identifier,
-                "availability": [
+            child(
+                _dynamic_polygon(samples, when),
+                [
                     when(lower, upper)
                     for lower, upper in _merge_intervals(
                         [(lower, upper) for lower, upper, *_ in samples]
                     )
                 ],
-                "polygon": polygon,
-            }
+            )
         )
     return packets
+
+
+def _dynamic_polygon(
+    samples: Sequence[Tuple[float, float, Polygon, str]],
+    when,
+) -> dict:
+    """
+    Builds the positions, holes, and arc types of a CZML polygon that change
+    over the samples (lower and upper bounds, shape, and arc type) of a
+    footprint polygon, with `when` formatting the interval between bounds.
+    """
+    arc_types = {arc_type for *_, arc_type in samples}
+    polygon = {
+        "positions": [
+            {
+                "interval": when(lower, upper),
+                "cartographicDegrees": _ring_degrees(shape.exterior.coords[:-1]),
+            }
+            for lower, upper, shape, _ in samples
+        ],
+        "arcType": (
+            arc_types.pop()
+            if len(arc_types) == 1
+            else [
+                {"interval": when(lower, upper), "arcType": arc_type}
+                for lower, upper, _, arc_type in samples
+            ]
+        ),
+    }
+    if any(len(shape.interiors) > 0 for _, _, shape, _ in samples):
+        polygon["holes"] = [
+            {
+                "interval": when(lower, upper),
+                "cartographicDegrees": [
+                    _ring_degrees(ring.coords[:-1]) for ring in shape.interiors
+                ],
+            }
+            for lower, upper, shape, _ in samples
+        ]
+    return polygon
 
 
 def site_packets(

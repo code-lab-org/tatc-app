@@ -296,6 +296,22 @@ class CelestrakCatalogTestCase(unittest.TestCase):
         self.assertEqual(celestrak_object.orbit.type, "tle")
         self.assertEqual(celestrak_object.orbit.get_catalog_number(), 25544)
 
+    def test_gp_orbit(self):
+        for record in RECORDS:
+            celestrak_object = to_celestrak_object(record)
+            orbit = celestrak_object.gp_orbit
+            self.assertEqual(orbit.type, "gp")
+            self.assertEqual(orbit.elements[0].object_name, record["OBJECT_NAME"])
+            self.assertAlmostEqual(orbit.get_inclination(), 51.6)
+            self.assertAlmostEqual(
+                orbit.get_mean_motion(), celestrak_object.orbit.get_mean_motion()
+            )
+            # catalog numbers beyond the Alpha-5 range are replaced by 0
+            self.assertEqual(
+                orbit.get_catalog_number(),
+                record["NORAD_CAT_ID"] if record["NORAD_CAT_ID"] <= 339999 else 0,
+            )
+
     def test_alpha5_catalog_number(self):
         celestrak_object = to_celestrak_object(RECORDS[3])
         self.assertEqual(celestrak_object.norad_cat_id, 212345)
@@ -333,6 +349,10 @@ class CelestrakRouterTestCase(TatcTestCase):
         self.assertEqual(set(result["objects"][0]["orbit"].keys()), {"type", "tle"})
         orbit = TwoLineElements.model_validate(result["objects"][0]["orbit"])
         self.assertEqual(orbit.get_catalog_number(), 25544)
+        gp_orbit = result["objects"][0]["gp_orbit"]
+        self.assertEqual(gp_orbit["type"], "gp")
+        gp_orbit = GeneralPerturbationsOrbit.model_validate(gp_orbit)
+        self.assertEqual(gp_orbit.get_catalog_number(), 25544)
 
     def test_search_nine_digit_catalog_number(self):
         response = self.client.get("/celestrak/search?query=nine digit")

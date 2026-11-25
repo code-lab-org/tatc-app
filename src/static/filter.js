@@ -1,8 +1,9 @@
-// Satellite and instrument filter, shared by the Design and Analysis tabs:
+// Satellite and instrument filter of the display panel, shared by all tabs:
 // unchecked satellites, constellation members, and instruments are hidden in
 // the orbit preview and left out of analyses. The filter lists the design's
-// satellites and constellations (with members once validated), so it does
-// not depend on a preview.
+// satellites and constellations (with members once validated) in their
+// colors, so it also serves as their legend, and does not depend on a
+// preview.
 
 // filtered (unchecked) items by key (see `filterKey`), kept across changes
 // to the design
@@ -166,26 +167,12 @@ function getFilteredInputs() {
   return inputs;
 }
 
-// Moves the filter into the panel of the active tab, with a note on what
-// it applies to.
-function placeFilter(tab) {
-  const slot = $($(tab).attr("href")).find(".layer-filter-slot");
-  if (slot.length) {
-    $("#layer-filter").appendTo(slot);
-  }
-  $("#layer-filter-note").text($(tab).is("#nav-analysis-tab")
-    ? "Unchecked satellites and instruments are left out of analyses."
-    : "Unchecked satellites and instruments are hidden in the orbit preview.");
-}
-
 $(document).ready(function() {
   $("#layer-filter-all").click(function() {
     _.forEach(_.keys(filterUnchecked), function(key) { delete filterUnchecked[key]; });
     renderLayerFilter();
     notifyLayerFilterChange();
   });
-  $("#nav-tab .rail-btn").on("show.bs.tab", function(e) { placeFilter(e.target); });
-  placeFilter($("#nav-tab .rail-btn.active"));
   onDesignChange(renderLayerFilter);
   // the filter lists the members of validated constellations
   onValidationChange(renderLayerFilter);

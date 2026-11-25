@@ -12,6 +12,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from msgpack_asgi import MessagePackMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.responses import Response
 
 from tatc_app import __version__
 from tatc_app.auth import authenticator, current_user
@@ -69,5 +70,20 @@ for router, prefix in [
 ]:
     app.include_router(router, prefix=prefix, dependencies=[Depends(current_user)])
 
+
+class FrontendFiles(StaticFiles):
+    """
+    Static files of the frontend that browsers revalidate before each use
+    (`Cache-Control: no-cache`), so an update of the app never mixes new and
+    stale files (for example, a new page with a stale stylesheet). Files not
+    modified are not sent again (`304 Not Modified`, by their `ETag`).
+    """
+
+    def file_response(self, *args, **kwargs) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 # Mount a static directory to the root (/) route for any other requests
-app.mount("/", StaticFiles(directory="src/static", html=True), name="frontend")
+app.mount("/", FrontendFiles(directory="src/static", html=True), name="frontend")

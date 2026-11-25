@@ -139,10 +139,13 @@ class CzmlTestCase(unittest.TestCase):
         # path trails one orbital period (about 95 minutes at 500 km)
         self.assertAlmostEqual(packet["path"]["trailTime"], 5677, delta=60)
         self.assertEqual(tracks.get_end(), EPOCH + timedelta(seconds=60))
-        # one translucent footprint per instrument (with a swath), following
-        # the satellite, in distinct colors
+        # one translucent footprint per instrument (with a swath), centered
+        # below the satellite (on the surface), in distinct colors
         self.assertEqual([first["id"], second["id"]], ["fp/s1/0", "fp/s1/1"])
-        self.assertEqual(first["position"], {"reference": "sat/s1#position"})
+        self.assertEqual(
+            first["position"]["cartographicDegrees"], [0, 0, 0, 0, 60, 3.8, 0, 0]
+        )
+        self.assertEqual(first["position"]["epoch"], packet["position"]["epoch"])
         self.assertEqual(first["ellipse"]["semiMajorAxis"]["number"], [0, 1e6, 60, 1e6])
         self.assertEqual(
             second["ellipse"]["semiMinorAxis"]["number"], [0, 250e3, 60, 250e3]
@@ -218,7 +221,8 @@ class CzmlTestCase(unittest.TestCase):
         positions = first["polygon"]["positions"]
         self.assertEqual(len(positions), 2)
         self.assertEqual(positions[0]["cartographicDegrees"][:6], [0, 0, 0, 1, 0, 0])
-        self.assertEqual(len(positions[1]["cartographicDegrees"]), 12)
+        # (edges divided into segments of at most 2 degrees)
+        self.assertEqual(len(positions[1]["cartographicDegrees"]), 24)
         self.assertEqual(
             first["polygon"]["holes"][1]["cartographicDegrees"],
             [[3, 3, 0, 4, 3, 0, 4, 4, 0, 3, 4, 0]],
@@ -230,11 +234,88 @@ class CzmlTestCase(unittest.TestCase):
             rgba("#4e79a7", 70),
         )
 
+    def test_satellite_footprint_static_polygons(self):
+        # a large footprint (as the full disk of a geostationary imager)
+        # that barely moves, then moves, then barely moves
+        disk = [-150, -60, 0, -60, 0, 60, -150, 60]
+        shifted = [v + 0.2 for v in disk]
+        moved = [v + 5 for v in disk]
+        tracks = OrbitTracks(
+            epoch=EPOCH,
+            tracks=[
+                MemberTrack(
+                    name="s1",
+                    positions=[t for i in range(4) for t in (60 * i, -75, 0, 35786e3)],
+                    instruments=[
+                        InstrumentTrack(
+                            name="a",
+                            swath_widths=[t for i in range(4) for t in (60 * i, 0)],
+                            footprints=[
+                                (0, [[disk]]),
+                                (60, [[shifted]]),
+                                (120, [[moved]]),
+                                (180, [[moved]]),
+                            ],
+                        ),
+                    ],
+                )
+            ],
+        )
+        packets = satellite_packets(tracks, {"s1": "#4e79a7"})
+        # one static child per run of (nearly) unchanged samples, shown
+        # only during its run, rather than positions that change over time
+        # (which Cesium rebuilds every frame)
+        self.assertEqual(
+            [p["id"] for p in packets], ["sat/s1", "fp/s1/0", "fp/s1/0/0", "fp/s1/0/1"]
+        )
+        first, second = packets[2:]
+        self.assertEqual(
+            [first["availability"], second["availability"]],
+            [
+                "2022-01-01T00:00:00.000Z/2022-01-01T00:01:30.000Z",
+                "2022-01-01T00:01:30.000Z/2022-01-01T00:03:00.000Z",
+            ],
+        )
+        self.assertEqual(first["parent"], "fp/s1/0")
+        self.assertEqual(
+            first["polygon"]["positions"]["cartographicDegrees"][:3], [-150, -60, 0]
+        )
+        self.assertEqual(
+            second["polygon"]["positions"]["cartographicDegrees"][:3], [-145, -55, 0]
+        )
+        # (drawn with geodesics, which follow the boundary of large footprints)
+        self.assertEqual(first["polygon"]["arcType"], "GEODESIC")
+        self.assertEqual(
+            first["polygon"]["material"]["solidColor"]["color"]["rgba"],
+            rgba("#4e79a7", 70),
+        )
+
     def test_display_polygons(self):
-        # polygons away from the poles are drawn as is, with rhumb lines
+        # polygons away from the poles are drawn as is, with rhumb lines, with
+        # edges divided into segments (so Cesium triangulates long edges far
+        # from the equator correctly)
         ((polygon, arc_type),) = display_polygons([box(0, 0, 10, 10)])
         self.assertTrue(polygon.equals(box(0, 0, 10, 10)))
+        self.assertEqual(len(polygon.exterior.coords), 21)
         self.assertEqual(arc_type, "RHUMB")
+        # or with geodesics between their vertices
+        ((polygon, arc_type),) = display_polygons([box(0, 0, 10, 10)], geodesic=True)
+        self.assertTrue(polygon.equals(box(0, 0, 10, 10)))
+        self.assertEqual(len(polygon.exterior.coords), 5)
+        self.assertEqual(arc_type, "GEODESIC")
+        # parts TAT-C split at the antimeridian (adding vertices on it) are
+        # joined to draw with geodesics, with longitudes past -180, without
+        # the added vertices
+        east = Polygon([(170, -10), (180, -5), (180, 5), (170, 10)])
+        west = Polygon([(-180, -5), (-170, -10), (-170, 10), (-180, 5)])
+        ((polygon, arc_type),) = display_polygons([east, west], geodesic=True)
+        self.assertEqual(arc_type, "GEODESIC")
+        self.assertTrue(
+            polygon.equals(Polygon([(-190, -10), (-170, -10), (-170, 10), (-190, 10)]))
+        )
+        self.assertEqual(len(polygon.exterior.coords), 5)
+        # (but not to draw with rhumb lines, which follow the antimeridian)
+        self.assertEqual(len(display_polygons([east, west])), 2)
         # TAT-C splits a geometry that covers a pole at the antimeridian, with
         # edges along the pole (which Cesium cannot draw): the parts are
         # re-formed as one polygon around the pole, drawn with geodesics
@@ -351,8 +432,9 @@ class CzmlTestCase(unittest.TestCase):
             packets[0]["availability"],
             "2022-01-01T00:10:00.000Z/2022-01-01T01:00:00.000Z",
         )
+        # (edges divided into segments of at most 2 degrees)
         self.assertEqual(
-            len(packets[0]["polygon"]["positions"]["cartographicDegrees"]), 12
+            len(packets[0]["polygon"]["positions"]["cartographicDegrees"]), 60
         )
         # without instruments, segments take the satellite color
         colors = {

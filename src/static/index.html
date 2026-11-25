@@ -18,6 +18,12 @@
   <main id="viewer">
     <div id="cesiumContainer"></div>
 
+    <!-- Shown while Cesium prepares graphics, such as large footprints (index.js) -->
+    <div id="map-busy" class="dark-panel" role="status" aria-live="polite" hidden>
+      <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+      <span>Drawing on the globe…</span>
+    </div>
+
     <!-- Icon rail: tabs (open/collapse the drawer), API docs, and account -->
     <nav id="rail" aria-label="Main">
       <a class="rail-brand" href="/" title="TAT-C">TAT-C</a>
@@ -43,15 +49,15 @@
     </nav>
 
     <!-- Drawer: the panel of the active tab, collapsible over the globe -->
-    <aside id="drawer">
-      <div class="drawer-header">
+    <aside id="drawer" class="dark-panel">
+      <div class="overlay-header">
         <strong id="drawer-title">Information</strong>
         <button type="button" class="btn btn-link btn-sm text-secondary" id="drawer-collapse" title="Collapse panel (Esc)" aria-label="Collapse panel">
           <i class="fas fa-chevron-left"></i>
         </button>
       </div>
       <div class="drawer-body">
-        <div class="tab-content p-2">
+        <div class="tab-content">
           <!-- Information -->
           <div class="tab-pane fade show active" id="nav-info" role="tabpanel" aria-labelledby="nav-info-tab">
             <p><strong>Tradespace Analysis Tool for Constellations (TAT-C)</strong>: Mission engineering platform for distributed satellite missions.</p>
@@ -76,7 +82,7 @@
 
           <!-- Design -->
           <div class="tab-pane fade" id="nav-design" role="tabpanel" aria-labelledby="nav-design-tab">
-            <div class="form-group">
+            <div class="form-group fill-list">
               <label for="satellites">Satellites and Constellations</label>
               <div class="input-group">
                 <div class="list-group form-control p-0 overflow-auto" id="satellites"></div>
@@ -131,29 +137,6 @@
                   <div class="input-group-append"><span class="input-group-text">s</span></div>
                 </div>
               </div>
-              <div class="row">
-                <label for="display-observer" class="col-sm-3 col-form-label">Observer</label>
-                <div class="input-group col-sm-3">
-                  <select class="form-control" id="display-observer">
-                    <option value="fixed">Fixed</option>
-                    <option value="inertial">Inertial</option>
-                  </select>
-                </div>
-                <div class="input-group col-sm-6 pt-2">
-                  <div class="form-check form-check-inline">
-                    <input type="checkbox" class="form-check-input" id="display-path" checked>
-                    <label for="display-path" class="form-check-label">Path</label>
-                  </div>
-                  <div class="form-check form-check-inline">
-                    <input type="checkbox" class="form-check-input" id="display-footprint" checked>
-                    <label for="display-footprint" class="form-check-label">Footprint</label>
-                  </div>
-                  <div class="form-check form-check-inline">
-                    <input type="checkbox" class="form-check-input" id="display-lighting">
-                    <label for="display-lighting" class="form-check-label">Lighting</label>
-                  </div>
-                </div>
-              </div>
             </div>
             <div class="row">
               <div class="col-sm-6">
@@ -172,17 +155,6 @@
               </div>
             </div>
             <div class="alert alert-danger small mt-2" id="orbit-error" style="display:none"></div>
-            <!-- the satellite and instrument filter, shared with the Analysis tab (filter.js) -->
-            <div class="layer-filter-slot mt-2">
-              <div id="layer-filter" style="display:none">
-                <div class="d-flex justify-content-between align-items-baseline">
-                  <span class="small font-weight-bold">Satellites and Instruments</span>
-                  <button type="button" class="btn btn-link btn-sm p-0" id="layer-filter-all">Check all</button>
-                </div>
-                <div class="small text-muted mb-1" id="layer-filter-note"></div>
-                <div class="border rounded px-2 py-1 small overflow-auto" id="layer-filter-list"></div>
-              </div>
-            </div>
           </div>
 
           <!-- Analysis -->
@@ -207,7 +179,7 @@
                   <input type="number" min="0.01" max="365" value="7" step="any" class="form-control" id="analysis-duration">
                   <div class="input-group-append"><span class="input-group-text">days</span></div>
                 </div>
-                <label for="analysis-animate" class="col-sm-2 col-form-label animate-control" title="Duration of the satellite animation (orbit tracks) from the start">Animate</label>
+                <label for="analysis-animate" class="col-sm-2 col-form-label animate-control" title="Length of the satellite animation (orbit tracks) from the start, up to the analysis duration">Animate</label>
                 <div class="input-group col-sm-3 animate-control">
                   <input type="number" min="0.1" max="168" value="24" step="any" class="form-control" id="analysis-animate">
                   <div class="input-group-append"><span class="input-group-text">h</span></div>
@@ -258,16 +230,6 @@
               <div class="alert alert-danger small mt-2" id="grid-error" style="display:none"></div>
             </div>
 
-            <!-- Coverage -->
-            <div class="analysis-panel" data-analysis="coverage">
-              <div class="form-group row">
-                <label for="coverage-mode" class="col-sm-3 col-form-label">Display</label>
-                <div class="col-sm-9">
-                  <select class="form-control" id="coverage-mode"></select>
-                </div>
-              </div>
-            </div>
-
             <!-- Swaths -->
             <div class="analysis-panel" data-analysis="swaths">
               <div class="form-group row">
@@ -289,7 +251,7 @@
 
             <!-- Latency -->
             <div class="analysis-panel" data-analysis="latency">
-              <div class="form-group">
+              <div class="form-group fill-list">
                 <label for="stations">Ground Stations</label>
                 <div class="input-group">
                   <div class="list-group form-control p-0 overflow-auto" id="stations"></div>
@@ -310,17 +272,11 @@
                   </select>
                 </div>
               </div>
-              <div class="form-group row">
-                <label for="latency-mode" class="col-sm-3 col-form-label">Display</label>
-                <div class="col-sm-9">
-                  <select class="form-control" id="latency-mode"></select>
-                </div>
-              </div>
             </div>
 
             <!-- Access -->
             <div class="analysis-panel" data-analysis="access">
-              <div class="form-group">
+              <div class="form-group fill-list">
                 <label for="targets">Target Points</label>
                 <div class="input-group">
                   <div class="list-group form-control p-0 overflow-auto" id="targets"></div>
@@ -339,9 +295,6 @@
               </div>
             </div>
 
-            <!-- the satellite and instrument filter moves here on this tab -->
-            <div class="layer-filter-slot mb-3"></div>
-
             <div class="row">
               <div class="col-sm-6">
                 <button type="button" class="btn btn-primary btn-block" id="analysis-run">
@@ -359,44 +312,89 @@
               </div>
             </div>
             <div class="alert alert-danger small mt-2" id="analysis-error" style="display:none"></div>
-
-            <div class="form-group mt-3" id="colorbar-group" style="display:none">
-              <div class="d-flex justify-content-between">
-                <strong class="small" id="colorbar-title"></strong>
-                <div class="form-check form-check-inline small mr-0">
-                  <input type="checkbox" class="form-check-input" id="colorbar-custom">
-                  <label for="colorbar-custom" class="form-check-label">Custom range</label>
-                </div>
-              </div>
-              <div class="row mt-1" id="colorbar-range" style="display:none">
-                <label for="colorbar-min" class="col-sm-2 col-form-label col-form-label-sm">Min</label>
-                <div class="input-group input-group-sm col-sm-4">
-                  <input type="number" min="0" value="0" step="any" class="form-control" id="colorbar-min">
-                  <div class="input-group-append"><span class="input-group-text colorbar-unit"></span></div>
-                </div>
-                <label for="colorbar-max" class="col-sm-2 col-form-label col-form-label-sm">Max</label>
-                <div class="input-group input-group-sm col-sm-4">
-                  <input type="number" min="0" value="10" step="any" class="form-control" id="colorbar-max">
-                  <div class="input-group-append"><span class="input-group-text colorbar-unit"></span></div>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </div>
     </aside>
 
-    <div class="legend-overlay" id="legend-overlay">
-      <div id="legend-title"></div>
-      <div class="colorbar my-1" id="legend-colorbar"></div>
-      <div class="colorbar-labels"><span id="legend-min"></span><span id="legend-max"></span></div>
-    </div>
+    <!-- Display panel, shared by all tabs: view options and the legends of
+         satellites and instruments (filter.js) and analysis results. It
+         collapses into its button of Cesium's toolbar (display.js). -->
+    <aside id="display-panel" class="dark-panel" aria-label="Display">
+      <div class="overlay-header">
+        <strong>Display</strong>
+        <button type="button" class="btn btn-link btn-sm text-secondary" id="display-collapse" title="Collapse panel" aria-label="Collapse panel">
+          <i class="fas fa-chevron-up"></i>
+        </button>
+      </div>
+      <div class="display-body" id="display-body">
+        <!-- View -->
+        <div class="display-section">
+          <div class="form-row align-items-center">
+            <label for="display-observer" class="col-4 col-form-label col-form-label-sm py-0">Observer</label>
+            <div class="col-8">
+              <select class="form-control form-control-sm" id="display-observer" title="Frame of the camera: fixed to the rotating Earth, or inertial (the Earth rotates below orbits)">
+                <option value="fixed">Earth-fixed</option>
+                <option value="inertial">Inertial</option>
+              </select>
+            </div>
+          </div>
+          <div class="small mt-1">
+            <div class="form-check form-check-inline" title="Orbit paths trailing satellites">
+              <input type="checkbox" class="form-check-input" id="display-path" checked>
+              <label for="display-path" class="form-check-label">Paths</label>
+            </div>
+            <div class="form-check form-check-inline" title="Footprints of instruments">
+              <input type="checkbox" class="form-check-input" id="display-footprint" checked>
+              <label for="display-footprint" class="form-check-label">Footprints</label>
+            </div>
+            <div class="form-check form-check-inline mr-0" title="Day and night lighting of the globe">
+              <input type="checkbox" class="form-check-input" id="display-lighting">
+              <label for="display-lighting" class="form-check-label">Lighting</label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Satellites and instruments (filter.js) -->
+        <div class="display-section" id="layer-filter" style="display:none">
+          <div class="d-flex justify-content-between align-items-baseline">
+            <span class="display-section-title">Satellites and Instruments</span>
+            <button type="button" class="btn btn-link btn-sm p-0" id="layer-filter-all">Check all</button>
+          </div>
+          <div class="small text-muted mb-1">Unchecked items are hidden in the orbit preview and left out of analyses.</div>
+          <div class="small" id="layer-filter-list"></div>
+        </div>
+
+        <!-- Analysis results (coverage and latency, analysis.js) -->
+        <div class="display-section" id="legend-section" style="display:none">
+          <div class="display-section-title mb-1">Analysis Results</div>
+          <select class="form-control form-control-sm legend-mode" id="coverage-mode" aria-label="Coverage results shown"></select>
+          <select class="form-control form-control-sm legend-mode" id="latency-mode" aria-label="Latency results shown"></select>
+          <div class="colorbar mt-2" id="legend-colorbar"></div>
+          <div class="colorbar-labels"><span id="legend-min"></span><span id="legend-max"></span></div>
+          <div class="form-check small mt-1">
+            <input type="checkbox" class="form-check-input" id="colorbar-custom">
+            <label for="colorbar-custom" class="form-check-label">Custom range</label>
+          </div>
+          <div class="form-row mt-1" id="colorbar-range" style="display:none">
+            <div class="input-group input-group-sm col-6">
+              <input type="number" min="0" value="0" step="any" class="form-control" id="colorbar-min" aria-label="Minimum" title="Minimum">
+              <div class="input-group-append"><span class="input-group-text colorbar-unit"></span></div>
+            </div>
+            <div class="input-group input-group-sm col-6">
+              <input type="number" min="0" value="10" step="any" class="form-control" id="colorbar-max" aria-label="Maximum" title="Maximum">
+              <div class="input-group-append"><span class="input-group-text colorbar-unit"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
   </main>
 
   <!-- Sign in prompt (shown on arrival when not signed in) -->
   <div class="modal fade" id="login-dialog" tabindex="-1" role="dialog" aria-labelledby="login-dialog-title">
     <div class="modal-dialog modal-dialog-centered" role="document">
-      <div class="modal-content">
+      <div class="modal-content dark-panel">
         <div class="modal-header">
           <h5 class="modal-title" id="login-dialog-title">Sign in to TAT-C</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -417,7 +415,7 @@
   <!-- Satellite / constellation editor -->
   <div class="modal fade" id="satellite-dialog" role="dialog" data-backdrop="static">
     <div class="modal-dialog modal-lg" role="document">
-      <div class="modal-content">
+      <div class="modal-content dark-panel">
         <div class="modal-header">
           <h5 class="modal-title">Edit Satellite or Constellation</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -426,11 +424,13 @@
         </div>
         <div class="modal-body">
           <ul class="nav nav-tabs mb-2" role="tablist">
-            <li class="nav-item"><a class="nav-link active" id="satellite-form-tab" data-toggle="tab" href="#satellite-form" role="tab">Form</a></li>
-            <li class="nav-item"><a class="nav-link" id="satellite-json-tab" data-toggle="tab" href="#satellite-json" role="tab">JSON</a></li>
+            <li class="nav-item"><a class="nav-link active" id="satellite-general-tab" data-toggle="tab" href="#satellite-general" role="tab">General</a></li>
+            <li class="nav-item"><a class="nav-link" id="satellite-orbit-tab" data-toggle="tab" href="#satellite-orbit" role="tab">Orbit</a></li>
+            <li class="nav-item"><a class="nav-link" id="satellite-instruments-tab" data-toggle="tab" href="#satellite-instruments" role="tab">Instruments</a></li>
+            <li class="nav-item ml-auto"><a class="nav-link" id="satellite-json-tab" data-toggle="tab" href="#satellite-json" role="tab">JSON</a></li>
           </ul>
           <div class="tab-content">
-            <div class="tab-pane fade show active" id="satellite-form" role="tabpanel">
+            <div class="tab-pane fade show active" id="satellite-general" role="tabpanel">
               <div class="form-group row">
                 <label for="satellite-name" class="col-sm-2 col-form-label">Name</label>
                 <div class="col-sm-5">
@@ -448,7 +448,9 @@
                 </div>
               </div>
               <div id="platform-fields"></div>
-              <h6 class="mt-3">Orbit</h6>
+              <p class="small text-muted mb-0" id="satellite-extra"></p>
+            </div>
+            <div class="tab-pane fade" id="satellite-orbit" role="tabpanel">
               <div class="form-group row">
                 <label for="orbit-type" class="col-sm-2 col-form-label">Type</label>
                 <div class="input-group col-sm-10">
@@ -461,7 +463,8 @@
                 </div>
               </div>
               <div id="orbit-fields"></div>
-              <h6 class="mt-3">Instruments</h6>
+            </div>
+            <div class="tab-pane fade" id="satellite-instruments" role="tabpanel">
               <div class="form-group row">
                 <div class="input-group col-sm-12">
                   <select class="form-control" id="instruments"></select>
@@ -475,27 +478,22 @@
               </div>
               <div class="form-group row">
                 <label for="instrument-type" class="col-sm-2 col-form-label">Type</label>
-                <div class="col-sm-10">
+                <div class="col-sm-5">
                   <select class="form-control" id="instrument-type"></select>
                 </div>
-              </div>
-              <div class="form-group row">
                 <label for="instrument-color" class="col-sm-2 col-form-label">Color</label>
-                <div class="col-sm-3">
-                  <input type="color" class="form-control" id="instrument-color" title="Color of the instrument's footprint and swaths">
-                </div>
-                <div class="col-sm-7 col-form-label">
-                  <div class="form-check">
+                <div class="col-sm-3 d-flex align-items-center">
+                  <input type="color" class="form-control instrument-color" id="instrument-color" title="Color of the instrument's footprint and swaths">
+                  <div class="form-check ml-2" title="Derived from the satellite color">
                     <input type="checkbox" class="form-check-input" id="instrument-color-default">
-                    <label class="form-check-label" for="instrument-color-default">Default (derived from the satellite color)</label>
+                    <label class="form-check-label" for="instrument-color-default">Default</label>
                   </div>
                 </div>
               </div>
               <div id="instrument-fields"></div>
-              <p class="small text-muted mb-0" id="satellite-extra"></p>
             </div>
             <div class="tab-pane fade" id="satellite-json" role="tabpanel">
-              <p class="small text-muted">The satellite or constellation in the schema of the TAT-C library (SI units). Use this editor for settings without a form, such as attitudes, general perturbations (GP) elements, and angle profiles.</p>
+              <p class="small text-muted">The satellite or constellation in the schema of the TAT-C library (SI units). Use this editor for settings without a form, such as attitudes, general perturbations (GP) orbit options, and angle profiles.</p>
               <textarea class="form-control mono" rows="18" id="satellite-json-text" spellcheck="false"></textarea>
               <button type="button" class="btn btn-secondary btn-sm mt-1" id="satellite-json-apply">Apply JSON</button>
             </div>
@@ -513,7 +511,7 @@
   <!-- CelesTrak -->
   <div class="modal fade" id="celestrak-dialog" role="dialog">
     <div class="modal-dialog modal-lg" role="document">
-      <div class="modal-content">
+      <div class="modal-content dark-panel">
         <div class="modal-header">
           <h5 class="modal-title">Query CelesTrak</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -546,7 +544,7 @@
   <!-- System catalog -->
   <div class="modal fade" id="catalog-dialog" role="dialog">
     <div class="modal-dialog modal-lg" role="document">
-      <div class="modal-content">
+      <div class="modal-content dark-panel">
         <div class="modal-header">
           <h5 class="modal-title">Load from System Catalog</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -597,7 +595,7 @@
   <!-- Instrument catalog -->
   <div class="modal fade" id="instrument-catalog-dialog" role="dialog">
     <div class="modal-dialog modal-lg" role="document">
-      <div class="modal-content">
+      <div class="modal-content dark-panel">
         <div class="modal-header">
           <h5 class="modal-title">Add Instrument from Catalog</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -646,7 +644,7 @@
   <!-- Region and grid -->
   <div class="modal fade" id="region-dialog" role="dialog">
     <div class="modal-dialog" role="document">
-      <div class="modal-content">
+      <div class="modal-content dark-panel">
         <div class="modal-header">
           <h5 class="modal-title">Edit Region and Grid</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -720,7 +718,7 @@
   <!-- Ground station -->
   <div class="modal fade" id="station-dialog" role="dialog">
     <div class="modal-dialog" role="document">
-      <div class="modal-content">
+      <div class="modal-content dark-panel">
         <div class="modal-header">
           <h5 class="modal-title">Edit Ground Station</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -738,7 +736,7 @@
   <!-- Target point -->
   <div class="modal fade" id="target-dialog" role="dialog">
     <div class="modal-dialog" role="document">
-      <div class="modal-content">
+      <div class="modal-content dark-panel">
         <div class="modal-header">
           <h5 class="modal-title">Add Target Point</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -772,7 +770,7 @@
   <!-- Results table -->
   <div class="modal fade" id="results-dialog" tabindex="-1" role="dialog">
     <div class="modal-dialog modal-xl" role="document">
-      <div class="modal-content">
+      <div class="modal-content dark-panel">
         <div class="modal-header">
           <h5 class="modal-title" id="results-title">Results</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -805,6 +803,8 @@
   <script src="index.js"></script>
   <script src="tasks.js"></script>
   <script src="layers.js"></script>
+  <script src="display.js"></script>
+  <script src="omm.js"></script>
   <script src="schemas.js"></script>
   <script src="design-state.js"></script>
   <script src="satellite-dialog.js"></script>
