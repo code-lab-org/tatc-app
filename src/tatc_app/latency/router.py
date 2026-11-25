@@ -8,7 +8,7 @@ import logging
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from ..analysis.endpoints import (
     chunk,
@@ -16,6 +16,7 @@ from ..analysis.endpoints import (
     get_analysis_result,
     serialize_members,
 )
+from ..celery.quota import TaskSlot, analysis_slot
 from ..celery.schemas import CeleryTask
 from ..cesium.czml import animation_packets, link_packets, site_packets
 from ..generation.utils import resolve_cells, resolve_points
@@ -29,13 +30,16 @@ router = APIRouter()
 
 
 @router.post("/latency", response_model=CeleryTask)
-def enqueue_latency_analysis(request: LatencyAnalysisRequest):
+def enqueue_latency_analysis(
+    request: LatencyAnalysisRequest, slot: TaskSlot = Depends(analysis_slot)
+):
     """
     Endpoint to enqueue a task to perform latency analysis, in parallel by
     member satellite and chunk of points.
 
     Args:
         request (LatencyAnalysisRequest): User request.
+        slot (TaskSlot): Slot reserved for the user's analysis.
 
     Returns:
         CeleryTask: Queued task.
@@ -68,6 +72,7 @@ def enqueue_latency_analysis(request: LatencyAnalysisRequest):
             request.start.isoformat(),
             request.get_member_colors(),
         ),
+        slot,
     )
 
 

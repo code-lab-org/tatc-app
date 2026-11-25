@@ -154,6 +154,35 @@ components.
    parallel worker task (default: `250`); set it for the server, which splits
    analyses into tasks
 
+The server limits the work that each request may enqueue, so a shared
+deployment stays responsive. Set these limits for the server:
+
+ * `TATC_MAX_POINTS` / `TATC_MAX_CELLS`: maximum number of points / cells of
+   an analysis or generation request, whether listed or generated (default:
+   `100000` each). Independent of these, a grid may generate at most 5
+   million candidate points or cells before it is clipped to its mask (a
+   Fibonacci lattice always covers the globe; an equally spaced grid covers
+   the bounds of its mask).
+ * `TATC_MAX_ANALYSIS_DAYS`: maximum duration of an analysis period, in days
+   (default: `366`)
+ * `TATC_MAX_ACTIVE_ANALYSES`: maximum number of analyses each user may have
+   running at once (default: `3`; `0` for no limit). Further analyses are
+   refused (HTTP 429) until one finishes or is canceled. The server tracks
+   running analyses in memory, so the limit applies per server process.
+
+Set these for both the server and workers:
+
+ * `TATC_TASK_TIME_LIMIT`: time (seconds) after which a worker stops a task
+   and records it as failed (default: `3600`; `0` for no limit). Workers
+   enforce it with Celery's default (prefork) pool, not the `solo` pool.
+ * `TATC_RESULT_EXPIRES`: time (seconds) for which the backend keeps task
+   results (default: `86400`, one day). Results of an analysis are not
+   available after they expire.
+
+The compose files do not set these limits, so their defaults apply; to
+change one, add it to the `environment` of the `server` (and, for the last
+two, `worker`) service.
+
 ## Development
 
 This section covers running TAT-C locally from source, for development and
@@ -287,6 +316,11 @@ result backend, so they do not require a broker, backend, or worker (see
 `tests/conftest.py`). To instead run tests against a running broker, backend,
 and worker (configured by `TATC_BROKER` and `TATC_BACKEND`), set
 `TATC_TEST_LIVE=1`.
+
+The [Tests](https://github.com/code-lab-org/tatc-app/blob/main/.github/workflows/test.yml)
+workflow checks the code style and runs the tests on every pull request, and
+before the images are built and pushed on every push to `main`, so code that
+fails its tests is not deployed.
 
 ### Code Style
 

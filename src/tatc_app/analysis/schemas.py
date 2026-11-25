@@ -18,6 +18,7 @@ from pydantic import (
 )
 from tatc.schemas import Point, Satellite
 
+from .. import limits
 from ..generation.schemas import Cell, CellGenerator, PointGenerator, TimeGenerator
 from ..satellites import SpaceSystemInput, check_unique_names, generate_members
 from ..utils.schemas import CamelModel
@@ -90,10 +91,15 @@ class AnalysisRequest(CamelModel):
     @model_validator(mode="after")
     def validate_period(self) -> "AnalysisRequest":
         """
-        Validates the end follows the start.
+        Validates the end follows the start, within the maximum duration.
         """
         if self.end <= self.start:
             raise ValueError("Invalid end: start must precede end.")
+        if self.end - self.start > limits.MAX_ANALYSIS_DURATION:
+            days = limits.MAX_ANALYSIS_DURATION / timedelta(days=1)
+            raise ValueError(
+                f"Invalid end: the analysis period must not exceed {days:g} days."
+            )
         return self
 
     @model_validator(mode="after")
@@ -209,6 +215,22 @@ class PointsCellsAnalysisRequest(AnalysisRequest):
     cells: Union[List[Cell], CellGenerator] = Field(
         ..., description="Cells from which to aggregate observations."
     )
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> "PointsCellsAnalysisRequest":
+        """
+        Validates the numbers of listed points and cells are within limits
+        (generated points and cells are checked as they are generated).
+        """
+        for kind, items, limit in (
+            ("points", self.points, limits.MAX_POINTS),
+            ("cells", self.cells, limits.MAX_CELLS),
+        ):
+            if isinstance(items, list) and len(items) > limit:
+                raise ValueError(
+                    f"Too many {kind}: {len(items):,} listed (at most {limit:,})."
+                )
+        return self
 
 
 class AnimatedResult(BaseModel):

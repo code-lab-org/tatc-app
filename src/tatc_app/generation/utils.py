@@ -4,17 +4,39 @@ Utility functions to resolve the points and cells of analysis requests.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from typing import List, Union
+from typing import Callable, List, Union
 
 import geopandas as gpd
+from fastapi import HTTPException
 from shapely.geometry import Point as GeoPoint
 from shapely.geometry import shape
 from tatc.schemas import Point
 from tatc.utils.geometry import hash_geometry
 
+from .. import limits
 from ..utils.serialization import from_geojson
 from .schemas import Cell, CellGenerator, PointGenerator
 from .tasks import generate_cells_task, generate_points_task
+
+
+def _generate(enqueue: Callable) -> str:
+    """
+    Generates points or cells with a task, reporting invalid specifications
+    (such as too many points or cells) as client errors.
+
+    Args:
+        enqueue (Callable): Function that enqueues the generation task.
+
+    Raises:
+        HTTPException: (422) if the specification is not valid.
+
+    Returns:
+        str: The GeoJSON serialized points or cells.
+    """
+    try:
+        return enqueue().get()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def generate_points_geojson(generator: PointGenerator) -> str:
@@ -24,13 +46,23 @@ def generate_points_geojson(generator: PointGenerator) -> str:
     Args:
         generator (PointGenerator): The specification.
 
+    Raises:
+        HTTPException: (422) if the specification is not valid, for example
+            if it generates more than `limits.MAX_POINTS` points.
+
     Returns:
         str: The GeoJSON serialized points (with a `point_id` hash).
     """
     data = generator.model_dump(mode="json")
-    return generate_points_task.delay(
-        data["method"], generator.distance, generator.elevation, data["mask"]
-    ).get()
+    return _generate(
+        lambda: generate_points_task.delay(
+            data["method"],
+            generator.distance,
+            generator.elevation,
+            data["mask"],
+            limits.MAX_POINTS,
+        )
+    )
 
 
 def generate_cells_geojson(generator: CellGenerator) -> str:
@@ -40,13 +72,23 @@ def generate_cells_geojson(generator: CellGenerator) -> str:
     Args:
         generator (CellGenerator): The specification.
 
+    Raises:
+        HTTPException: (422) if the specification is not valid, for example
+            if it generates more than `limits.MAX_CELLS` cells.
+
     Returns:
         str: The GeoJSON serialized cells (with a `cell_id` hash).
     """
     data = generator.model_dump(mode="json")
-    return generate_cells_task.delay(
-        generator.distance, generator.elevation, data["mask"], data["strips"]
-    ).get()
+    return _generate(
+        lambda: generate_cells_task.delay(
+            generator.distance,
+            generator.elevation,
+            data["mask"],
+            data["strips"],
+            limits.MAX_CELLS,
+        )
+    )
 
 
 def resolve_points(points: Union[List[Point], PointGenerator]) -> gpd.GeoDataFrame:
