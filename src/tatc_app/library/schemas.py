@@ -26,6 +26,7 @@ class AnalysisType(str, Enum):
     """
 
     coverage = "coverage"
+    coincidence = "coincidence"
     swaths = "swaths"
     latency = "latency"
     access = "access"

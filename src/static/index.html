@@ -233,8 +233,40 @@
               <div class="alert alert-danger small mt-2" id="grid-error" style="display:none"></div>
             </div>
 
-            <!-- Coverage: sampling sufficiency -->
-            <div class="analysis-panel" data-analysis="coverage">
+            <!-- Coincidence -->
+            <div class="analysis-panel" data-analysis="coincidence">
+              <div class="form-group row">
+                <label for="coincidence-platforms" class="col-sm-5 col-form-label" title="What counts as a distinct platform: each member satellite, or each satellite or constellation of the design (whose members do not coincide with each other)">Platforms</label>
+                <div class="col-sm-7">
+                  <select class="form-control" id="coincidence-platforms">
+                    <option value="members" selected>Member satellites</option>
+                    <option value="systems">Satellites and constellations</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group row">
+                <label for="coincidence-min" class="col-sm-5 col-form-label" title="Minimum number of distinct platforms observing a point at once">Platforms at once</label>
+                <div class="col-sm-7">
+                  <input type="number" min="2" max="20" value="2" step="1" class="form-control" id="coincidence-min">
+                </div>
+              </div>
+              <div class="form-group row">
+                <label for="coincidence-difference" class="col-sm-5 col-form-label" title="Maximum time between observations that coincide: between their periods in view, or between their sample times if instantaneous">Max. time difference</label>
+                <div class="input-group col-sm-7">
+                  <input type="number" min="0" value="0" step="any" class="form-control" id="coincidence-difference">
+                  <div class="input-group-append"><span class="input-group-text">min</span></div>
+                </div>
+              </div>
+              <div class="form-group">
+                <div class="form-check">
+                  <input type="checkbox" class="form-check-input" id="coincidence-instantaneous">
+                  <label for="coincidence-instantaneous" class="form-check-label" title="Compare the times points are sampled (as by scanning instruments) rather than the periods they are in view">Instantaneous (compare sample times)</label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Coverage and coincidence: sampling sufficiency -->
+            <div class="analysis-panel" data-analysis="coverage coincidence">
               <div class="form-group">
                 <div class="form-check">
                   <input type="checkbox" class="form-check-input" id="sufficiency-enabled">
@@ -425,6 +457,7 @@
         <div class="display-section" id="legend-section" style="display:none">
           <div class="display-section-title mb-1">Analysis Results</div>
           <select class="form-control form-control-sm legend-mode" id="coverage-mode" aria-label="Coverage results shown"></select>
+          <select class="form-control form-control-sm legend-mode" id="coincidence-mode" aria-label="Coincidence results shown"></select>
           <select class="form-control form-control-sm legend-mode" id="latency-mode" aria-label="Latency results shown"></select>
           <div class="colorbar mt-2" id="legend-colorbar"></div>
           <div class="colorbar-labels"><span id="legend-min"></span><span id="legend-max"></span></div>

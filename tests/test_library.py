@@ -6,6 +6,7 @@ from tatc.schemas import GeneralPerturbationsOrbit, Instrument, Satellite
 
 from tatc_app import limits
 from tatc_app.auth import User, current_user
+from tatc_app.coincidence.schemas import CoincidenceAnalysisRequest
 from tatc_app.coverage.schemas import CoverageAnalysisRequest, CoverageAnalysisResult
 from tatc_app.generation.schemas import CellGenerator, PointGenerator
 from tatc_app.main import app
@@ -227,6 +228,29 @@ class RunsTestCase(LibraryTestCase):
         )
         self.assertEqual(response.status_code, 422, response.text)
         self.assertEqual(response.json()["detail"][0]["loc"][:2], ["body", "request"])
+
+    def test_coincidence_run(self):
+        request = coverage_request().model_dump(mode="json")
+        # two satellites, to coincide
+        satellite = dict(request["satellites"][0], name="Other")
+        request = dict(request, satellites=request["satellites"] + [satellite])
+        task = self.run_analysis(
+            "/analyze/coincidence",
+            CoincidenceAnalysisRequest.model_validate(request),
+        )
+        response = self.client.post(
+            "/runs",
+            json={
+                "name": "Matchups",
+                "analysis": "coincidence",
+                "taskId": task["task_id"],
+                "request": request,
+                "design": DESIGN,
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("observed", response.json()["summary"])
+        self.assertEqual(len(self.client.get("/runs?analysis=coincidence").json()), 1)
 
     def test_run_without_summary(self):
         # point access runs have no summary, so their results are not read
