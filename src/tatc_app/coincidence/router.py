@@ -64,6 +64,11 @@ def enqueue_coincidence_analysis(
                 request.max_time_difference.total_seconds(),
                 request.instantaneous,
                 request.get_platform_systems(),
+                (
+                    None
+                    if request.sample_size is None
+                    else request.sample_size.max_sample_size
+                ),
             )
             for points_chunk in chunk(points)
         ],

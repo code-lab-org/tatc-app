@@ -29,7 +29,9 @@ class CoincidenceAnalysisRequest(CoverageAnalysisRequest):
     User request to analyze coincident observations: the periods when at
     least `min_platforms` platforms observe a point at once (within
     `max_time_difference`), with the statistics of coverage of those
-    periods (and, optionally, their sampling sufficiency).
+    periods (and, optionally, their sampling sufficiency). A maximum sample
+    size (`sample_size`) drops coarser observations before coincidences are
+    found; coincidences have no statistics of sample sizes.
     """
 
     min_platforms: int = Field(

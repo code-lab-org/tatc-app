@@ -6,9 +6,10 @@ Task specifications for coverage analysis endpoints.
 
 import json
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple, Union
 
 import geopandas as gpd
+import pandas as pd
 from tatc.analysis import (
     aggregate_observations,
     collect_observations,
@@ -17,8 +18,21 @@ from tatc.analysis import (
 )
 from tatc.schemas import Satellite
 
+from ..analysis.sample_sizes import (
+    POINT_COLUMNS,
+    add_point_sizes,
+    grid_sample_sizes,
+    meets_requirement,
+    size_observations,
+    summarize_point_sizes,
+)
 from ..analysis.sufficiency import compute_sufficiency, grid_sufficiency
-from ..analysis.summary import Weighting, summarize_coverage, summarize_sufficiency
+from ..analysis.summary import (
+    Weighting,
+    summarize_coverage,
+    summarize_sample_sizes,
+    summarize_sufficiency,
+)
 from ..analysis.tasks import (
     combine_animation,
     deserialize_members,
@@ -29,7 +43,7 @@ from ..analysis.tasks import (
 from ..analysis.timeline import build_timeline
 from ..utils.serialization import concat, empty_frame, from_geojson, to_geojson
 from ..worker import app
-from .schemas import CoverageAnalysisResult, SufficiencyOptions
+from .schemas import CoverageAnalysisResult, SampleSizeOptions, SufficiencyOptions
 
 OBSERVATION_COLUMNS = [
     "target_hash",
@@ -63,16 +77,59 @@ def collect_aggregated_observations(
     Returns:
         geopandas.GeoDataFrame: The aggregated observations.
     """
+    return collect_sized_observations(points, satellites, start, end)[0]
+
+
+def collect_sized_observations(
+    points: gpd.GeoDataFrame,
+    satellites: List[Satellite],
+    start: datetime,
+    end: datetime,
+    sample_size: Optional[SampleSizeOptions] = None,
+) -> Tuple[gpd.GeoDataFrame, Optional[pd.DataFrame]]:
+    """
+    Collects and aggregates observations of points by all instruments of
+    satellites, sizing their ground samples (if requested): the observations
+    coarser than a maximum sample size (if any) are dropped before they are
+    aggregated.
+
+    Args:
+        points (geopandas.GeoDataFrame): The points.
+        satellites (List[tatc.schemas.Satellite]): The satellites.
+        start (datetime.datetime): The start of the analysis period.
+        end (datetime.datetime): The end of the analysis period.
+        sample_size (Optional[SampleSizeOptions]): Options to size the
+            samples, or `None`.
+
+    Returns:
+        Tuple[geopandas.GeoDataFrame, Optional[pandas.DataFrame]]: The
+            aggregated observations, and the sample sizes of the observed
+            points (see `sample_sizes.summarize_point_sizes`; of all their
+            observations, before any are dropped), if sized.
+    """
     observations = collect_observations(
         points, satellites, start, end, instrument_index=None
     )
+    sizes = None
+    if sample_size is not None:
+        sized = size_observations(observations, satellites)
+        sizes = summarize_point_sizes(sized, sample_size.max_sample_size)
+        observations = sized[
+            meets_requirement(sized, sample_size.max_sample_size)
+        ].drop(columns="sample_size")
     if observations.empty:
-        return empty_frame(OBSERVATION_COLUMNS)
-    return aggregate_observations(observations)[OBSERVATION_COLUMNS]
+        return empty_frame(OBSERVATION_COLUMNS), sizes
+    return aggregate_observations(observations)[OBSERVATION_COLUMNS], sizes
 
 
 @app.task
-def collect_coverage_task(points: str, satellites: list, start: str, end: str) -> dict:
+def collect_coverage_task(
+    points: str,
+    satellites: list,
+    start: str,
+    end: str,
+    sample_size: Optional[dict] = None,
+) -> Union[dict, list]:
     """
     Task to collect and aggregate observations of a chunk of points.
 
@@ -81,17 +138,28 @@ def collect_coverage_task(points: str, satellites: list, start: str, end: str) -
         satellites (list): List of JSON serialized :class:`tatc.schemas.Satellite` objects.
         start (str): ISO 8601 serialized start time.
         end (str): ISO 8601 serialized end time.
+        sample_size (Optional[dict]): JSON serialized `SampleSizeOptions`, or
+            `None` not to size samples.
 
     Returns:
-        dict: Tagged (`obs`) GeoJSON serialized aggregated observations.
+        Union[dict, list]: Tagged (`obs`) GeoJSON serialized aggregated
+            observations, and, if sized, tagged (`size`) JSON serialized
+            sample sizes of the observed points.
     """
-    results = collect_aggregated_observations(
+    options = (
+        None if sample_size is None else SampleSizeOptions.model_validate(sample_size)
+    )
+    observations, sizes = collect_sized_observations(
         from_geojson(points),
         deserialize_members(satellites),
         datetime.fromisoformat(start),
         datetime.fromisoformat(end),
+        options,
     )
-    return tag("obs", to_geojson(results))
+    result = tag("obs", to_geojson(observations))
+    if sizes is None:
+        return result
+    return [result, tag("size", sizes.to_json(orient="records"))]
 
 
 def compute_coverage(  # pylint: disable=too-many-arguments
@@ -103,6 +171,8 @@ def compute_coverage(  # pylint: disable=too-many-arguments
     end: Optional[datetime] = None,
     weighting: Weighting = Weighting.uniform,
     sufficiency: Optional[SufficiencyOptions] = None,
+    sample_size: Optional[SampleSizeOptions] = None,
+    sizes: Optional[pd.DataFrame] = None,
 ) -> dict:
     """
     Reduces aggregated observations to coverage statistics of points and
@@ -120,6 +190,10 @@ def compute_coverage(  # pylint: disable=too-many-arguments
         weighting (Weighting): The weighting of points in the summary.
         sufficiency (Optional[SufficiencyOptions]): Options to also assess
             the sampling sufficiency of points and cells, or `None`.
+        sample_size (Optional[SampleSizeOptions]): Options of the ground
+            sample sizes of points and cells, or `None` (without sizes).
+        sizes (Optional[pandas.DataFrame]): The sample sizes of the observed
+            points (see `sample_sizes.summarize_point_sizes`), if sized.
 
     Returns:
         dict: The `points`, `cells`, `timeline`, `cell_targets`, and
@@ -159,6 +233,16 @@ def compute_coverage(  # pylint: disable=too-many-arguments
             sufficiency.standard_deviation,
             sufficiency.target_relative_error,
         )
+    if sample_size is not None:
+        reduced = add_point_sizes(
+            reduced,
+            sizes if sizes is not None else pd.DataFrame(columns=POINT_COLUMNS),
+        )
+        gridded = grid_sample_sizes(reduced, gridded, cell_targets)
+        if summary is not None:
+            summary.sample_size = summarize_sample_sizes(
+                reduced, weighting, sample_size.max_sample_size
+            )
     return {
         "points": json.loads(to_geojson(reduced)),
         "cells": json.loads(to_geojson(gridded)),
@@ -178,6 +262,7 @@ def combine_coverage_task(
     end: Optional[str] = None,
     weighting: str = Weighting.uniform.value,
     sufficiency: Optional[dict] = None,
+    sample_size: Optional[dict] = None,
 ) -> str:
     """
     Task to combine the observations of chunks of points into coverage
@@ -195,11 +280,18 @@ def combine_coverage_task(
             `Weighting`).
         sufficiency (Optional[dict]): JSON serialized `SufficiencyOptions`,
             or `None` to skip sampling sufficiency.
+        sample_size (Optional[dict]): JSON serialized `SampleSizeOptions` of
+            the sample sizes the parallel tasks give (tagged `size`), or
+            `None` without sizes.
 
     Returns:
         str: JSON serialized `CoverageAnalysisResult`.
     """
     animation = combine_animation(results, start, colors)
+    sizes = pd.DataFrame(
+        [row for data in untag(results, "size") for row in json.loads(data)],
+        columns=POINT_COLUMNS,
+    )
     observations = concat(
         from_geojson(
             data,
@@ -223,6 +315,12 @@ def combine_coverage_task(
                 if sufficiency is None
                 else SufficiencyOptions.model_validate(sufficiency)
             ),
+            (
+                None
+                if sample_size is None
+                else SampleSizeOptions.model_validate(sample_size)
+            ),
+            sizes,
         ),
         tracks=animation.tracks,
         colors=animation.colors,

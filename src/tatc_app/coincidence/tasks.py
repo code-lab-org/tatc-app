@@ -21,6 +21,7 @@ from tatc.analysis import (
 )
 from tatc.schemas import Satellite
 
+from ..analysis.sample_sizes import meets_requirement, size_observations
 from ..analysis.tasks import deserialize_members, tag
 from ..coverage.tasks import OBSERVATION_COLUMNS
 from ..utils.serialization import empty_frame, from_geojson, to_geojson
@@ -81,6 +82,7 @@ def collect_coincident_observations(  # pylint: disable=too-many-arguments
     max_time_difference: timedelta = timedelta(0),
     instantaneous: bool = False,
     systems: Optional[Dict[str, str]] = None,
+    max_sample_size: Optional[float] = None,
 ) -> gpd.GeoDataFrame:
     """
     Collects the coincident observations of points by all instruments of
@@ -101,6 +103,9 @@ def collect_coincident_observations(  # pylint: disable=too-many-arguments
         systems (Optional[Dict[str, str]]): The platform (system) of each
             member satellite, by name, or `None` if each member is a
             platform.
+        max_sample_size (Optional[float]): The largest ground sample size
+            (meters) of an observation that counts (see
+            `analysis.sample_sizes`), or `None` for every observation.
 
     Returns:
         geopandas.GeoDataFrame: The aggregated coincident observations, with
@@ -109,6 +114,11 @@ def collect_coincident_observations(  # pylint: disable=too-many-arguments
     observations = collect_observations(
         points, satellites, start, end, instrument_index=None
     )
+    if max_sample_size is not None:
+        sized = size_observations(observations, satellites)
+        observations = sized[meets_requirement(sized, max_sample_size)].drop(
+            columns="sample_size"
+        )
     if observations.empty:
         return empty_frame(OBSERVATION_COLUMNS)
     if systems is not None:
@@ -136,6 +146,7 @@ def collect_coincidence_task(  # pylint: disable=too-many-arguments
     max_time_difference: float = 0,
     instantaneous: bool = False,
     systems: Optional[dict] = None,
+    max_sample_size: Optional[float] = None,
 ) -> dict:
     """
     Task to collect the coincident observations of a chunk of points.
@@ -152,6 +163,8 @@ def collect_coincidence_task(  # pylint: disable=too-many-arguments
         instantaneous (bool): True to compare the observations' epochs.
         systems (Optional[dict]): The platform of each member satellite, by
             name, or `None` if each member is a platform.
+        max_sample_size (Optional[float]): The largest ground sample size
+            (meters) of an observation that counts, or `None`.
 
     Returns:
         dict: Tagged (`obs`) GeoJSON serialized aggregated coincident
@@ -166,5 +179,6 @@ def collect_coincidence_task(  # pylint: disable=too-many-arguments
         timedelta(seconds=max_time_difference),
         instantaneous,
         systems,
+        max_sample_size,
     )
     return tag("obs", to_geojson(results))

@@ -198,8 +198,8 @@ function rangeOfValues(property, scale) {
 
 // The display modes of coverage-like results (see `COVERAGE_TERMS`), with
 // the names of their events (such as "observations"): of their counts, the
-// time since and between them, and their sampling sufficiency (only of
-// results that assess it).
+// time since and between them, their sampling sufficiency, and their ground
+// sample sizes (only of results that assess them).
 function coverageDisplayModes(terms, event) {
   return [
     {
@@ -245,6 +245,16 @@ function coverageDisplayModes(terms, event) {
       value: "local-time", label: "Local time-of-day coverage (final)", unit: "%",
       sufficiency: true, property: "local_time_coverage", scale: 100,
       range: function() { return [0, 100]; }
+    },
+    {
+      value: "sample-size", label: "Median ground sample size (final)", unit: "km",
+      sampleSize: true, reverse: true, property: "sample_size_median", scale: 1 / 1000,
+      range: rangeOfValues("sample_size_median", 1 / 1000)
+    },
+    {
+      value: "best-sample-size", label: "Smallest ground sample size (final)", unit: "km",
+      sampleSize: true, reverse: true, property: "sample_size_min", scale: 1 / 1000,
+      range: rangeOfValues("sample_size_min", 1 / 1000)
     }
   ];
 }
@@ -274,13 +284,16 @@ const DISPLAY_MODES = {
 };
 
 // Lists the display modes of results of a type: those of sampling
-// sufficiency only if the results assess it. Keeps the selected mode if it
-// is listed.
+// sufficiency and of ground sample sizes only if the results assess them.
+// Keeps the selected mode if it is listed.
 function updateDisplayModes(type, result) {
   const select = $("#" + type + "-mode");
   const selected = select.val();
-  const assessed = Boolean(result && result.summary && result.summary.sufficiency);
-  const modes = _.filter(DISPLAY_MODES[type], function(mode) { return !mode.sufficiency || assessed; });
+  const summary = (result && result.summary) || {};
+  const modes = _.filter(DISPLAY_MODES[type], function(mode) {
+    return (!mode.sufficiency || Boolean(summary.sufficiency)) &&
+      (!mode.sampleSize || Boolean(summary.sample_size));
+  });
   fillSelect(select, modes);
   if (_.some(modes, { value: selected })) {
     select.val(selected);
@@ -377,6 +390,30 @@ function setSufficiencyInputs(sufficiency) {
   }
 }
 
+// Gets the options of ground sample sizes of a coverage (or coincidence)
+// analysis: null if not sized, or (showing an error) undefined if invalid.
+function getSampleSizeSpec() {
+  if (!$("#sample-size-enabled").is(":checked")) {
+    return null;
+  }
+  const text = String($("#sample-size-max").val()).trim();
+  const km = text === "" ? null : Number(text);
+  if (km !== null && !(km > 0)) {
+    $("#analysis-error").text("The maximum sample size must be positive (or blank).").show();
+    return undefined;
+  }
+  return { max_sample_size: km === null ? null : km * 1000 };
+}
+
+// Sets the inputs of ground sample sizes from the options of a request (none
+// to turn them off).
+function setSampleSizeInputs(sampleSize) {
+  $("#sample-size-enabled").prop("checked", Boolean(sampleSize));
+  $("#sample-size-options").toggle(Boolean(sampleSize));
+  const max = sampleSize && sampleSize.max_sample_size;
+  $("#sample-size-max").val(max ? Number((max / 1000).toFixed(6)) : "");
+}
+
 // Gets the options of a coincidence analysis, or (showing an error)
 // undefined if invalid.
 function getCoincidenceSpec() {
@@ -410,24 +447,28 @@ function setCoincidenceInputs(request) {
 function getAnalysisPayload(type, base) {
   if (type == "coverage") {
     const sufficiency = getSufficiencySpec();
-    if (sufficiency === undefined) {
+    const sampleSize = getSampleSizeSpec();
+    if (sufficiency === undefined || sampleSize === undefined) {
       return null;
     }
     return _.assign(base, {
       points: getPointsSpec(),
       cells: getCellsSpec(),
-      sufficiency: sufficiency
+      sufficiency: sufficiency,
+      sample_size: sampleSize
     });
   } else if (type == "coincidence") {
     const sufficiency = getSufficiencySpec();
+    const sampleSize = getSampleSizeSpec();
     const coincidence = getCoincidenceSpec();
-    if (sufficiency === undefined || coincidence === undefined) {
+    if (sufficiency === undefined || sampleSize === undefined || coincidence === undefined) {
       return null;
     }
     return _.assign(base, coincidence, {
       points: getPointsSpec(),
       cells: getCellsSpec(),
-      sufficiency: sufficiency
+      sufficiency: sufficiency,
+      sample_size: sampleSize
     });
   } else if (type == "swaths") {
     // swaths animate over the analysis period
@@ -572,7 +613,9 @@ function showAnalysisData() {
     const terms = COVERAGE_TERMS[type];
     const coincidence = type == "coincidence";
     const sufficiency = result.summary && result.summary.sufficiency;
+    const sampleSize = result.summary && result.summary.sample_size;
     const percent = function(share) { return share === null || share === undefined ? null : 100 * share; };
+    const km = function(meters) { return meters === null || meters === undefined ? null : meters / 1000; };
     let columns = pointColumns.concat([
       { title: coincidence ? "Mean coincidence duration (s)" : "Mean access (s)", key: "access_s", format: number2 },
       { title: terms.revisitAxis + " (h)", key: "revisit_h", format: number2 }
@@ -590,6 +633,18 @@ function showAnalysisData() {
         ]
       );
     }
+    if (sampleSize) {
+      columns = columns.concat(
+        [
+          { title: "Median sample size (km)", key: "sample_size_median_km", format: number2 },
+          { title: "Smallest sample size (km)", key: "sample_size_min_km", format: number2 },
+          { title: "Observations sized", key: "observations_sized" }
+        ],
+        sampleSize.max_sample_size
+          ? [{ title: "Observations at most " + formatValue(sampleSize.max_sample_size / 1000) + " km", key: "observations_meeting" }]
+          : []
+      );
+    }
     showResultsTable({
       title: coincidence ? "Coincidence Statistics" : "Coverage Statistics",
       columns: columns,
@@ -602,6 +657,11 @@ function showAnalysisData() {
           revisit_p90_h: hours(p.revisit_p90),
           max_gap_h: hours(p.max_gap),
           local_time_pct: percent(p.local_time_coverage)
+        } : {}, sampleSize ? {
+          sample_size_median_km: km(p.sample_size_median),
+          sample_size_min_km: km(p.sample_size_min),
+          observations_sized: p.observations_sized,
+          observations_meeting: p.observations_meeting
         } : {});
       }),
       filename: type + "-points",
@@ -792,6 +852,9 @@ $(document).ready(function() {
       requestedAnimate = value;
     }
     limitAnimation();
+  });
+  $("#sample-size-enabled").change(function() {
+    $("#sample-size-options").toggle($(this).is(":checked"));
   });
   $("#sufficiency-enabled").change(function() {
     $("#sufficiency-options").toggle($(this).is(":checked"));

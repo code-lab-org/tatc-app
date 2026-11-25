@@ -39,9 +39,15 @@ def tag(kind: str, data) -> dict:
 
 def untag(results: list, kind: str) -> list:
     """
-    Gets the results of parallel tasks of a kind.
+    Gets the results of parallel tasks of a kind (a task may give several
+    tagged results, as a list).
     """
-    return [r["data"] for r in results if r["kind"] == kind]
+    tagged = [
+        r
+        for result in results
+        for r in (result if isinstance(result, list) else [result])
+    ]
+    return [r["data"] for r in tagged if r["kind"] == kind]
 
 
 def deserialize_members(members: List[str]) -> List[Satellite]:
