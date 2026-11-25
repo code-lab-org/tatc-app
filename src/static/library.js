@@ -166,16 +166,19 @@ let comparedRuns = []; // [{id, slot}]
 // of their comparison: {label, value(summary), kind} (a share, duration,
 // number, or count), and whether a row is `optional` (shown only if a run
 // has a value).
-const RUN_METRICS = {
-  coverage: {
-    headline: { label: "Region observed", value: function(s) { return s.observed; }, kind: "share" },
+// The metrics of runs of coverage-like analyses (see `COVERAGE_TERMS`).
+function coverageRunMetrics(terms) {
+  const twice = terms.twice.charAt(0).toUpperCase() + terms.twice.slice(1);
+  const revisit = terms.revisit.replace(/^Mean /, "");
+  return {
+    headline: { label: terms.observed, value: function(s) { return s.observed; }, kind: "share" },
     rows: [
-      { label: "Region observed", value: function(s) { return s.observed; }, kind: "share" },
-      { label: "Observed at least twice", value: function(s) { return s.revisited; }, kind: "share" },
-      { label: "Mean revisit time", value: function(s) { return s.revisit && s.revisit.mean; }, kind: "duration" },
-      { label: "Median revisit time", value: function(s) { return s.revisit && s.revisit.median; }, kind: "duration" },
-      { label: "90th percentile revisit time", value: function(s) { return s.revisit && s.revisit.p90; }, kind: "duration" },
-      { label: "Mean access time", value: function(s) { return s.access && s.access.mean; }, kind: "duration" },
+      { label: terms.observed, value: function(s) { return s.observed; }, kind: "share" },
+      { label: twice, value: function(s) { return s.revisited; }, kind: "share" },
+      { label: terms.revisit, value: function(s) { return s.revisit && s.revisit.mean; }, kind: "duration" },
+      { label: "Median " + revisit, value: function(s) { return s.revisit && s.revisit.median; }, kind: "duration" },
+      { label: "90th percentile " + revisit, value: function(s) { return s.revisit && s.revisit.p90; }, kind: "duration" },
+      { label: terms.access, value: function(s) { return s.access && s.access.mean; }, kind: "duration" },
       // sampling sufficiency (of runs that assess it)
       { label: "Meets target sampling error", optional: true, value: function(s) { return s.sufficiency && s.sufficiency.sufficient; }, kind: "share" },
       { label: "Median sampling error (% of σ)", optional: true, value: function(s) { return s.sufficiency && s.sufficiency.relative_error && s.sufficiency.relative_error.median; }, kind: "share" },
@@ -185,7 +188,12 @@ const RUN_METRICS = {
       { label: "Analysis period", value: function(s) { return _.last(s.coverage.times); }, kind: "duration" },
       { label: "Points", value: function(s) { return s.points; }, kind: "count" }
     ]
-  },
+  };
+}
+
+const RUN_METRICS = {
+  coverage: coverageRunMetrics(COVERAGE_TERMS.coverage),
+  coincidence: coverageRunMetrics(COVERAGE_TERMS.coincidence),
   latency: {
     headline: { label: "Region downlinked", value: function(s) { return s.downlinked; }, kind: "share" },
     rows: [
@@ -330,10 +338,10 @@ function renderComparison() {
       _.map(values, function(value) { return $("<td>").text(formatMetric(value, row.kind, unit)); })
     ));
   });
-  if (type == "coverage") {
+  if (COVERAGE_TERMS[type]) {
     $("<div>").addClass("summary-charts").appendTo(root).append(comparisonChart(_.map(runs, function(run) {
       return { name: run.name, color: run.color, curve: run.summary.coverage };
-    })));
+    }), COVERAGE_TERMS[type]));
   }
 }
 
@@ -363,6 +371,9 @@ function setAnalysisInputs(type, request) {
     $("#analysis-animate").val(Number(hours.toFixed(6))).trigger("change");
   }
   if (type == "coverage") {
+    setSufficiencyInputs(request.sufficiency);
+  } else if (type == "coincidence") {
+    setCoincidenceInputs(request);
     setSufficiencyInputs(request.sufficiency);
   } else if (type == "swaths") {
     $("#swaths-step").val(request.step);

@@ -16,6 +16,7 @@ from .. import limits
 from ..analysis.summary import CoverageSummary, LatencySummary
 from ..auth import User, current_user
 from ..celery.utils import get_task_result
+from ..coincidence.schemas import CoincidenceAnalysisRequest
 from ..coverage.schemas import CoverageAnalysisRequest
 from ..latency.schemas import LatencyAnalysisRequest
 from ..overflight.schemas import OverflightAnalysisRequest
@@ -40,6 +41,7 @@ runs_router = APIRouter()
 # the request schema of each type of analysis
 REQUEST_MODELS = {
     AnalysisType.coverage: CoverageAnalysisRequest,
+    AnalysisType.coincidence: CoincidenceAnalysisRequest,
     AnalysisType.swaths: SwathAnalysisRequest,
     AnalysisType.latency: LatencyAnalysisRequest,
     AnalysisType.access: OverflightAnalysisRequest,
@@ -48,6 +50,7 @@ REQUEST_MODELS = {
 # the summary schema of each type of analysis with a summary
 SUMMARY_MODELS = {
     AnalysisType.coverage: CoverageSummary,
+    AnalysisType.coincidence: CoverageSummary,
     AnalysisType.latency: LatencySummary,
 }
 

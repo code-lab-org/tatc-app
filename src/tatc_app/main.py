@@ -19,6 +19,7 @@ from tatc_app.auth import authenticator, current_user
 from tatc_app.celery.router import router as celery_router
 from tatc_app.celestrak.router import router as celestrak_router
 from tatc_app.cesium.router import get_cesium_router
+from tatc_app.coincidence.router import router as coincidence_router
 from tatc_app.coverage.router import router as coverage_router
 from tatc_app.generation.router import router as generation_router
 from tatc_app.latency.router import router as latency_router
@@ -67,6 +68,7 @@ for router, prefix in [
     (overflight_router, "/analyze"),
     (tracking_router, "/analyze"),
     (coverage_router, "/analyze"),
+    (coincidence_router, "/analyze"),
     (latency_router, "/analyze"),
     (designs_router, "/designs"),
     (runs_router, "/runs"),

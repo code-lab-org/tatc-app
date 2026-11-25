@@ -66,6 +66,7 @@ app = Celery(
     backend=backend_string,
     include=[
         "tatc_app.analysis.tasks",
+        "tatc_app.coincidence.tasks",
         "tatc_app.coverage.tasks",
         "tatc_app.generation.tasks",
         "tatc_app.latency.tasks",

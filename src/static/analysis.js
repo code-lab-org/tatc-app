@@ -18,6 +18,14 @@ const ANALYSES = {
     targetLayer: true,
     endpoint: "/analyze/coverage"
   },
+  coincidence: {
+    label: "Coincident Observations",
+    description: "Periods when several of the checked satellites (or satellites and constellations) observe a point of the grid at once, " +
+      "as for cross-calibration or multi-sensor matchups. Animates coincidences accumulating, or shows final statistics.",
+    region: true,
+    targetLayer: true,
+    endpoint: "/analyze/coincidence"
+  },
   swaths: {
     label: "Ground Track Swaths",
     description: "Ground track swaths of the checked instruments, accumulating in segments as satellites orbit. " +
@@ -188,21 +196,19 @@ function rangeOfValues(property, scale) {
   };
 }
 
-// The display modes of coverage and latency results (in the order of their
-// selects). An animated mode computes the value of each point at a time from
-// the target layer, and a final mode shows a (scaled) property of each point
-// and cell. `range(features)` gives the default color scale range, and
-// `reverse` maps small values to the bright end (for example, short revisit
-// times).
-const DISPLAY_MODES = {
-  coverage: [
+// The display modes of coverage-like results (see `COVERAGE_TERMS`), with
+// the names of their events (such as "observations"): of their counts, the
+// time since and between them, and their sampling sufficiency (only of
+// results that assess it).
+function coverageDisplayModes(terms, event) {
+  return [
     {
-      value: "samples", label: "Observations so far (animated)", unit: "",
+      value: "samples", label: terms.samples + " so far (animated)", unit: "",
       range: rangeFromZero("samples"),
       pointValue: function(i, t) { return targetLayer.countStarted(i, t); }
     },
     {
-      value: "since", label: "Time since last observation (animated)", unit: "h",
+      value: "since", label: "Time since last " + event + " (animated)", unit: "h",
       reverse: true,
       range: function(features) {
         const revisits = finiteValues(features, "revisit", 1 / 3600);
@@ -211,16 +217,15 @@ const DISPLAY_MODES = {
       pointValue: function(i, t) { return targetLayer.timeSince(i, t) / 3600; }
     },
     {
-      value: "revisit", label: "Mean revisit time (final)", unit: "h",
+      value: "revisit", label: terms.revisit + " (final)", unit: "h",
       reverse: true, property: "revisit", scale: 1 / 3600,
       range: rangeOfValues("revisit", 1 / 3600)
     },
     {
-      value: "final-samples", label: "Number of observations (final)", unit: "",
+      value: "final-samples", label: "Number of " + terms.samples.toLowerCase() + " (final)", unit: "",
       property: "samples",
       range: rangeFromZero("samples")
     },
-    // sampling sufficiency (only of results that assess it)
     {
       value: "relative-error", label: "Sampling error, % of σ (final)", unit: "%",
       sufficiency: true, reverse: true, property: "relative_error", scale: 100,
@@ -241,7 +246,18 @@ const DISPLAY_MODES = {
       sufficiency: true, property: "local_time_coverage", scale: 100,
       range: function() { return [0, 100]; }
     }
-  ],
+  ];
+}
+
+// The display modes of coverage, coincidence, and latency results (in the
+// order of their selects). An animated mode computes the value of each point
+// at a time from the target layer, and a final mode shows a (scaled)
+// property of each point and cell. `range(features)` gives the default color
+// scale range, and `reverse` maps small values to the bright end (for
+// example, short revisit times).
+const DISPLAY_MODES = {
+  coverage: coverageDisplayModes(COVERAGE_TERMS.coverage, "observation"),
+  coincidence: coverageDisplayModes(COVERAGE_TERMS.coincidence, "coincidence"),
   latency: [
     {
       value: "pending", label: "Observations awaiting downlink (animated)", unit: "",
@@ -361,6 +377,35 @@ function setSufficiencyInputs(sufficiency) {
   }
 }
 
+// Gets the options of a coincidence analysis, or (showing an error)
+// undefined if invalid.
+function getCoincidenceSpec() {
+  const minPlatforms = Number($("#coincidence-min").val());
+  const minutes = Number($("#coincidence-difference").val());
+  if (!(Number.isInteger(minPlatforms) && minPlatforms >= 2 && minPlatforms <= 20)) {
+    $("#analysis-error").text("The number of platforms at once must be a whole number from 2 to 20.").show();
+    return undefined;
+  }
+  if (!(minutes >= 0)) {
+    $("#analysis-error").text("The maximum time difference must not be negative.").show();
+    return undefined;
+  }
+  return {
+    min_platforms: minPlatforms,
+    max_time_difference: minutes * 60,
+    instantaneous: $("#coincidence-instantaneous").is(":checked"),
+    platforms: $("#coincidence-platforms").val()
+  };
+}
+
+// Sets the inputs of a coincidence analysis from its request.
+function setCoincidenceInputs(request) {
+  $("#coincidence-min").val(request.min_platforms || 2);
+  $("#coincidence-difference").val(Number(((request.max_time_difference || 0) / 60).toFixed(6)));
+  $("#coincidence-instantaneous").prop("checked", Boolean(request.instantaneous));
+  $("#coincidence-platforms").val(request.platforms || "members");
+}
+
 // Gets the request of an analysis type, or shows an error and returns null.
 function getAnalysisPayload(type, base) {
   if (type == "coverage") {
@@ -369,6 +414,17 @@ function getAnalysisPayload(type, base) {
       return null;
     }
     return _.assign(base, {
+      points: getPointsSpec(),
+      cells: getCellsSpec(),
+      sufficiency: sufficiency
+    });
+  } else if (type == "coincidence") {
+    const sufficiency = getSufficiencySpec();
+    const coincidence = getCoincidenceSpec();
+    if (sufficiency === undefined || coincidence === undefined) {
+      return null;
+    }
+    return _.assign(base, coincidence, {
       points: getPointsSpec(),
       cells: getCellsSpec(),
       sufficiency: sufficiency
@@ -499,7 +555,7 @@ function showAnalysisData() {
     { title: "Target", key: "target_hash" },
     { title: "Latitude (°)", key: "latitude_deg", format: number2 },
     { title: "Longitude (°)", key: "longitude_deg", format: number2 },
-    { title: "Observations", key: "samples" }
+    { title: (COVERAGE_TERMS[type] || COVERAGE_TERMS.coverage).samples, key: "samples" }
   ];
   const hours = function(seconds) { return seconds === null ? null : seconds / 3600; };
   const pointRows = function(values) {
@@ -512,12 +568,14 @@ function showAnalysisData() {
       }, values(feature.properties));
     });
   };
-  if (type == "coverage") {
+  if (type == "coverage" || type == "coincidence") {
+    const terms = COVERAGE_TERMS[type];
+    const coincidence = type == "coincidence";
     const sufficiency = result.summary && result.summary.sufficiency;
     const percent = function(share) { return share === null || share === undefined ? null : 100 * share; };
     let columns = pointColumns.concat([
-      { title: "Mean access (s)", key: "access_s", format: number2 },
-      { title: "Mean revisit (h)", key: "revisit_h", format: number2 }
+      { title: coincidence ? "Mean coincidence duration (s)" : "Mean access (s)", key: "access_s", format: number2 },
+      { title: terms.revisitAxis + " (h)", key: "revisit_h", format: number2 }
     ]);
     if (sufficiency) {
       columns = columns.concat(
@@ -533,7 +591,7 @@ function showAnalysisData() {
       );
     }
     showResultsTable({
-      title: "Coverage Statistics",
+      title: coincidence ? "Coincidence Statistics" : "Coverage Statistics",
       columns: columns,
       rows: pointRows(function(p) {
         return _.assign({ access_s: p.access, revisit_h: hours(p.revisit) }, sufficiency ? {
@@ -546,10 +604,12 @@ function showAnalysisData() {
           local_time_pct: percent(p.local_time_coverage)
         } : {});
       }),
-      filename: "coverage-points",
-      note: "Statistics of each point over the analysis period. Overlapping observations by several satellites count once." +
-        (sufficiency ? " Mean revisit runs from the end of one observation to the start of the next; times between samples run between their midpoints." : ""),
-      summary: result.summary ? function(container) { renderCoverageSummary(container, result.summary); } : null
+      filename: type + "-points",
+      note: (coincidence
+        ? "Statistics of the coincident observations of each point over the analysis period: periods when enough platforms observe it at once."
+        : "Statistics of each point over the analysis period. Overlapping observations by several satellites count once.") +
+        (sufficiency ? " " + terms.revisitAxis + " runs from the end of one to the start of the next; times between samples run between their midpoints." : ""),
+      summary: result.summary ? function(container) { renderCoverageSummary(container, result.summary, terms); } : null
     });
   } else if (type == "latency") {
     const contacts = result.contacts;
@@ -673,7 +733,7 @@ function adjustDurationForType(type) {
 function changeAnalysisType() {
   const type = getAnalysisType();
   $(".analysis-panel").removeClass("shown");
-  $(".analysis-panel[data-analysis='" + type + "']").addClass("shown");
+  $(".analysis-panel[data-analysis~='" + type + "']").addClass("shown");
   $(".region-panel").toggle(ANALYSES[type].region);
   $("#analysis-description").text(ANALYSES[type].description);
   $(".animate-control").toggle(type != "swaths");
@@ -738,7 +798,7 @@ $(document).ready(function() {
   });
   $("#analysis-run").click(runSelectedAnalysis);
   $("#analysis-data").click(showAnalysisData);
-  $("#coverage-mode, #latency-mode").change(function() {
+  $("#coverage-mode, #coincidence-mode, #latency-mode").change(function() {
     $("#colorbar-custom").prop("checked", false);
     $("#colorbar-range").hide();
     applyDisplayMode();

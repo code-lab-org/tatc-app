@@ -64,6 +64,19 @@ they spread in time and local time of day.
 
 .. autopydantic_model:: tatc_app.analysis.summary.SufficiencySummary
 
+Coincident Observations
+^^^^^^^^^^^^^^^^^^^^^^^
+
+A coincidence analysis finds the periods when at least ``min_platforms``
+distinct platforms (member satellites, or satellites and constellations)
+observe each point at once, within ``max_time_difference``, and gives the
+statistics of coverage of those periods: its results and summary are those
+of a coverage analysis, of coincidences rather than observations.
+
+.. autopydantic_model:: tatc_app.coincidence.schemas.CoincidenceAnalysisRequest
+
+.. autopydantic_model:: tatc_app.coincidence.schemas.CoincidenceAnalysisResult
+
 Data Latency
 ^^^^^^^^^^^^
 

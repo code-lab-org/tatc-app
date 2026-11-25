@@ -9,6 +9,40 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 // chart geometry (SVG user units; charts scale to their container's width)
 const CHART = { width: 520, height: 220, top: 14, right: 40, bottom: 36, left: 46 };
 
+// The terms of the results of coverage-like analyses, by type: of the
+// observations of points (coverage), or of their coincident observations
+// (coincidence), whose results have the same statistics.
+const COVERAGE_TERMS = {
+  coverage: {
+    observed: "Region observed",
+    twice: "observed at least twice",
+    neverTwice: "no point is observed twice",
+    revisit: "Mean revisit time",
+    revisitAxis: "Mean revisit",
+    revisitPoints: "Points observed at least twice",
+    access: "Mean access time",
+    accessDetail: "per observation of observed points",
+    curveTitle: "Share of the region observed so far",
+    curveSubtitle: "Observed at least once",
+    curveColumn: "Observed",
+    samples: "Observations"
+  },
+  coincidence: {
+    observed: "Region with coincidences",
+    twice: "with at least two",
+    neverTwice: "no point has two coincidences",
+    revisit: "Mean time between coincidences",
+    revisitAxis: "Mean time between coincidences",
+    revisitPoints: "Points with at least two coincidences",
+    access: "Mean coincidence duration",
+    accessDetail: "per coincidence of points with one",
+    curveTitle: "Share of the region with a coincidence so far",
+    curveSubtitle: "At least one coincidence",
+    curveColumn: "With a coincidence",
+    samples: "Coincidences"
+  }
+};
+
 // --- Formatting ---
 
 // Picks a unit to show durations up to a maximum (seconds).
@@ -132,16 +166,17 @@ function drawAxes(svg, yMax, yTicks, xTicks, xTitle) {
 
 // Line (and area) chart of the share of the region observed over time, with
 // a crosshair and tooltip that snap to the nearest sample.
-function coverageChart(curve) {
+function coverageChart(curve, terms) {
+  terms = terms || COVERAGE_TERMS.coverage;
   const duration = _.last(curve.times) || 1;
   const unit = durationUnit(duration);
   const rows = _.map(_.range(0, curve.times.length, Math.max(1, Math.floor(curve.times.length / 20))), function(i) {
     return [formatValue(curve.times[i] / unit.seconds), formatShare(curve.shares[i])];
   });
   const chart = chartCard(
-    "Share of the region observed so far",
-    "Observed at least once, since the start of the analysis",
-    { columns: ["Time (" + unit.label + ")", "Observed"], rows: rows }
+    terms.curveTitle,
+    terms.curveSubtitle + ", since the start of the analysis",
+    { columns: ["Time (" + unit.label + ")", terms.curveColumn], rows: rows }
   );
   const plotWidth = CHART.width - CHART.left - CHART.right;
   const plotHeight = CHART.height - CHART.top - CHART.bottom;
@@ -296,13 +331,14 @@ function curveShareAt(curve, t) {
 // Line chart comparing the share of the region observed over time of
 // several runs (`series`: {name, color, curve}), with a legend, end labels
 // where they do not collide, and a crosshair whose tooltip lists every run.
-function comparisonChart(series) {
+function comparisonChart(series, terms) {
+  terms = terms || COVERAGE_TERMS.coverage;
   const duration = _.max(_.map(series, function(s) { return _.last(s.curve.times); })) || 1;
   const unit = durationUnit(duration);
   const times = _.range(0, 11).map(function(i) { return duration * i / 10; });
   const chart = chartCard(
-    "Share of the region observed so far",
-    "Observed at least once, since the start of each analysis",
+    terms.curveTitle,
+    terms.curveSubtitle + ", since the start of each analysis",
     {
       columns: ["Time (" + unit.label + ")"].concat(_.map(series, "name")),
       rows: _.map(times, function(t) {
@@ -445,28 +481,30 @@ function weightingNote(summary) {
     : "Shares and statistics weight each of the " + summary.points.toLocaleString() + " points equally.";
 }
 
-// Renders the summary of coverage results in a container.
-function renderCoverageSummary(container, summary) {
+// Renders the summary of coverage (or coincidence, by `terms`, see
+// `COVERAGE_TERMS`) results in a container.
+function renderCoverageSummary(container, summary, terms) {
+  terms = terms || COVERAGE_TERMS.coverage;
   const root = $("<div>").addClass("summary").appendTo($(container).empty());
   const tiles = $("<div>").addClass("summary-tiles").appendTo(root);
-  tiles.append(statTile("Region observed", formatShare(summary.observed),
-    formatShare(summary.revisited) + " observed at least twice"));
+  tiles.append(statTile(terms.observed, formatShare(summary.observed),
+    formatShare(summary.revisited) + " " + terms.twice));
   if (summary.revisit) {
     const unit = durationUnit(summary.revisit.p90);
-    tiles.append(statTile("Mean revisit time", formatDuration(summary.revisit.mean, unit),
+    tiles.append(statTile(terms.revisit, formatDuration(summary.revisit.mean, unit),
       distributionDetail(summary.revisit, unit)));
   } else {
-    tiles.append(statTile("Mean revisit time", "–", "no point is observed twice"));
+    tiles.append(statTile(terms.revisit, "–", terms.neverTwice));
   }
   if (summary.access) {
-    tiles.append(statTile("Mean access time", formatDuration(summary.access.mean),
-      "per observation of observed points"));
+    tiles.append(statTile(terms.access, formatDuration(summary.access.mean),
+      terms.accessDetail));
   }
   const charts = $("<div>").addClass("summary-charts").appendTo(root);
-  charts.append(coverageChart(summary.coverage));
+  charts.append(coverageChart(summary.coverage, terms));
   if (summary.revisit_histogram) {
-    charts.append(histogramChart(summary.revisit_histogram, "Mean revisit time",
-      "Points observed at least twice", "Mean revisit"));
+    charts.append(histogramChart(summary.revisit_histogram, terms.revisit,
+      terms.revisitPoints, terms.revisitAxis));
   }
   if (summary.sufficiency) {
     renderSufficiencySummary(root, summary.sufficiency);
