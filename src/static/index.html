@@ -265,6 +265,26 @@
               </div>
             </div>
 
+            <!-- Coverage and coincidence: ground sample size -->
+            <div class="analysis-panel" data-analysis="coverage coincidence">
+              <div class="form-group">
+                <div class="form-check">
+                  <input type="checkbox" class="form-check-input" id="sample-size-enabled">
+                  <label for="sample-size-enabled" class="form-check-label" title="The size on the ground of each observation's pixel (or its spacing), for instruments with pixels: pointed, or conical with a beam width and sample spacing">Ground sample size</label>
+                </div>
+              </div>
+              <div id="sample-size-options" style="display:none">
+                <div class="form-group row">
+                  <label for="sample-size-max" class="col-sm-5 col-form-label" title="Only observations whose samples are at most this size, along and across track, count toward coverage (or coincidence)">Max. sample size</label>
+                  <div class="input-group col-sm-7">
+                    <input type="number" min="0" step="any" class="form-control" id="sample-size-max" placeholder="optional">
+                    <div class="input-group-append"><span class="input-group-text">km</span></div>
+                  </div>
+                </div>
+                <p class="small text-muted">A sample's size is the larger of its pixel and pixel spacing, along and across track. Coverage results also summarize the sizes of each point's observations.</p>
+              </div>
+            </div>
+
             <!-- Coverage and coincidence: sampling sufficiency -->
             <div class="analysis-panel" data-analysis="coverage coincidence">
               <div class="form-group">

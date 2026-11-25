@@ -24,7 +24,9 @@ tasks and visualized with animated results (CZML) in the GUI:
  * Coverage and revisit (`/analyze/coverage`): observations of a grid of points and cells,
    optionally with their sampling sufficiency: the error of estimating the mean of a field
    over the period from each point's samples (for a field with a decorrelation time), and
-   how the samples spread in time and local time of day.
+   how the samples spread in time and local time of day; and the ground sample size of
+   each observation (for instruments with pixels), optionally counting only observations
+   at most a maximum size.
  * Coincident observations (`/analyze/coincidence`): periods when several satellites (or
    satellites and constellations) observe a point of the grid at once, within a time
    difference, as for cross-calibration matchups, with the statistics of coverage of those

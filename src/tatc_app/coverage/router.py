@@ -49,6 +49,11 @@ def enqueue_coverage_analysis(
     serialized = serialize_members(members)
     points = resolve_points(request.points)
     cells = resolve_cells(request.cells)
+    sample_size = (
+        None
+        if request.sample_size is None
+        else request.sample_size.model_dump(mode="json")
+    )
     return enqueue_analysis(
         request,
         members,
@@ -58,6 +63,7 @@ def enqueue_coverage_analysis(
                 serialized,
                 request.start.isoformat(),
                 request.end.isoformat(),
+                sample_size=sample_size,
             )
             for points_chunk in chunk(points)
         ],
@@ -73,6 +79,7 @@ def enqueue_coverage_analysis(
                 if request.sufficiency is None
                 else request.sufficiency.model_dump(mode="json")
             ),
+            sample_size=sample_size,
         ),
         slot,
     )

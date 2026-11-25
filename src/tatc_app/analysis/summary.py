@@ -161,6 +161,43 @@ class SufficiencySummary(BaseModel):
     )
 
 
+class SampleSizeSummary(BaseModel):
+    """
+    Summary of the ground sample sizes of the observations of the points of a
+    region (in meters).
+    """
+
+    max_sample_size: Optional[float] = Field(
+        None, description="Required maximum sample size (meters), if any."
+    )
+    observations: int = Field(
+        ..., description="Number of observations of the points (by each satellite)."
+    )
+    sized: int = Field(
+        ...,
+        description="Number of observations with a sample size (by instruments "
+        "with pixels).",
+    )
+    meeting: Optional[int] = Field(
+        None,
+        description="Number of observations at most the maximum sample size "
+        "(which count toward coverage), if required.",
+    )
+    median: Optional[Distribution] = Field(
+        None,
+        description="Distribution of the median sample size (meters) of points "
+        "with a sized observation.",
+    )
+    median_histogram: Optional[Histogram] = Field(
+        None, description="Histogram of the median sample size (meters)."
+    )
+    best: Optional[Distribution] = Field(
+        None,
+        description="Distribution of the smallest sample size (meters) of "
+        "points with a sized observation.",
+    )
+
+
 class CoverageSummary(BaseModel):
     """
     Summary of coverage over the points of a region.
@@ -192,6 +229,9 @@ class CoverageSummary(BaseModel):
     )
     sufficiency: Optional[SufficiencySummary] = Field(
         None, description="Summary of sampling sufficiency, if assessed."
+    )
+    sample_size: Optional[SampleSizeSummary] = Field(
+        None, description="Summary of ground sample sizes, if sized."
     )
 
 
@@ -494,6 +534,44 @@ def summarize_sufficiency(  # pylint: disable=too-many-arguments,too-many-locals
         local_time_shares=[
             float(s) for s in (totals / totals.sum() if totals.sum() > 0 else totals)
         ],
+    )
+
+
+def summarize_sample_sizes(
+    points: pd.DataFrame,
+    weighting: Weighting,
+    max_sample_size: Optional[float] = None,
+) -> SampleSizeSummary:
+    """
+    Summarizes the ground sample sizes of points.
+
+    Args:
+        points (pandas.DataFrame): The points, with their sample sizes (see
+            `sample_sizes.add_point_sizes`) and point `geometry`.
+        weighting (Weighting): The weighting of points.
+        max_sample_size (Optional[float]): The required maximum sample size
+            (meters), if any.
+
+    Returns:
+        SampleSizeSummary: The summary.
+    """
+    weights = point_weights(points, weighting)
+    median, median_histogram = summarize_values(
+        points["sample_size_median"].to_numpy(dtype=float), weights
+    )
+    best, _ = summarize_values(points["sample_size_min"].to_numpy(dtype=float), weights)
+    return SampleSizeSummary(
+        max_sample_size=max_sample_size,
+        observations=int(points["observations"].sum()),
+        sized=int(points["observations_sized"].sum()),
+        meeting=(
+            None
+            if max_sample_size is None
+            else int(points["observations_meeting"].sum())
+        ),
+        median=median,
+        median_histogram=median_histogram,
+        best=best,
     )
 
 

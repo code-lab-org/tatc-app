@@ -215,7 +215,14 @@ const INSTRUMENT_SPECS = {
       _.assign({ key: "roll_angle", label: "Roll", type: "number", min: -180, max: 180, default: 0, group: "pointing" }, ANGLE),
       _.assign({ key: "pitch_angle", label: "Pitch", type: "number", min: -180, max: 180, default: 0, group: "pointing" }, ANGLE),
       { key: "is_rectangular", label: "Rectangular", type: "checkbox", default: false },
-      _.assign({ key: "field_of_regard", label: "Field of regard", type: "number", min: 0, max: 360, optional: true, help: "Blank for the default" }, ANGLE)
+      _.assign({ key: "field_of_regard", label: "Field of regard", type: "number", min: 0, max: 360, optional: true, help: "Blank for the default" }, ANGLE),
+      // pixels, which size the ground samples (blank for one pixel across
+      // the field of view)
+      { key: "cross_track_pixels", label: "Cross-track pixels", type: "integer", min: 1, optional: true, group: "pixels", help: "Pixels across the cross-track field of view, which size ground samples (blank for 1)" },
+      { key: "along_track_pixels", label: "Along-track pixels", type: "integer", min: 1, optional: true, group: "pixels", help: "Pixels across the along-track field of view (blank for 1)" },
+      { key: "cross_track_oversampling", label: "Cross-track overlap", type: "number", unit: "%", scale: 0.01, max: 99, step: "any", optional: true, group: "oversampling", help: "Share of a pixel overlapping its neighbor across track (negative for a gap; blank for 0)" },
+      { key: "along_track_oversampling", label: "Along-track overlap", type: "number", unit: "%", scale: 0.01, max: 99, step: "any", optional: true, group: "oversampling", help: "Share of a pixel overlapping its neighbor along track (negative for a gap; blank for 0)" },
+      { key: "scan_period", label: "Scan period", type: "number", unit: "s", min: 0, step: "any", optional: true, help: "Seconds between scans of a scanning instrument, which space its samples along track (blank if not modeled)" }
     ].concat(COMMON_INSTRUMENT_FIELDS)
   },
   conical: {
@@ -225,7 +232,10 @@ const INSTRUMENT_SPECS = {
       _.assign({ key: "along_track_field_of_view", label: "Along-track FOV", type: "number", min: 0, max: 180, default: 1 }, ANGLE),
       _.assign({ key: "scan_center_azimuth", label: "Scan center", type: "number", min: -180, max: 180, default: 0, group: "scan" }, ANGLE),
       _.assign({ key: "scan_half_width", label: "Scan half-width", type: "number", min: 0, max: 180, default: 180, group: "scan" }, ANGLE),
-      _.assign({ key: "field_of_regard", label: "Field of regard", type: "number", min: 0, max: 360, optional: true, help: "Blank for the default" }, ANGLE)
+      _.assign({ key: "field_of_regard", label: "Field of regard", type: "number", min: 0, max: 360, optional: true, help: "Blank for the default" }, ANGLE),
+      // samples, which size the ground samples (if both are given)
+      _.assign({ key: "beam_width", label: "Beam width", type: "number", min: 0, max: 90, optional: true, group: "samples", help: "Angular width of the beam (such as its half-power width), which sizes ground samples (blank if not modeled)" }, ANGLE),
+      _.assign({ key: "scan_sample_spacing", label: "Sample spacing", type: "number", min: 0, max: 180, optional: true, group: "samples", help: "Scan azimuth between neighboring samples along the scanned arc (blank if not modeled)" }, ANGLE)
     ].concat(COMMON_INSTRUMENT_FIELDS)
   }
 };

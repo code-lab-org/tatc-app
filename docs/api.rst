@@ -64,6 +64,17 @@ they spread in time and local time of day.
 
 .. autopydantic_model:: tatc_app.analysis.summary.SufficiencySummary
 
+A coverage (or coincidence) analysis may also size the ground samples of
+observations (``sample_size`` of its request): the larger of each
+observation's pixel and pixel spacing, along and across track, for
+instruments with pixels. Coverage results summarize the sizes of each point's
+observations; a maximum sample size drops coarser observations before
+coverage (or coincidence) is computed.
+
+.. autopydantic_model:: tatc_app.coverage.schemas.SampleSizeOptions
+
+.. autopydantic_model:: tatc_app.analysis.summary.SampleSizeSummary
+
 Coincident Observations
 ^^^^^^^^^^^^^^^^^^^^^^^
 

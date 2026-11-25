@@ -164,7 +164,7 @@ let comparedRuns = []; // [{id, slot}]
 
 // The headline metric of runs of each analysis with a summary, and the rows
 // of their comparison: {label, value(summary), kind} (a share, duration,
-// number, or count), and whether a row is `optional` (shown only if a run
+// number, length in meters, or count), and whether a row is `optional` (shown only if a run
 // has a value).
 // The metrics of runs of coverage-like analyses (see `COVERAGE_TERMS`).
 function coverageRunMetrics(terms) {
@@ -185,6 +185,9 @@ function coverageRunMetrics(terms) {
       { label: "Median effective samples", optional: true, value: function(s) { return s.sufficiency && s.sufficiency.effective_samples && s.sufficiency.effective_samples.median; }, kind: "number" },
       { label: "90th percentile longest gap", optional: true, value: function(s) { return s.sufficiency && s.sufficiency.max_gap && s.sufficiency.max_gap.p90; }, kind: "duration" },
       { label: "Local time-of-day coverage", optional: true, value: function(s) { return s.sufficiency && s.sufficiency.local_time_coverage; }, kind: "share" },
+      // ground sample sizes (of runs that size them)
+      { label: "Median ground sample size", optional: true, value: function(s) { return s.sample_size && s.sample_size.median && s.sample_size.median.median; }, kind: "length" },
+      { label: "Max. sample size required", optional: true, value: function(s) { return s.sample_size && s.sample_size.max_sample_size; }, kind: "length" },
       { label: "Analysis period", value: function(s) { return _.last(s.coverage.times); }, kind: "duration" },
       { label: "Points", value: function(s) { return s.points; }, kind: "count" }
     ]
@@ -220,6 +223,9 @@ function formatMetric(value, kind, unit) {
   }
   if (kind == "number") {
     return formatValue(value);
+  }
+  if (kind == "length") {
+    return formatValue(value / 1000) + " km";
   }
   return Number(value).toLocaleString();
 }
@@ -372,9 +378,11 @@ function setAnalysisInputs(type, request) {
   }
   if (type == "coverage") {
     setSufficiencyInputs(request.sufficiency);
+    setSampleSizeInputs(request.sample_size);
   } else if (type == "coincidence") {
     setCoincidenceInputs(request);
     setSufficiencyInputs(request.sufficiency);
+    setSampleSizeInputs(request.sample_size);
   } else if (type == "swaths") {
     $("#swaths-step").val(request.step);
     if (request.segment) {

@@ -8,8 +8,9 @@ from datetime import timedelta
 from typing import Dict, List, Optional
 
 from geojson_pydantic import FeatureCollection
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
+from ..analysis.sample_sizes import is_sized
 from ..analysis.schemas import AnimatedResult, PointsCellsAnalysisRequest
 from ..analysis.summary import CoverageSummary
 from ..analysis.timeline import Timeline
@@ -63,6 +64,26 @@ class SufficiencyOptions(CamelModel):
         return value
 
 
+class SampleSizeOptions(CamelModel):
+    """
+    Options to size the ground samples of observations (see
+    `analysis.sample_sizes`): their statistics for each point (in coverage
+    results), and an optional requirement that drops coarser observations
+    before coverage (or coincidence) is computed.
+    """
+
+    max_sample_size: Optional[float] = Field(
+        None,
+        gt=0,
+        description="Largest sample size (meters) of an observation that counts "
+        "(`null` to count every observation): observations with a larger "
+        "pixel or pixel spacing, along or across track, are dropped. Requires "
+        "every analyzed instrument to be pointed, or conical with a beam width "
+        "and a scan sample spacing.",
+        examples=[1000],
+    )
+
+
 class CoverageAnalysisRequest(PointsCellsAnalysisRequest):
     """
     User request to perform coverage analysis.
@@ -73,6 +94,37 @@ class CoverageAnalysisRequest(PointsCellsAnalysisRequest):
         description="Options to also assess sampling sufficiency (`null` to "
         "skip it).",
     )
+    sample_size: Optional[SampleSizeOptions] = Field(
+        None,
+        description="Options to size the ground samples of observations (`null` "
+        "to skip it).",
+    )
+
+    @model_validator(mode="after")
+    def validate_sample_size(self) -> "CoverageAnalysisRequest":
+        """
+        Validates every analyzed instrument has sized samples if a maximum
+        sample size is required (otherwise none of its observations would
+        count).
+        """
+        if self.sample_size is None or self.sample_size.max_sample_size is None:
+            return self
+        unsized = sorted(
+            {
+                f"{member.name} ({instrument.name})"
+                for member in self.get_members()
+                for instrument in member.instruments
+                if not is_sized(instrument)
+            }
+        )
+        if unsized:
+            listed = ", ".join(unsized[:5]) + (", ..." if len(unsized) > 5 else "")
+            raise ValueError(
+                "A maximum sample size requires instruments with pixels: pointed, "
+                "or conical with a beam width and a scan sample spacing. Without "
+                f"them: {listed}."
+            )
+        return self
 
 
 class CoverageAnalysisResult(AnimatedResult):
@@ -87,7 +139,11 @@ class CoverageAnalysisResult(AnimatedResult):
         "sufficiency, also the `relative_error` (and `sampling_error`, given "
         "the field's standard deviation), `effective_samples`, `revisit_p50` "
         "and `revisit_p90` (seconds between consecutive samples), `max_gap` "
-        "(seconds), and `local_time_coverage`.",
+        "(seconds), and `local_time_coverage`. With sample sizes, also the "
+        "`sample_size_median` and `sample_size_min` (meters) of its "
+        "observations, and the numbers of its `observations`, "
+        "`observations_sized`, and `observations_meeting` the maximum sample "
+        "size (before coarser observations are dropped).",
     )
     cells: FeatureCollection = Field(
         ...,
@@ -96,7 +152,8 @@ class CoverageAnalysisResult(AnimatedResult):
         "sufficiency, also the root-mean-square `relative_error` (and "
         "`sampling_error`) and mean `effective_samples` of its observed "
         "points, and the mean `local_time_coverage` and longest `max_gap` of "
-        "all its points.",
+        "all its points. With sample sizes, also the mean `sample_size_median` "
+        "and smallest `sample_size_min` of its points.",
     )
     timeline: Timeline = Field(
         ..., description="Observations of points (in the order of `points`)."

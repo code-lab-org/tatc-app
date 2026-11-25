@@ -509,7 +509,51 @@ function renderCoverageSummary(container, summary, terms) {
   if (summary.sufficiency) {
     renderSufficiencySummary(root, summary.sufficiency);
   }
+  if (summary.sample_size) {
+    renderSampleSizeSummary(root, summary.sample_size);
+  }
   root.append($("<p>").addClass("small text-muted mb-0").text(weightingNote(summary)));
+}
+
+// Formats a length (meters) in kilometers.
+function formatKilometers(meters) {
+  return formatValue(meters / 1000) + " km";
+}
+
+// Renders the summary of ground sample sizes (`sample_size` of a coverage
+// summary) in a container.
+function renderSampleSizeSummary(container, sizes) {
+  container.append($("<div>").addClass("summary-section-title").text("Ground sample size"));
+  container.append($("<div>").addClass("summary-section-note").text(
+    "The size on the ground of each observation's sample: the larger of its pixel and pixel spacing, along and across track. " +
+    "Only instruments with pixels (pointed, or conical with a beam width and sample spacing) have sizes."
+  ));
+  const tiles = $("<div>").addClass("summary-tiles").appendTo(container);
+  if (sizes.median) {
+    tiles.append(statTile("Median sample size", formatKilometers(sizes.median.median),
+      "of points' median · 90th percentile " + formatKilometers(sizes.median.p90)));
+  } else {
+    tiles.append(statTile("Median sample size", "–", "no observation is sized"));
+  }
+  if (sizes.best) {
+    tiles.append(statTile("Smallest sample size", formatKilometers(sizes.best.median),
+      "median of points' smallest"));
+  }
+  tiles.append(statTile("Observations sized",
+    formatShare(sizes.observations > 0 ? sizes.sized / sizes.observations : 0),
+    sizes.sized.toLocaleString() + " of " + sizes.observations.toLocaleString()));
+  if (sizes.max_sample_size) {
+    tiles.append(statTile("At most " + formatKilometers(sizes.max_sample_size),
+      formatShare(sizes.observations > 0 ? sizes.meeting / sizes.observations : 0),
+      "of observations, which count toward coverage"));
+  }
+  if (sizes.median_histogram) {
+    $("<div>").addClass("summary-charts").appendTo(container).append(
+      histogramChart(sizes.median_histogram, "Median ground sample size",
+        "Points with a sized observation", "Median sample size",
+        { unit: { label: "km", seconds: 1000 } })
+    );
+  }
 }
 
 // Formats a relative error (a share of the field's standard deviation).

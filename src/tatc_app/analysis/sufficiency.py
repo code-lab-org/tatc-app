@@ -25,6 +25,8 @@ from tatc.analysis import (
     estimate_sampling_error,
 )
 
+from .gridding import grid_columns
+
 # columns of the sampling error, with how each is gridded to cells:
 # root-mean-square ("rms"), mean, or maximum ("max")
 ERROR_COLUMNS = {"relative_error": "rms", "effective_samples": "mean"}
@@ -173,31 +175,8 @@ def grid_sufficiency(
     if SAMPLING_ERROR_COLUMN in points.columns:
         reductions[SAMPLING_ERROR_COLUMN] = "rms"
     reductions.update(TIME_COLUMNS)
-    result = cells.copy()
-    members = [cell_targets.get(str(cell_id), []) for cell_id in cells["cell_id"]]
+    # (points not observed have no effective samples, rather than zero)
     observed = np.isfinite(points["relative_error"].to_numpy(dtype=float))
-    for column, reduction in reductions.items():
-        timedeltas = pd.api.types.is_timedelta64_dtype(points[column])
-        values = (
-            points[column].dt.total_seconds() if timedeltas else points[column]
-        ).to_numpy(dtype=float)
-        if column == "effective_samples":
-            # (points not observed have none, rather than a count of zero)
-            values = np.where(observed, values, np.nan)
-        gridded = np.array([_reduce(values[m], reduction) for m in members])
-        result[column] = pd.to_timedelta(gridded, unit="s") if timedeltas else gridded
-    return result
-
-
-def _reduce(values: np.ndarray, reduction: str) -> float:
-    """
-    Reduces the finite values of the points of a cell (`NaN` if none).
-    """
-    values = values[np.isfinite(values)]
-    if len(values) == 0:
-        return np.nan
-    if reduction == "rms":
-        return float(np.sqrt(np.mean(values**2)))
-    if reduction == "max":
-        return float(values.max())
-    return float(values.mean())
+    return grid_columns(
+        points, cells, cell_targets, reductions, {"effective_samples": observed}
+    )
