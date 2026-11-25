@@ -263,6 +263,65 @@ class LatencySummary(BaseModel):
     )
 
 
+class SwathCoincidenceSummary(BaseModel):
+    """
+    Summary of the coincident swaths of a region: the areas that two
+    platforms observe in common, within a time difference.
+    """
+
+    pairs: int = Field(..., description="Number of pairs of coincident footprints.")
+    common: float = Field(
+        ...,
+        description="Share of the region's area observed in common by two "
+        "platforms (at least once).",
+    )
+    coverage: CoverageCurve = Field(
+        ...,
+        description="Share of the region's area observed in common so far, over "
+        "time (by the later footprint of each pair).",
+    )
+    time_difference: Optional[Distribution] = Field(
+        None,
+        description="Distribution of the time (seconds) between the footprints "
+        "of each pair.",
+    )
+
+
+class RegionSummary(BaseModel):
+    """
+    Summary of the swath coverage of a region.
+    """
+
+    area: float = Field(..., description="Area of the region (square kilometers).")
+    covered: float = Field(
+        ..., description="Share of the region's area observed at least once."
+    )
+    coverage: CoverageCurve = Field(
+        ..., description="Share of the region's area observed so far, over time."
+    )
+    observations: int = Field(
+        ...,
+        description="Number of observations of the region (periods when any "
+        "part of it is observed, overlapping observations merged).",
+    )
+    access: Optional[Distribution] = Field(
+        None, description="Distribution of the duration (seconds) of observations."
+    )
+    revisit: Optional[Distribution] = Field(
+        None,
+        description="Distribution of the time (seconds) from the end of one "
+        "observation to the start of the next.",
+    )
+    max_gap: float = Field(
+        ...,
+        description="Longest time (seconds) without an observation, including "
+        "from the start and to the end of the period.",
+    )
+    coincidence: Optional[SwathCoincidenceSummary] = Field(
+        None, description="Summary of coincident swaths, if found."
+    )
+
+
 def point_weights(points: pd.DataFrame, weighting: Weighting) -> np.ndarray:
     """
     Gets the weights of points (with a point `geometry`).

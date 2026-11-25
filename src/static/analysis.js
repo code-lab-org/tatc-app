@@ -34,6 +34,14 @@ const ANALYSES = {
     targetLayer: false,
     endpoint: "/analyze/swaths"
   },
+  region: {
+    label: "Swath Coverage of a Region",
+    description: "Swaths of the checked instruments over the region, sampled every step: the share of its area observed over time, " +
+      "its observations and revisit, and optionally the areas several satellites observe in common within a time difference.",
+    region: true,
+    targetLayer: false,
+    endpoint: "/analyze/region"
+  },
   latency: {
     label: "Data Latency (Ground Stations)",
     description: "Latency from the observation of each point to its downlink at a ground station. " +
@@ -470,6 +478,33 @@ function getAnalysisPayload(type, base) {
       sufficiency: sufficiency,
       sample_size: sampleSize
     });
+  } else if (type == "region") {
+    const step = Number($("#region-step").val());
+    const segment = Number($("#region-segment").val());
+    if (!(step > 0) || !(segment > 0)) {
+      $("#analysis-error").text("The step and segment must be positive.").show();
+      return null;
+    }
+    let coincidence = null;
+    if ($("#region-coincidence-enabled").is(":checked")) {
+      const minutes = Number($("#region-coincidence-difference").val());
+      if (!(minutes >= 0)) {
+        $("#analysis-error").text("The maximum time difference must not be negative.").show();
+        return null;
+      }
+      coincidence = {
+        max_time_difference: minutes * 60,
+        platforms: $("#region-coincidence-platforms").val()
+      };
+    }
+    // footprints are sampled every step over the analysis period
+    return _.assign(_.omit(base, "display"), {
+      region: getRegionMask(),
+      instrument_index: null,
+      step: step,
+      segment: segment * 60,
+      coincidence: coincidence
+    });
   } else if (type == "swaths") {
     // swaths animate over the analysis period
     return _.assign(_.omit(base, "display"), {
@@ -697,6 +732,36 @@ function showAnalysisData() {
         })
       }]
     });
+  } else if (type == "region") {
+    const epoch = new Date(analysisResult.payload.start).getTime();
+    const iso = function(seconds) { return new Date(epoch + seconds * 1000).toISOString(); };
+    showResultsTable({
+      title: "Observations of the Region",
+      columns: [
+        { title: "Satellites", key: "satellite" },
+        { title: "Instruments", key: "instrument" },
+        { title: "Start (UTC)", key: "start_utc" },
+        { title: "End (UTC)", key: "end_utc" },
+        { title: "Duration (min)", key: "duration_min", format: number2 }
+      ],
+      rows: _.map(result.observations, function(o) {
+        return {
+          satellite: o.satellite,
+          instrument: o.instrument,
+          start_utc: iso(o.start),
+          end_utc: iso(o.end),
+          duration_min: (o.end - o.start) / 60
+        };
+      }),
+      filename: "region-observations",
+      note: "Periods when any part of the region is observed (overlapping observations merged). Click a row to jump the animation to it.",
+      summary: function(container) { renderRegionSummary(container, result.summary); },
+      onRowClick: function(row) {
+        viewer.clock.currentTime = Cesium.JulianDate.fromIso8601(row.start_utc);
+        viewer.clock.shouldAnimate = true;
+        $("#results-dialog").modal("hide");
+      }
+    });
   } else if (type == "swaths") {
     showResultsTable({
       title: "Swath Segments",
@@ -796,7 +861,7 @@ function changeAnalysisType() {
   $(".analysis-panel[data-analysis~='" + type + "']").addClass("shown");
   $(".region-panel").toggle(ANALYSES[type].region);
   $("#analysis-description").text(ANALYSES[type].description);
-  $(".animate-control").toggle(type != "swaths");
+  $(".animate-control").toggle(type != "swaths" && type != "region");
   adjustDurationForType(type);
   limitAnimation();
   // picking (region vertices or target points) applies to one analysis type
@@ -852,6 +917,9 @@ $(document).ready(function() {
       requestedAnimate = value;
     }
     limitAnimation();
+  });
+  $("#region-coincidence-enabled").change(function() {
+    $("#region-coincidence-options").toggle($(this).is(":checked"));
   });
   $("#sample-size-enabled").change(function() {
     $("#sample-size-options").toggle($(this).is(":checked"));

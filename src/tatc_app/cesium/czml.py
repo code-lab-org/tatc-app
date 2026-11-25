@@ -825,3 +825,54 @@ def swath_packets(
                 }
             )
     return packets
+
+
+# the color of the areas observed in common by coincident swaths
+COINCIDENT_COLOR = "#ffd166"
+
+
+def coincident_packets(
+    pairs: gpd.GeoDataFrame,
+    end: datetime,
+    *,
+    tolerance: float = 0.01,
+    alpha: int = 200,
+) -> List[dict]:
+    """
+    Builds packets for the areas that pairs of satellites observe in common
+    (coincident swaths), which accumulate over time: each appears at its end
+    (the later footprint of its pairs) and remains until the end of the
+    analysis, outlined in one highlight color over the swaths.
+
+    Args:
+        pairs (geopandas.GeoDataFrame): The common areas, with columns
+            `satellite_1`, `satellite_2`, `end`, and `geometry`.
+        end (datetime.datetime): The end of the analysis.
+        tolerance (float): The tolerance (degrees) to simplify geometries.
+        alpha (int): The fill opacity (0-255).
+
+    Returns:
+        List[dict]: The CZML packets.
+    """
+    packets = []
+    for i, row in enumerate(pairs.itertuples()):
+        polygons = polygon_parts(
+            row.geometry.simplify(tolerance, preserve_topology=True)
+        )
+        for j, (polygon, arc_type) in enumerate(display_polygons(polygons)):
+            packets.append(
+                {
+                    "id": f"coincident/{i}/{j}",
+                    "name": f"{row.satellite_1} and {row.satellite_2} in common",
+                    "availability": interval(row.end.to_pydatetime(), end),
+                    "polygon": {
+                        **_polygon_positions(polygon),
+                        "arcType": arc_type,
+                        "material": _solid(COINCIDENT_COLOR, alpha),
+                        "height": 0,
+                        "outline": True,
+                        "outlineColor": {"rgba": [0, 0, 0, 255]},
+                    },
+                }
+            )
+    return packets

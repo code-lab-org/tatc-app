@@ -88,6 +88,25 @@ of a coverage analysis, of coincidences rather than observations.
 
 .. autopydantic_model:: tatc_app.coincidence.schemas.CoincidenceAnalysisResult
 
+Swath Coverage of a Region
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+A region analysis samples the footprints of instruments every ``step`` over
+the analysis period, clipped to the region: the share of its area observed
+over time (measured in an equal-area projection of the WGS 84 ellipsoid), its
+observations (when any part of it is observed), and, with ``coincidence``, the
+areas that two platforms observe in common within ``max_time_difference``.
+
+.. autopydantic_model:: tatc_app.region.schemas.RegionAnalysisRequest
+
+.. autopydantic_model:: tatc_app.region.schemas.SwathCoincidenceOptions
+
+.. autopydantic_model:: tatc_app.region.schemas.RegionAnalysisResult
+
+.. autopydantic_model:: tatc_app.analysis.summary.RegionSummary
+
+.. autopydantic_model:: tatc_app.analysis.summary.SwathCoincidenceSummary
+
 Data Latency
 ^^^^^^^^^^^^
 

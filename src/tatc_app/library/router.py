@@ -13,13 +13,14 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import ValidationError
 
 from .. import limits
-from ..analysis.summary import CoverageSummary, LatencySummary
+from ..analysis.summary import CoverageSummary, LatencySummary, RegionSummary
 from ..auth import User, current_user
 from ..celery.utils import get_task_result
 from ..coincidence.schemas import CoincidenceAnalysisRequest
 from ..coverage.schemas import CoverageAnalysisRequest
 from ..latency.schemas import LatencyAnalysisRequest
 from ..overflight.schemas import OverflightAnalysisRequest
+from ..region.schemas import RegionAnalysisRequest
 from ..tracking.schemas import SwathAnalysisRequest
 from .database import library
 from .schemas import (
@@ -45,6 +46,7 @@ REQUEST_MODELS = {
     AnalysisType.swaths: SwathAnalysisRequest,
     AnalysisType.latency: LatencyAnalysisRequest,
     AnalysisType.access: OverflightAnalysisRequest,
+    AnalysisType.region: RegionAnalysisRequest,
 }
 
 # the summary schema of each type of analysis with a summary
@@ -52,6 +54,7 @@ SUMMARY_MODELS = {
     AnalysisType.coverage: CoverageSummary,
     AnalysisType.coincidence: CoverageSummary,
     AnalysisType.latency: LatencySummary,
+    AnalysisType.region: RegionSummary,
 }
 
 

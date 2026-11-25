@@ -25,6 +25,7 @@ from tatc_app.generation.router import router as generation_router
 from tatc_app.latency.router import router as latency_router
 from tatc_app.library.router import designs_router, runs_router
 from tatc_app.overflight.router import router as overflight_router
+from tatc_app.region.router import router as region_router
 from tatc_app.system_catalog.router import router as system_catalog_router
 from tatc_app.tracking.router import router as tracking_router
 from tatc_app.validation.router import router as validation_router
@@ -70,6 +71,7 @@ for router, prefix in [
     (coverage_router, "/analyze"),
     (coincidence_router, "/analyze"),
     (latency_router, "/analyze"),
+    (region_router, "/analyze"),
     (designs_router, "/designs"),
     (runs_router, "/runs"),
 ]:

@@ -32,6 +32,9 @@ tasks and visualized with animated results (CZML) in the GUI:
    difference, as for cross-calibration matchups, with the statistics of coverage of those
    periods (and optionally their sampling sufficiency).
  * Ground track swaths (`/analyze/swaths`): instrument swaths that accumulate over time.
+ * Swath coverage of a region (`/analyze/region`): swaths over a region, the share of its area
+   observed over time, its observations and revisit, and optionally coincident swaths: the
+   areas two satellites observe in common within a time difference.
  * Data latency (`/analyze/latency`): latency to downlink observations at ground stations.
  * Point access (`/analyze/overflight`): access windows of satellites to target points.
 

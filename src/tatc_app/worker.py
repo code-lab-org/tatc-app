@@ -71,6 +71,7 @@ app = Celery(
         "tatc_app.generation.tasks",
         "tatc_app.latency.tasks",
         "tatc_app.overflight.tasks",
+        "tatc_app.region.tasks",
         "tatc_app.tracking.tasks",
     ],
 )
