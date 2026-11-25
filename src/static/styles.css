@@ -98,6 +98,14 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .display-section-title { font-size: 80%; font-weight: 700; }
 #layer-filter { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
 #layer-filter-list { flex: 0 1 auto; min-height: 4em; overflow-y: auto; }
+/* status over the map, above the timeline, while Cesium prepares graphics */
+#map-busy {
+  position: absolute; z-index: 20;
+  left: 50%; bottom: var(--display-bottom); transform: translateX(-50%);
+  display: none; align-items: center; gap: 8px;
+  padding: 6px 12px; font-size: 13px; white-space: nowrap; pointer-events: none;
+}
+#map-busy.shown { display: flex; }
 /* Cesium's toolbar (the options of its scene mode picker drop down) and info
    box (of a selected entity) show over the display panel */
 .cesium-viewer-toolbar { z-index: 25; }

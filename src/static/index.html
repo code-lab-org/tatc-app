@@ -18,6 +18,12 @@
   <main id="viewer">
     <div id="cesiumContainer"></div>
 
+    <!-- Shown while Cesium prepares graphics, such as large footprints (index.js) -->
+    <div id="map-busy" class="dark-panel" role="status" aria-live="polite">
+      <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+      <span>Drawing on the globe…</span>
+    </div>
+
     <!-- Icon rail: tabs (open/collapse the drawer), API docs, and account -->
     <nav id="rail" aria-label="Main">
       <a class="rail-brand" href="/" title="TAT-C">TAT-C</a>

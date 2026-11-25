@@ -30,6 +30,24 @@ const viewer = new Cesium.Viewer("cesiumContainer", {
 });
 viewer.scene.globe.depthTestAgainstTerrain = false;
 
+// Shows a status over the map while Cesium prepares the graphics of data
+// sources: large footprints, for example, take seconds to tessellate (in web
+// workers). Meanwhile, the viewer pauses the animation (its default
+// `allowDataSourcesToSuspendAnimation`), which `canAnimate` reflects. The
+// status shows after a delay, so it does not flash for brief preparations.
+const MAP_BUSY_DELAY = 300; // milliseconds
+let mapBusySince = null;
+let mapBusyShown = false;
+viewer.scene.postRender.addEventListener(function() {
+  const now = performance.now();
+  mapBusySince = viewer.clockViewModel.canAnimate ? null : (mapBusySince === null ? now : mapBusySince);
+  const shown = mapBusySince !== null && now - mapBusySince >= MAP_BUSY_DELAY;
+  if (shown !== mapBusyShown) {
+    mapBusyShown = shown;
+    $("#map-busy").toggleClass("shown", shown);
+  }
+});
+
 let cesiumIonInitialized = false;
 function initializeCesium() {
   if (cesiumIonInitialized) {
