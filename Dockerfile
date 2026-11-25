@@ -31,7 +31,7 @@ RUN python -m pip install --no-cache-dir .
 ENV NUMBA_CACHE_DIR=/var/tatc-app/.numba-cache
 RUN groupadd --system tatc \
     && useradd --system --gid tatc --no-create-home --shell /usr/sbin/nologin tatc \
-    && mkdir -p "$NUMBA_CACHE_DIR" \
+    && mkdir -p "$NUMBA_CACHE_DIR" /var/tatc-app/data \
     && chown -R tatc:tatc /var/tatc-app
 USER tatc
 
@@ -43,6 +43,9 @@ FROM tatc_runtime AS tatc_server
 WORKDIR /var/tatc-app
 ENV TATC_BROKER=amqp://guest:guest@broker:5672//
 ENV TATC_BACKEND=redis://backend:6379/
+# the saved designs and runs of users (mount a volume at its directory, which
+# the image creates owned by the tatc user, so a new volume is writable)
+ENV TATC_DATABASE=/var/tatc-app/data/tatc-app.db
 
 CMD ["uvicorn", "tatc_app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 

@@ -202,14 +202,14 @@ input:invalid { background-color: #fcc; }
 .dark-panel .page-item.disabled .page-link { color: #6c757d; background-color: transparent; border-color: rgba(255, 255, 255, 0.12); }
 /* summaries of results (summary.js), in the results dialog: tokens of the
    dark surface (the dialog, #212529) and of the one data series */
-#results-summary {
+#results-summary, #runs-compare {
   --summary-series: #3987e5;
   --summary-surface: #212529;
   --summary-text: #e9ecef;
   --summary-text-secondary: #adb5bd;
   --summary-grid: rgba(255, 255, 255, 0.12);
 }
-#results-summary:empty { display: none; }
+#results-summary:empty, #runs-compare:empty { display: none; }
 .summary { margin-bottom: 1rem; }
 .summary-tiles { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .summary-tile {
@@ -246,3 +246,14 @@ input:invalid { background-color: #fcc; }
 .summary-tooltip-label { color: var(--summary-text-secondary); }
 .summary-data summary { font-size: 75%; color: var(--summary-text-secondary); cursor: pointer; }
 .summary-data table { max-width: 24rem; }
+/* the legend of comparison charts, and line keys of series (summary.js) */
+.summary-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 4px 0; font-size: 80%; color: var(--summary-text); }
+.summary-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.summary-line-key { display: inline-block; width: 14px; height: 2px; border-radius: 1px; flex: none; }
+.summary-tooltip-row { display: flex; align-items: center; gap: 6px; }
+/* saved runs (library.js): the color of a run compared, and its metrics */
+.run-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.runs-metrics { width: auto; min-width: 50%; }
+.runs-metrics td:not(:first-child), .runs-metrics th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.library-actions { white-space: nowrap; text-align: right; }
+.library-actions .btn { padding: 0 6px; }

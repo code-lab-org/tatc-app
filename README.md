@@ -30,6 +30,11 @@ Coverage and latency results also summarize the region: the share of it
 observed (or downlinked), distributions of revisit (or latency) times, and the
 share observed over time, weighting points by the area each represents.
 
+Signed-in users save designs and analysis runs to their account (in a SQLite
+database on the server): a saved run keeps its request, its design, and the
+summary of its results, so runs of an analysis can be compared side by side
+and run again.
+
 Each analysis has endpoints to enqueue it (`POST`), retrieve its results
 (`GET .../{task_id}`), and retrieve an animated CZML document
 (`GET .../{task_id}/czml`). `POST /validate/space-system` validates a satellite
@@ -81,6 +86,8 @@ and response bodies.
 | `GET /celestrak/search` | Search CelesTrak for orbital elements by name or catalog number |
 | `GET /cesium/token` | Get the Cesium access token of the GUI |
 | `GET /auth/me`, `GET /auth/token` | Get the current user, or the ID token of the current session |
+| `GET`, `POST /designs`; `GET`, `PUT`, `DELETE /designs/{id}` | List, save, get, replace, and delete the user's saved designs |
+| `GET`, `POST /runs`; `GET`, `PATCH`, `DELETE /runs/{id}` | List (with summaries, optionally by `analysis`), save, get, rename, and delete the user's saved analysis runs |
 
 Responses are JSON, or MessagePack for requests with the header
 `Accept: application/x-msgpack`.
@@ -157,6 +164,10 @@ components.
  * `TATC_CHUNK_SIZE`: number of points (or other items) analyzed by each
    parallel worker task (default: `250`); set it for the server, which splits
    analyses into tasks
+ * `TATC_DATABASE`: path of the SQLite database of the designs and runs that
+   users save (default: `data/tatc-app.db` in the working directory, created
+   on first use; `/var/tatc-app/data/tatc-app.db` in the server image, where
+   the compose files mount a named volume)
 
 The server limits the work that each request may enqueue, so a shared
 deployment stays responsive. Set these limits for the server:
@@ -173,6 +184,10 @@ deployment stays responsive. Set these limits for the server:
    running at once (default: `3`; `0` for no limit). Further analyses are
    refused (HTTP 429) until one finishes or is canceled. The server tracks
    running analyses in memory, so the limit applies per server process.
+ * `TATC_MAX_SAVED_ITEMS`: maximum number of saved designs, and of saved runs,
+   of each user (default: `500` each)
+ * `TATC_MAX_SAVED_BYTES`: maximum size of a saved design or run, as JSON
+   (default: `2000000`)
 
 Set these for both the server and workers:
 
@@ -343,8 +358,10 @@ instead of `compose.dev.yml`. Unlike the development file, these:
    GUI, broker, and backend are only reachable over HTTPS/AMQPS/TLS-Redis;
  * require authenticated broker and backend connections (no `guest` account or
    unauthenticated Redis access); and
- * persist the RabbitMQ, Redis, and Dex (user sign in) data in named Docker
-   volumes across restarts.
+ * persist the RabbitMQ, Redis, and Dex (user sign in) data, and the designs
+   and runs that users save (the `tatc-app-data` volume, which holds the
+   SQLite database: back it up to keep users' work), in named Docker volumes
+   across restarts.
 
 `compose.server.yml` runs the reverse proxy, server, worker, broker, and
 backend on a single host and is suitable for most deployments.

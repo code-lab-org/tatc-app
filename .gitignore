@@ -162,3 +162,6 @@ cython_debug/
 
 # Redis users and passwords (copied from redis.acl.example)
 redis.acl
+
+# saved designs and runs (SQLite database) of local development
+/data/

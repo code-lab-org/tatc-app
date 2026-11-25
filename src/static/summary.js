@@ -278,6 +278,145 @@ function histogramChart(histogram, title, subtitle, noun) {
   return chart.card;
 }
 
+// Gets the share of a coverage curve at a time (the latest sample at or
+// before it), or null past the end of its analysis period.
+function curveShareAt(curve, t) {
+  if (t > _.last(curve.times) + 1e-6) {
+    return null;
+  }
+  const i = _.sortedLastIndex(curve.times, t + 1e-6) - 1;
+  return curve.shares[Math.max(0, i)];
+}
+
+// Line chart comparing the share of the region observed over time of
+// several runs (`series`: {name, color, curve}), with a legend, end labels
+// where they do not collide, and a crosshair whose tooltip lists every run.
+function comparisonChart(series) {
+  const duration = _.max(_.map(series, function(s) { return _.last(s.curve.times); })) || 1;
+  const unit = durationUnit(duration);
+  const times = _.range(0, 11).map(function(i) { return duration * i / 10; });
+  const chart = chartCard(
+    "Share of the region observed so far",
+    "Observed at least once, since the start of each analysis",
+    {
+      columns: ["Time (" + unit.label + ")"].concat(_.map(series, "name")),
+      rows: _.map(times, function(t) {
+        return [formatValue(t / unit.seconds)].concat(_.map(series, function(s) {
+          const share = curveShareAt(s.curve, t);
+          return share === null ? "–" : formatShare(share);
+        }));
+      })
+    }
+  );
+  if (series.length > 1) {
+    const legend = $("<div>").addClass("summary-legend");
+    _.forEach(series, function(s) {
+      legend.append($("<span>").addClass("summary-legend-item").append(
+        $("<span>").addClass("summary-line-key").css("background", s.color),
+        $("<span>").text(s.name)
+      ));
+    });
+    chart.plot.before(legend);
+  }
+  const plotWidth = CHART.width - CHART.left - CHART.right;
+  const plotHeight = CHART.height - CHART.top - CHART.bottom;
+  const x = function(t) { return CHART.left + plotWidth * t / duration; };
+  const y = function(share) { return CHART.top + plotHeight * (1 - share); };
+  const xTicks = _.map(_.filter(niceTicks(duration / unit.seconds, 5), function(v) {
+    return v * unit.seconds <= duration * 1.0001;
+  }), function(v) { return { x: x(v * unit.seconds), label: formatValue(v) }; });
+  drawAxes(chart.svg, 1, [0, 0.25, 0.5, 0.75, 1], xTicks, "Time since start (" + unit.label + ")");
+
+  const ends = [];
+  _.forEach(series, function(s, k) {
+    const d = _.map(s.curve.times, function(t, i) {
+      return (i ? "L" : "M") + x(t).toFixed(1) + "," + y(s.curve.shares[i]).toFixed(1);
+    }).join("");
+    chart.svg.appendChild(svgElement("path", { d: d, class: "summary-line", style: "stroke:" + s.color }));
+    ends.push({
+      series: k, t: _.last(s.curve.times),
+      x: x(_.last(s.curve.times)), y: y(_.last(s.curve.shares)), label: formatShare(_.last(s.curve.shares))
+    });
+  });
+  // end labels, skipping any that would collide with one already placed or
+  // sit on another run's line (the legend and tooltip identify every run)
+  const placed = [];
+  _.forEach(ends, function(end) {
+    const onLabel = _.some(placed, function(p) { return Math.abs(p.x - end.x) < 40 && Math.abs(p.y - end.y) < 14; });
+    const onLine = _.some(series, function(s, k) {
+      if (k === end.series) {
+        return false;
+      }
+      // the other line beside the label (just past the end of this one)
+      const share = curveShareAt(s.curve, Math.min(end.t + duration * 0.02, _.last(s.curve.times)));
+      return _.last(s.curve.times) > end.t && share !== null && Math.abs(y(share) - end.y) < 10;
+    });
+    if (onLabel || onLine) {
+      return;
+    }
+    placed.push(end);
+    chart.svg.appendChild(svgText(end.label, { x: end.x + 6, y: end.y + 4, class: "summary-end-label" }));
+  });
+
+  const crosshair = svgElement("line", { y1: CHART.top, y2: CHART.top + plotHeight, class: "summary-crosshair", visibility: "hidden" });
+  chart.svg.appendChild(crosshair);
+  const markers = _.map(series, function(s) {
+    const marker = svgElement("circle", { r: 4, class: "summary-marker", style: "fill:" + s.color, visibility: "hidden" });
+    chart.svg.appendChild(marker);
+    return marker;
+  });
+  const overlay = svgElement("rect", {
+    x: CHART.left, y: CHART.top, width: plotWidth, height: plotHeight,
+    fill: "transparent", tabindex: 0, "aria-label": "Shares observed over time (use the arrow keys)"
+  });
+  chart.svg.appendChild(overlay);
+  let current = 1;
+  function show(fraction) {
+    current = Math.max(0, Math.min(1, fraction));
+    const t = current * duration;
+    crosshair.setAttribute("x1", x(t));
+    crosshair.setAttribute("x2", x(t));
+    crosshair.setAttribute("visibility", "visible");
+    chart.tooltip.empty().append($("<div>").addClass("summary-tooltip-label").text(formatDuration(t, unit) + " since start"));
+    _.forEach(series, function(s, k) {
+      const share = curveShareAt(s.curve, t);
+      markers[k].setAttribute("visibility", share === null ? "hidden" : "visible");
+      if (share !== null) {
+        markers[k].setAttribute("cx", x(t));
+        markers[k].setAttribute("cy", y(share));
+      }
+      chart.tooltip.append($("<div>").addClass("summary-tooltip-row").append(
+        $("<span>").addClass("summary-line-key").css("background", s.color),
+        $("<span>").addClass("summary-tooltip-value").text(share === null ? "–" : formatShare(share)),
+        $("<span>").addClass("summary-tooltip-label").text(s.name)
+      ));
+    });
+    chart.tooltip.show();
+    const scale = chart.plot.width() / CHART.width || 1;
+    const left = Math.min(x(t) * scale + 12, chart.plot.width() - chart.tooltip.outerWidth());
+    chart.tooltip.css({ left: Math.max(0, left) + "px", top: "0px" });
+  }
+  function hide() {
+    crosshair.setAttribute("visibility", "hidden");
+    _.forEach(markers, function(m) { m.setAttribute("visibility", "hidden"); });
+    chart.tooltip.hide();
+  }
+  overlay.addEventListener("pointermove", function(event) {
+    const box = chart.svg.getBoundingClientRect();
+    const svgX = (event.clientX - box.left) * CHART.width / box.width;
+    show((svgX - CHART.left) / plotWidth);
+  });
+  overlay.addEventListener("pointerleave", hide);
+  overlay.addEventListener("focus", function() { show(current); });
+  overlay.addEventListener("blur", hide);
+  overlay.addEventListener("keydown", function(event) {
+    const step = event.shiftKey ? 0.1 : 0.01;
+    if (event.key == "ArrowRight") { show(current + step); event.preventDefault(); }
+    if (event.key == "ArrowLeft") { show(current - step); event.preventDefault(); }
+  });
+  return chart.card;
+}
+
 // --- Summaries ---
 
 // A stat tile: a label, a value, and an optional detail line.

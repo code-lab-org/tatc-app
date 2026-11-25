@@ -59,3 +59,9 @@ TASK_TIME_LIMIT = int(_env_number("TATC_TASK_TIME_LIMIT", 3600))
 
 # time (seconds) for which the backend keeps task results
 RESULT_EXPIRES = int(_env_number("TATC_RESULT_EXPIRES", 86400))
+
+# maximum number of saved designs, and of saved runs, of each user
+MAX_SAVED_ITEMS = int(_env_number("TATC_MAX_SAVED_ITEMS", 500))
+
+# maximum size (bytes, as JSON) of a saved design or run
+MAX_SAVED_BYTES = int(_env_number("TATC_MAX_SAVED_BYTES", 2_000_000))

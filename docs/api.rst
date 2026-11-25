@@ -152,3 +152,25 @@ Authentication
 .. autopydantic_model:: tatc_app.auth.AuthInfo
 
 .. autopydantic_model:: tatc_app.auth.User
+
+Saved Designs and Runs
+----------------------
+
+Signed-in users save designs (as the GUI exports them) and analysis runs to
+their account. A saved run keeps its request (to run it again), its design,
+and the summary of its results (for coverage and latency analyses), not the
+full results.
+
+.. autopydantic_model:: tatc_app.library.schemas.DesignInput
+
+.. autopydantic_model:: tatc_app.library.schemas.DesignInfo
+
+.. autopydantic_model:: tatc_app.library.schemas.SavedDesign
+
+.. autopydantic_model:: tatc_app.library.schemas.RunInput
+
+.. autopydantic_model:: tatc_app.library.schemas.RunRename
+
+.. autopydantic_model:: tatc_app.library.schemas.RunInfo
+
+.. autopydantic_model:: tatc_app.library.schemas.SavedRun
