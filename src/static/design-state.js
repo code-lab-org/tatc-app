@@ -341,6 +341,8 @@ $(document).ready(function() {
     file.text().then(function(text) {
       try {
         importDesign(JSON.parse(text));
+        // an imported design is not a saved design (see library.js)
+        setSavedDesignRef(null);
       } catch (e) {
         alert("Could not import the design: " + e.message);
       }
@@ -350,6 +352,7 @@ $(document).ready(function() {
   $("#design-reset").click(function() {
     if (confirm("Replace the current design with the default design?")) {
       importDesign(defaultDesign());
+      setSavedDesignRef(null);
     }
   });
 });

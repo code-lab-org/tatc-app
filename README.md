@@ -26,6 +26,15 @@ tasks and visualized with animated results (CZML) in the GUI:
  * Data latency (`/analyze/latency`): latency to downlink observations at ground stations.
  * Point access (`/analyze/overflight`): access windows of satellites to target points.
 
+Coverage and latency results also summarize the region: the share of it
+observed (or downlinked), distributions of revisit (or latency) times, and the
+share observed over time, weighting points by the area each represents.
+
+Signed-in users save designs and analysis runs to their account (in a SQLite
+database on the server): a saved run keeps its request, its design, and the
+summary of its results, so runs of an analysis can be compared side by side
+and run again.
+
 Each analysis has endpoints to enqueue it (`POST`), retrieve its results
 (`GET .../{task_id}`), and retrieve an animated CZML document
 (`GET .../{task_id}/czml`). `POST /validate/space-system` validates a satellite
@@ -77,6 +86,8 @@ and response bodies.
 | `GET /celestrak/search` | Search CelesTrak for orbital elements by name or catalog number |
 | `GET /cesium/token` | Get the Cesium access token of the GUI |
 | `GET /auth/me`, `GET /auth/token` | Get the current user, or the ID token of the current session |
+| `GET`, `POST /designs`; `GET`, `PUT`, `DELETE /designs/{id}` | List, save, get, replace, and delete the user's saved designs |
+| `GET`, `POST /runs`; `GET`, `PATCH`, `DELETE /runs/{id}` | List (with summaries, optionally by `analysis`), save, get, rename, and delete the user's saved analysis runs |
 
 Responses are JSON, or MessagePack for requests with the header
 `Accept: application/x-msgpack`.
@@ -153,6 +164,43 @@ components.
  * `TATC_CHUNK_SIZE`: number of points (or other items) analyzed by each
    parallel worker task (default: `250`); set it for the server, which splits
    analyses into tasks
+ * `TATC_DATABASE`: path of the SQLite database of the designs and runs that
+   users save (default: `data/tatc-app.db` in the working directory, created
+   on first use; `/var/tatc-app/data/tatc-app.db` in the server image, where
+   the compose files mount a named volume)
+
+The server limits the work that each request may enqueue, so a shared
+deployment stays responsive. Set these limits for the server:
+
+ * `TATC_MAX_POINTS` / `TATC_MAX_CELLS`: maximum number of points / cells of
+   an analysis or generation request, whether listed or generated (default:
+   `100000` each). Independent of these, a grid may generate at most 5
+   million candidate points or cells before it is clipped to its mask (a
+   Fibonacci lattice always covers the globe; an equally spaced grid covers
+   the bounds of its mask).
+ * `TATC_MAX_ANALYSIS_DAYS`: maximum duration of an analysis period, in days
+   (default: `366`)
+ * `TATC_MAX_ACTIVE_ANALYSES`: maximum number of analyses each user may have
+   running at once (default: `3`; `0` for no limit). Further analyses are
+   refused (HTTP 429) until one finishes or is canceled. The server tracks
+   running analyses in memory, so the limit applies per server process.
+ * `TATC_MAX_SAVED_ITEMS`: maximum number of saved designs, and of saved runs,
+   of each user (default: `500` each)
+ * `TATC_MAX_SAVED_BYTES`: maximum size of a saved design or run, as JSON
+   (default: `2000000`)
+
+Set these for both the server and workers:
+
+ * `TATC_TASK_TIME_LIMIT`: time (seconds) after which a worker stops a task
+   and records it as failed (default: `3600`; `0` for no limit). Workers
+   enforce it with Celery's default (prefork) pool, not the `solo` pool.
+ * `TATC_RESULT_EXPIRES`: time (seconds) for which the backend keeps task
+   results (default: `86400`, one day). Results of an analysis are not
+   available after they expire.
+
+The compose files do not set these limits, so their defaults apply; to
+change one, add it to the `environment` of the `server` (and, for the last
+two, `worker`) service.
 
 ## Development
 
@@ -288,6 +336,11 @@ result backend, so they do not require a broker, backend, or worker (see
 and worker (configured by `TATC_BROKER` and `TATC_BACKEND`), set
 `TATC_TEST_LIVE=1`.
 
+The [Tests](https://github.com/code-lab-org/tatc-app/blob/main/.github/workflows/test.yml)
+workflow checks the code style and runs the tests on every pull request, and
+before the images are built and pushed on every push to `main`, so code that
+fails its tests is not deployed.
+
 ### Code Style
 
 This project uses the black code style and isort import ordering, applied
@@ -305,8 +358,10 @@ instead of `compose.dev.yml`. Unlike the development file, these:
    GUI, broker, and backend are only reachable over HTTPS/AMQPS/TLS-Redis;
  * require authenticated broker and backend connections (no `guest` account or
    unauthenticated Redis access); and
- * persist the RabbitMQ, Redis, and Dex (user sign in) data in named Docker
-   volumes across restarts.
+ * persist the RabbitMQ, Redis, and Dex (user sign in) data, and the designs
+   and runs that users save (the `tatc-app-data` volume, which holds the
+   SQLite database: back it up to keep users' work), in named Docker volumes
+   across restarts.
 
 `compose.server.yml` runs the reverse proxy, server, worker, broker, and
 backend on a single host and is suitable for most deployments.

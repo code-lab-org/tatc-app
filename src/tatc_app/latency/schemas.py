@@ -4,13 +4,14 @@ Schema specifications for latency analysis endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from typing import Dict, List, Literal
+from typing import Dict, List, Literal, Optional
 
 from geojson_pydantic import FeatureCollection
 from pydantic import Field, field_validator
 from tatc.schemas import GroundStation
 
 from ..analysis.schemas import AnimatedResult, PointsCellsAnalysisRequest
+from ..analysis.summary import LatencySummary
 from ..analysis.timeline import Timeline
 
 
@@ -70,4 +71,7 @@ class LatencyAnalysisResult(AnimatedResult):
     stations: List[GroundStation] = Field(..., description="Ground stations.")
     cell_targets: Dict[str, List[int]] = Field(
         {}, description="Indices of the points within each cell, by `cell_id`."
+    )
+    summary: Optional[LatencySummary] = Field(
+        None, description="Summary of data latency over the points."
     )

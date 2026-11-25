@@ -60,7 +60,7 @@ class PointGenerator(CamelModel):
         PointGeneratorMethod.equally_spaced, description="Point generation method."
     )
     distance: float = Field(
-        1e6, description="Characteristic distance (meters) between points."
+        1e6, gt=0, description="Characteristic distance (meters) between points."
     )
     elevation: float = Field(
         0,
@@ -105,7 +105,9 @@ class CellGenerator(CamelModel):
         CellGeneratorMethod.equally_spaced, description="Cell generation method."
     )
     distance: float = Field(
-        1e6, description="Characteristic distance (meters) between cell centroids."
+        1e6,
+        gt=0,
+        description="Characteristic distance (meters) between cell centroids.",
     )
     elevation: float = Field(
         0,

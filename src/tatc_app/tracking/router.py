@@ -10,7 +10,7 @@ from typing import List
 from uuid import UUID
 
 from celery import chord, group
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from geojson_pydantic import FeatureCollection
 
 from ..analysis.endpoints import (
@@ -19,6 +19,7 @@ from ..analysis.endpoints import (
     get_analysis_result,
     serialize_members,
 )
+from ..celery.quota import TaskSlot, analysis_slot
 from ..celery.schemas import CeleryTask
 from ..celery.utils import enqueue, get_task_result
 from ..cesium.czml import animation_packets, swath_packets
@@ -146,7 +147,9 @@ def retrieve_ground_track_analysis(task_id: UUID):
 
 
 @router.post("/swaths", response_model=CeleryTask)
-def enqueue_swath_analysis(request: SwathAnalysisRequest):
+def enqueue_swath_analysis(
+    request: SwathAnalysisRequest, slot: TaskSlot = Depends(analysis_slot)
+):
     """
     Endpoint to enqueue a task to analyze instrument swaths (and orbit
     tracks) of satellites and constellations, in parallel by member
@@ -154,6 +157,7 @@ def enqueue_swath_analysis(request: SwathAnalysisRequest):
 
     Args:
         request (SwathAnalysisRequest): User request.
+        slot (TaskSlot): Slot reserved for the user's analysis.
 
     Returns:
         CeleryTask: Queued task.
@@ -181,6 +185,7 @@ def enqueue_swath_analysis(request: SwathAnalysisRequest):
             request.get_member_colors(),
             request.get_member_systems(),
         ),
+        slot,
     )
 
 

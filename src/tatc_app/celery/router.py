@@ -11,6 +11,7 @@ from celery.result import GroupResult
 from fastapi import APIRouter, HTTPException, Response
 
 from ..worker import app as celery_app
+from .quota import analysis_quota
 from .schemas import CeleryResultProgress, CeleryResultStatus
 
 router = APIRouter()
@@ -58,6 +59,7 @@ async def revoke_task(task_id: UUID, group_id: Optional[UUID] = None):
     Workers skip revoked tasks that have not started yet; tasks already
     running finish, but their results are discarded. Revoking a task that
     has already completed has no effect.
+    A revoked analysis no longer counts toward the user's running analyses.
 
     Args:
         task_id (UUID): Task unique identifier (of the workflow's final result).
@@ -70,4 +72,6 @@ async def revoke_task(task_id: UUID, group_id: Optional[UUID] = None):
         if group is not None:
             task_ids.extend(child.id for child in group.children)
     celery_app.control.revoke(task_ids)
+    # a revoked workflow may never store its final result
+    analysis_quota.release_task(str(task_id))
     return Response(status_code=204)

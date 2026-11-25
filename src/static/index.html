@@ -105,6 +105,9 @@
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="catalog-open" title="Load satellites of past and present programs from the system catalog" data-toggle="modal" data-target="#catalog-dialog">
                   <i class="fas fa-book"></i> Catalog
                 </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="designs-open" title="Save the design to your account, or open a saved design">
+                  <i class="fas fa-folder-open"></i> Saved
+                </button>
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="design-export" title="Download the design as a JSON file">
                   <i class="fas fa-file-export"></i> Export
                 </button>
@@ -307,10 +310,19 @@
               </div>
               <div class="col-sm-6">
                 <button type="button" class="btn btn-secondary btn-block" id="analysis-data" disabled>
-                  <i class="fas fa-database"></i> Data
+                  <i class="fas fa-chart-bar"></i> Results
                 </button>
               </div>
             </div>
+            <div class="mt-1">
+              <button type="button" class="btn btn-outline-secondary btn-sm" id="run-save" disabled title="Save the inputs and summary of the results to your account">
+                <i class="fas fa-save"></i> Save run
+              </button>
+              <button type="button" class="btn btn-outline-secondary btn-sm" id="runs-open" title="Compare, and run again, the saved runs of this analysis">
+                <i class="fas fa-folder-open"></i> Saved runs
+              </button>
+            </div>
+            <div class="small text-success mt-1" id="run-saved" role="status" style="display:none"></div>
             <div class="alert alert-danger small mt-2" id="analysis-error" style="display:none"></div>
           </div>
         </div>
@@ -687,7 +699,7 @@
           <div class="form-group row">
             <label for="point-distance" class="col-sm-3 col-form-label">Distance</label>
             <div class="input-group col-sm-9">
-              <input type="number" min="50" value="1000" step="any" class="form-control" id="point-distance">
+              <input type="number" min="100" value="1000" step="any" class="form-control" id="point-distance">
               <div class="input-group-append"><span class="input-group-text">km</span></div>
             </div>
           </div>
@@ -767,6 +779,68 @@
     </div>
   </div>
 
+  <!-- Saved designs -->
+  <div class="modal fade" id="designs-dialog" tabindex="-1" role="dialog" aria-labelledby="designs-title">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable" role="document">
+      <div class="modal-content dark-panel">
+        <div class="modal-header">
+          <h5 class="modal-title" id="designs-title">Saved Designs</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <form id="design-save-form" class="form-row align-items-end mb-3">
+            <div class="col">
+              <label for="design-save-name" class="small mb-1">Save the current design as</label>
+              <input type="text" class="form-control form-control-sm" id="design-save-name" maxlength="100" required>
+            </div>
+            <div class="col-auto">
+              <button type="submit" class="btn btn-primary btn-sm">Save as new</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="design-update" style="display:none"></button>
+            </div>
+          </form>
+          <div class="alert alert-danger small" id="designs-error" style="display:none"></div>
+          <div class="small text-success mb-2" id="designs-status" role="status" style="display:none"></div>
+          <table class="table table-sm small mb-0">
+            <thead><tr><th>Name</th><th>Satellites</th><th>Saved</th><th class="text-right">Actions</th></tr></thead>
+            <tbody id="designs-list"></tbody>
+          </table>
+          <p class="small text-muted mt-2 mb-0" id="designs-empty" style="display:none">No saved designs yet.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-primary" data-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Saved runs -->
+  <div class="modal fade" id="runs-dialog" tabindex="-1" role="dialog" aria-labelledby="runs-title">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable" role="document">
+      <div class="modal-content dark-panel">
+        <div class="modal-header">
+          <h5 class="modal-title" id="runs-title">Saved Runs</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-danger small" id="runs-error" style="display:none"></div>
+          <div id="runs-compare"></div>
+          <table class="table table-sm small mb-0">
+            <thead><tr><th>Compare</th><th>Name</th><th>Saved</th><th id="runs-metric"></th><th class="text-right">Actions</th></tr></thead>
+            <tbody id="runs-list"></tbody>
+          </table>
+          <p class="small text-muted mt-2 mb-0" id="runs-empty" style="display:none">No saved runs of this analysis yet: run it, then choose Save run.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-primary" data-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Results table -->
   <div class="modal fade" id="results-dialog" tabindex="-1" role="dialog">
     <div class="modal-dialog modal-xl" role="document">
@@ -778,6 +852,7 @@
           </button>
         </div>
         <div class="modal-body overflow-auto">
+          <div id="results-summary"></div>
           <p class="small text-muted" id="results-note"></p>
           <table class="table table-sm small w-100" id="results-table"></table>
         </div>
@@ -813,8 +888,10 @@
   <script src="preview.js"></script>
   <script src="region.js"></script>
   <script src="target-layer.js"></script>
+  <script src="summary.js"></script>
   <script src="sites.js"></script>
   <script src="analysis.js"></script>
+  <script src="library.js"></script>
   <script src="main.js"></script>
 </body>
 

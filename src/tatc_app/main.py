@@ -22,6 +22,7 @@ from tatc_app.cesium.router import get_cesium_router
 from tatc_app.coverage.router import router as coverage_router
 from tatc_app.generation.router import router as generation_router
 from tatc_app.latency.router import router as latency_router
+from tatc_app.library.router import designs_router, runs_router
 from tatc_app.overflight.router import router as overflight_router
 from tatc_app.system_catalog.router import router as system_catalog_router
 from tatc_app.tracking.router import router as tracking_router
@@ -67,6 +68,8 @@ for router, prefix in [
     (tracking_router, "/analyze"),
     (coverage_router, "/analyze"),
     (latency_router, "/analyze"),
+    (designs_router, "/designs"),
+    (runs_router, "/runs"),
 ]:
     app.include_router(router, prefix=prefix, dependencies=[Depends(current_user)])
 

@@ -8,13 +8,14 @@ import logging
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from ..analysis.endpoints import (
     enqueue_analysis,
     get_analysis_result,
     serialize_members,
 )
+from ..celery.quota import TaskSlot, analysis_slot
 from ..celery.schemas import CeleryTask
 from ..cesium.czml import animation_packets, link_packets, site_packets
 from ..generation.utils import resolve_points
@@ -28,13 +29,16 @@ router = APIRouter()
 
 
 @router.post("/overflight", response_model=CeleryTask)
-def enqueue_overflight_analysis(request: OverflightAnalysisRequest):
+def enqueue_overflight_analysis(
+    request: OverflightAnalysisRequest, slot: TaskSlot = Depends(analysis_slot)
+):
     """
     Endpoint to enqueue a task to collect overflights (accesses) of points,
     in parallel by member satellite.
 
     Args:
         request (OverflightAnalysisRequest): User request.
+        slot (TaskSlot): Slot reserved for the user's analysis.
 
     Returns:
         CeleryTask: Queued task.
@@ -60,6 +64,7 @@ def enqueue_overflight_analysis(request: OverflightAnalysisRequest):
             request.start.isoformat(),
             request.get_member_colors(),
         ),
+        slot,
     )
 
 

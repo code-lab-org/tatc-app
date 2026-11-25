@@ -35,6 +35,17 @@ member tracks of ``AnimatedResult``.
 
 .. autopydantic_model:: tatc_app.analysis.schemas.AnimatedResult
 
+Results of coverage and latency analyses include a summary over their points:
+shares of the region, and distributions of the points' statistics, weighted
+by the area each point represents for points equally spaced in latitude and
+longitude (see ``Weighting``).
+
+.. autopydantic_model:: tatc_app.analysis.summary.Distribution
+
+.. autopydantic_model:: tatc_app.analysis.summary.Histogram
+
+.. autopydantic_model:: tatc_app.analysis.summary.CoverageCurve
+
 Coverage and Revisit
 ^^^^^^^^^^^^^^^^^^^^
 
@@ -42,12 +53,16 @@ Coverage and Revisit
 
 .. autopydantic_model:: tatc_app.coverage.schemas.CoverageAnalysisResult
 
+.. autopydantic_model:: tatc_app.analysis.summary.CoverageSummary
+
 Data Latency
 ^^^^^^^^^^^^
 
 .. autopydantic_model:: tatc_app.latency.schemas.LatencyAnalysisRequest
 
 .. autopydantic_model:: tatc_app.latency.schemas.LatencyAnalysisResult
+
+.. autopydantic_model:: tatc_app.analysis.summary.LatencySummary
 
 Point Access (Overflight)
 ^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -137,3 +152,25 @@ Authentication
 .. autopydantic_model:: tatc_app.auth.AuthInfo
 
 .. autopydantic_model:: tatc_app.auth.User
+
+Saved Designs and Runs
+----------------------
+
+Signed-in users save designs (as the GUI exports them) and analysis runs to
+their account. A saved run keeps its request (to run it again), its design,
+and the summary of its results (for coverage and latency analyses), not the
+full results.
+
+.. autopydantic_model:: tatc_app.library.schemas.DesignInput
+
+.. autopydantic_model:: tatc_app.library.schemas.DesignInfo
+
+.. autopydantic_model:: tatc_app.library.schemas.SavedDesign
+
+.. autopydantic_model:: tatc_app.library.schemas.RunInput
+
+.. autopydantic_model:: tatc_app.library.schemas.RunRename
+
+.. autopydantic_model:: tatc_app.library.schemas.RunInfo
+
+.. autopydantic_model:: tatc_app.library.schemas.SavedRun

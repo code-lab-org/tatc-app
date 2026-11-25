@@ -8,7 +8,7 @@ import logging
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from ..analysis.endpoints import (
     chunk,
@@ -16,6 +16,8 @@ from ..analysis.endpoints import (
     get_analysis_result,
     serialize_members,
 )
+from ..analysis.summary import get_weighting
+from ..celery.quota import TaskSlot, analysis_slot
 from ..celery.schemas import CeleryTask
 from ..cesium.czml import animation_packets
 from ..generation.utils import resolve_cells, resolve_points
@@ -29,13 +31,16 @@ router = APIRouter()
 
 
 @router.post("/coverage", response_model=CeleryTask)
-def enqueue_coverage_analysis(request: CoverageAnalysisRequest):
+def enqueue_coverage_analysis(
+    request: CoverageAnalysisRequest, slot: TaskSlot = Depends(analysis_slot)
+):
     """
     Endpoint to enqueue a task to perform coverage analysis, in parallel by
     chunks of points (each observed by all member satellites).
 
     Args:
         request (CoverageAnalysisRequest): User request.
+        slot (TaskSlot): Slot reserved for the user's analysis.
 
     Returns:
         CeleryTask: Queued task.
@@ -61,7 +66,10 @@ def enqueue_coverage_analysis(request: CoverageAnalysisRequest):
             to_geojson(cells),
             request.start.isoformat(),
             request.get_member_colors(),
+            request.end.isoformat(),
+            get_weighting(request.points).value,
         ),
+        slot,
     )
 
 

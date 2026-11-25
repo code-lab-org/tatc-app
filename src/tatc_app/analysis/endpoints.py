@@ -16,6 +16,7 @@ from celery.canvas import Signature
 from pydantic import BaseModel
 from tatc.schemas import Satellite
 
+from ..celery.quota import TaskSlot
 from ..celery.utils import enqueue, get_task_result
 from .schemas import AnalysisRequest
 from .tasks import collect_member_track_task
@@ -89,6 +90,7 @@ def enqueue_analysis(
     members: List[Satellite],
     tasks: List[Signature],
     combine: Signature,
+    slot: TaskSlot,
 ) -> dict:
     """
     Enqueues an analysis: parallel tasks, plus tasks to collect the orbit
@@ -100,12 +102,17 @@ def enqueue_analysis(
         members (List[tatc.schemas.Satellite]): The member satellites.
         tasks (List[celery.canvas.Signature]): The parallel analysis tasks.
         combine (celery.canvas.Signature): The task to combine results.
+        slot (TaskSlot): The slot reserved for the user's analysis (see
+            `celery.quota.analysis_slot`), counting it as running until its
+            results are ready.
 
     Returns:
         dict: The enqueued task (see `celery.utils.enqueue`).
     """
-    return enqueue(
-        chord(group(tasks + member_track_signatures(request, members)), combine)
+    return slot.track(
+        enqueue(
+            chord(group(tasks + member_track_signatures(request, members)), combine)
+        )
     )
 
 

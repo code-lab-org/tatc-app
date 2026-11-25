@@ -43,6 +43,9 @@ services:
       TATC_OIDC_ISSUER: https://${TATC_DOMAIN}/dex
       TATC_OIDC_CLIENT_ID: tatc-app
       TATC_OIDC_CLIENT_SECRET: ${TATC_OIDC_CLIENT_SECRET}
+    # the saved designs and runs of users
+    volumes:
+      - tatc-data:/var/tatc-app/data
     # reach Dex at its public URL through the reverse proxy on this host
     extra_hosts:
       - "${TATC_DOMAIN}:host-gateway"
@@ -144,3 +147,5 @@ volumes:
     name: tatc-redis-data
   dex-data:
     name: tatc-dex-data
+  tatc-data:
+    name: tatc-app-data

@@ -2,7 +2,7 @@
 // ground stations, and point access (overflight) analyses, with animated
 // results in the Cesium viewer.
 
-let analysisResult = null; // {type, result, taskId, payload, duration}
+let analysisResult = null; // {type, result, taskId, payload, design, duration}
 let targetLayer = null;
 
 // The analyses (in the order of the analysis select): whether each analyzes
@@ -129,7 +129,7 @@ function dropStaleAnalysis() {
   }
   clearAnalysisLayers();
   analysisResult = null;
-  $("#analysis-data").prop("disabled", true);
+  enableResultButtons(false);
   if ($("#nav-analysis-tab").hasClass("active")) {
     changeAnalysisType();
   }
@@ -317,6 +317,20 @@ function runSelectedAnalysis() {
   if (!payload) {
     return;
   }
+  startAnalysis(type, payload, exportDesign());
+}
+
+// Enables (or disables) the buttons that act on analysis results.
+function enableResultButtons(enable) {
+  $("#analysis-data, #run-save").prop("disabled", !enable);
+  if (!enable) {
+    $("#run-saved").hide();
+  }
+}
+
+// Runs an analysis of a type with a request (`payload`), keeping the design
+// it analyzes (as exported) with its results, to save the run.
+function startAnalysis(type, payload, designSnapshot) {
   // cells of the results have the edges of the region requested
   const arcType = getArcType();
   const endpoint = ANALYSES[type].endpoint;
@@ -340,9 +354,10 @@ function runSelectedAnalysis() {
         result: result,
         taskId: taskId,
         payload: payload,
+        design: designSnapshot,
         duration: (new Date(payload.end) - new Date(payload.start)) / 1000
       };
-      $("#analysis-data").prop("disabled", false);
+      enableResultButtons(true);
       if (hasTargetLayer(type)) {
         targetLayer = new TargetLayer({
           points: result.points,
@@ -401,7 +416,8 @@ function showAnalysisData() {
       ]),
       rows: pointRows(function(p) { return { access_s: p.access, revisit_h: hours(p.revisit) }; }),
       filename: "coverage-points",
-      note: "Statistics of each point over the analysis period. Overlapping observations by several satellites count once."
+      note: "Statistics of each point over the analysis period. Overlapping observations by several satellites count once.",
+      summary: result.summary ? function(container) { renderCoverageSummary(container, result.summary); } : null
     });
   } else if (type == "latency") {
     const contacts = result.contacts;
@@ -411,7 +427,8 @@ function showAnalysisData() {
       columns: pointColumns.concat([{ title: "Mean latency (h)", key: "latency_h", format: number2 }]),
       rows: pointRows(function(p) { return { latency_h: hours(p.latency) }; }),
       filename: "latency-points",
-      note: contacts.start.length + " contacts with ground stations.",
+      note: "Statistics of each point over the analysis period.",
+      summary: result.summary ? function(container) { renderLatencySummary(container, result.summary); } : null,
       extras: [{
         label: "Contacts CSV",
         filename: "latency-contacts.csv",
@@ -540,7 +557,7 @@ function changeAnalysisType() {
     showRegion(true);
   }
   showAnalysisLayers(showResults);
-  $("#analysis-data").prop("disabled", !showResults);
+  enableResultButtons(showResults);
   renderSiteEntities();
 }
 

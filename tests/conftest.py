@@ -12,9 +12,15 @@ tests authentication with an OpenID Connect provider.
 """
 
 import os
+import tempfile
 
 # authentication is tested separately (see `test_auth.py`)
 os.environ["TATC_AUTH"] = "none"
+
+# saved designs and runs go to a temporary database
+os.environ["TATC_DATABASE"] = os.path.join(
+    tempfile.mkdtemp(prefix="tatc-app-test-"), "tatc-app.db"
+)
 
 if os.getenv("TATC_TEST_LIVE", "0") != "1":
     os.environ["TATC_BROKER"] = "memory://"

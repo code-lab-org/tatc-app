@@ -15,6 +15,9 @@ services:
       TATC_CESIUM_TOKEN: ${TATC_CESIUM_TOKEN}
       # local development only: no sign in required
       TATC_AUTH: none
+    # the saved designs and runs of users, kept across `docker compose down`
+    volumes:
+      - tatc-dev-data:/var/tatc-app/data
   worker:
     build:
       context: .
@@ -35,3 +38,5 @@ services:
     image: redis:6
     ports:
       - "6379:6379"
+volumes:
+  tatc-dev-data:

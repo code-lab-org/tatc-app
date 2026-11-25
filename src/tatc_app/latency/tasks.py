@@ -6,7 +6,7 @@ Task specifications for latency analysis endpoints.
 
 import json
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 import geopandas as gpd
 from tatc.analysis import (
@@ -18,6 +18,7 @@ from tatc.analysis import (
 )
 from tatc.schemas import GroundStation, Satellite
 
+from ..analysis.summary import Weighting, summarize_latency
 from ..analysis.tasks import combine_animation, get_cell_targets, tag, untag
 from ..analysis.timeline import build_timeline
 from ..utils.serialization import concat, empty_frame, from_geojson, to_geojson
@@ -126,10 +127,11 @@ def compute_latency(
     stations: List[GroundStation],
     epoch: datetime,
     members: List[str],
+    weighting: Optional[Weighting] = None,
 ) -> dict:
     """
-    Reduces latencies of observations to statistics of points and cells, and
-    timelines of observations and contacts.
+    Reduces latencies of observations to statistics of points and cells,
+    timelines of observations and contacts, and a summary over the points.
 
     Args:
         latencies (geopandas.GeoDataFrame): The latencies of observations.
@@ -139,10 +141,12 @@ def compute_latency(
         stations (List[tatc.schemas.GroundStation]): The ground stations.
         epoch (datetime.datetime): The reference time.
         members (List[str]): The member satellite names.
+        weighting (Optional[Weighting]): The weighting of points in the
+            summary (without it, no summary).
 
     Returns:
-        dict: The `points`, `cells`, `timeline`, `contacts`, `stations`, and
-            `cell_targets`.
+        dict: The `points`, `cells`, `timeline`, `contacts`, `stations`,
+            `cell_targets`, and `summary`.
     """
     reduced = reduce_latencies(latencies, targets=points).reset_index(drop=True)
     gridded = grid_latencies(reduced, cells)
@@ -166,12 +170,23 @@ def compute_latency(
         ),
         "stations": stations,
         "cell_targets": get_cell_targets(reduced, cells),
+        "summary": (
+            None
+            if weighting is None
+            else summarize_latency(reduced, contacts, weighting)
+        ),
     }
 
 
 @app.task
 def combine_latency_task(
-    results: list, points: str, cells: str, stations: list, start: str, colors: dict
+    results: list,
+    points: str,
+    cells: str,
+    stations: list,
+    start: str,
+    colors: dict,
+    weighting: Optional[str] = None,
 ) -> str:
     """
     Task to combine latencies of observations into latency statistics.
@@ -183,6 +198,8 @@ def combine_latency_task(
         stations (list): List of JSON serialized :class:`tatc.schemas.GroundStation` objects.
         start (str): ISO 8601 serialized start time (reference time).
         colors (dict): Display colors by member satellite name.
+        weighting (Optional[str]): The weighting of points in the summary
+            (see `Weighting`; without it, no summary).
 
     Returns:
         str: JSON serialized `LatencyAnalysisResult`.
@@ -212,6 +229,7 @@ def combine_latency_task(
             [GroundStation.model_validate_json(station) for station in stations],
             animation.epoch,
             animation.members,
+            None if weighting is None else Weighting(weighting),
         ),
         tracks=animation.tracks,
         colors=animation.colors,
