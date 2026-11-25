@@ -1,0 +1,41 @@
+name: Tests
+
+# Runs on pull requests, and before images are built and pushed (see
+# ghcr-push-image.yml, which calls this workflow), so code that fails its
+# tests is never deployed.
+on:
+  pull_request:
+    branches: [ "main" ]
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # the Python version of the Docker images
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install the application and development dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Check the code style
+        run: |
+          black --check .
+          isort --check-only .
+
+      # tasks run eagerly, without a broker, backend, or worker (see
+      # tests/conftest.py)
+      - name: Run the tests
+        run: pytest

@@ -11,7 +11,12 @@ env:
   WORKER_IMAGE: ghcr.io/code-lab-org/tatc-worker
 
 jobs:
+  # only images of code that passes its tests are pushed (and deployed)
+  test:
+    uses: ./.github/workflows/test.yml
+
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
