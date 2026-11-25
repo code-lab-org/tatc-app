@@ -44,7 +44,7 @@ viewer.scene.postRender.addEventListener(function() {
   const shown = mapBusySince !== null && now - mapBusySince >= MAP_BUSY_DELAY;
   if (shown !== mapBusyShown) {
     mapBusyShown = shown;
-    $("#map-busy").toggleClass("shown", shown);
+    $("#map-busy").prop("hidden", !shown);
   }
 });
 
