@@ -283,7 +283,8 @@ class CzmlTestCase(unittest.TestCase):
         self.assertEqual(
             second["polygon"]["positions"]["cartographicDegrees"][:3], [-145, -55, 0]
         )
-        self.assertEqual(first["polygon"]["arcType"], "RHUMB")
+        # (drawn with geodesics, which follow the boundary of large footprints)
+        self.assertEqual(first["polygon"]["arcType"], "GEODESIC")
         self.assertEqual(
             first["polygon"]["material"]["solidColor"]["color"]["rgba"],
             rgba("#4e79a7", 70),
@@ -297,6 +298,24 @@ class CzmlTestCase(unittest.TestCase):
         self.assertTrue(polygon.equals(box(0, 0, 10, 10)))
         self.assertEqual(len(polygon.exterior.coords), 21)
         self.assertEqual(arc_type, "RHUMB")
+        # or with geodesics between their vertices
+        ((polygon, arc_type),) = display_polygons([box(0, 0, 10, 10)], geodesic=True)
+        self.assertTrue(polygon.equals(box(0, 0, 10, 10)))
+        self.assertEqual(len(polygon.exterior.coords), 5)
+        self.assertEqual(arc_type, "GEODESIC")
+        # parts TAT-C split at the antimeridian (adding vertices on it) are
+        # joined to draw with geodesics, with longitudes past -180, without
+        # the added vertices
+        east = Polygon([(170, -10), (180, -5), (180, 5), (170, 10)])
+        west = Polygon([(-180, -5), (-170, -10), (-170, 10), (-180, 5)])
+        ((polygon, arc_type),) = display_polygons([east, west], geodesic=True)
+        self.assertEqual(arc_type, "GEODESIC")
+        self.assertTrue(
+            polygon.equals(Polygon([(-190, -10), (-170, -10), (-170, 10), (-190, 10)]))
+        )
+        self.assertEqual(len(polygon.exterior.coords), 5)
+        # (but not to draw with rhumb lines, which follow the antimeridian)
+        self.assertEqual(len(display_polygons([east, west])), 2)
         # TAT-C splits a geometry that covers a pole at the antimeridian, with
         # edges along the pole (which Cesium cannot draw): the parts are
         # re-formed as one polygon around the pole, drawn with geodesics
