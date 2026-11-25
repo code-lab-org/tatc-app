@@ -1,20 +1,23 @@
-// Analysis tab: coverage and revisit, ground track swaths, data latency with
-// ground stations, and point access (overflight) analyses, with animated
-// results in the Cesium viewer.
+// Analysis tab: coverage and revisit, coincident observations, ground track
+// swaths (optionally over a region), data latency with ground stations, and
+// point access (overflight) analyses, with animated results in the Cesium
+// viewer.
 
 let analysisResult = null; // {type, result, taskId, payload, design, duration}
 let targetLayer = null;
 
 // The analyses (in the order of the analysis select): whether each analyzes
-// the points (and cells) of the region, and whether it shows its results with
-// a layer of targets (points and cells colored by a metric, see
-// `DISPLAY_MODES`).
+// a region (`"optional"` if it may, see `usesRegion`), whether it samples a
+// grid of points and cells of the region (or else analyzes the region itself,
+// shown by its outline), and whether it shows its results with a layer of
+// targets (points and cells colored by a metric, see `DISPLAY_MODES`).
 const ANALYSES = {
   coverage: {
     label: "Coverage and Revisit",
     description: "Observations of a grid of points (and cells) by the checked instruments of the checked satellites. " +
       "Animates observations accumulating over the analysis period, or shows final revisit statistics.",
     region: true,
+    grid: true,
     targetLayer: true,
     endpoint: "/analyze/coverage"
   },
@@ -23,14 +26,17 @@ const ANALYSES = {
     description: "Periods when several of the checked satellites (or satellites and constellations) observe a point of the grid at once, " +
       "as for cross-calibration or multi-sensor matchups. Animates coincidences accumulating, or shows final statistics.",
     region: true,
+    grid: true,
     targetLayer: true,
     endpoint: "/analyze/coincidence"
   },
   swaths: {
     label: "Ground Track Swaths",
-    description: "Ground track swaths of the checked instruments, accumulating in segments as satellites orbit. " +
-      "Best for periods of hours to a few days.",
-    region: false,
+    description: "Ground track swaths of the checked instruments, accumulating in segments over the animation. " +
+      "Limited to a region, also the share of its area observed over the analysis period, its observations and revisit, " +
+      "and optionally the areas several satellites observe in common within a time difference.",
+    region: "optional",
+    grid: false,
     targetLayer: false,
     endpoint: "/analyze/swaths"
   },
@@ -39,6 +45,7 @@ const ANALYSES = {
     description: "Latency from the observation of each point to its downlink at a ground station. " +
       "Animates contacts with ground stations and observations awaiting downlink.",
     region: true,
+    grid: true,
     targetLayer: true,
     endpoint: "/analyze/latency"
   },
@@ -47,6 +54,7 @@ const ANALYSES = {
     description: "Accesses of selected target points by each satellite, with lines of sight " +
       "animated during each access and a table of access windows.",
     region: false,
+    grid: false,
     targetLayer: false,
     endpoint: "/analyze/overflight"
   }
@@ -54,6 +62,13 @@ const ANALYSES = {
 
 function hasTargetLayer(type) {
   return ANALYSES[type].targetLayer;
+}
+
+// Tests whether an analysis of a type uses the region (swaths, if limited to
+// it).
+function usesRegion(type) {
+  const region = ANALYSES[type].region;
+  return region === "optional" ? $("#swaths-region-enabled").is(":checked") : region;
 }
 
 function getAnalysisType() {
@@ -471,11 +486,34 @@ function getAnalysisPayload(type, base) {
       sample_size: sampleSize
     });
   } else if (type == "swaths") {
-    // swaths animate over the analysis period
-    return _.assign(_.omit(base, "display"), {
+    const step = Number($("#swaths-step").val());
+    const segment = Number($("#swaths-segment").val());
+    if (!(step > 0) || !(segment > 0)) {
+      $("#analysis-error").text("The step and segment must be positive.").show();
+      return null;
+    }
+    const region = usesRegion(type);
+    let coincidence = null;
+    if (region && $("#swaths-coincidence-enabled").is(":checked")) {
+      const minutes = Number($("#swaths-coincidence-difference").val());
+      if (!(minutes >= 0)) {
+        $("#analysis-error").text("The maximum time difference must not be negative.").show();
+        return null;
+      }
+      coincidence = {
+        max_time_difference: minutes * 60,
+        platforms: $("#swaths-coincidence-platforms").val()
+      };
+    }
+    // swaths over the animation; with a region, its coverage over the
+    // analysis period
+    // (a global region is the whole globe, not none)
+    return _.assign(base, {
+      region: region ? (getRegionMask() || boxPolygon(-180, -90, 180, 90)) : null,
       instrument_index: null,
-      step: Number($("#swaths-step").val()),
-      segment: Number($("#swaths-segment").val()) * 60
+      step: step,
+      segment: segment * 60,
+      coincidence: coincidence
     });
   } else if (type == "latency") {
     if (design.stations.length == 0) {
@@ -549,7 +587,9 @@ function startAnalysis(type, payload, designSnapshot) {
         return;
       }
       clearAnalysisLayers();
-      showRegionGrid(false);
+      // the region (its grid or outline) shows while editing it, not over
+      // results
+      showRegion(false);
       analysisResult = {
         type: type,
         result: result,
@@ -698,17 +738,65 @@ function showAnalysisData() {
       }]
     });
   } else if (type == "swaths") {
+    if (!result.summary) {
+      showResultsTable({
+        title: "Swath Segments",
+        columns: [
+          { title: "Satellite", key: "satellite" },
+          { title: "Instrument", key: "instrument" },
+          { title: "Start (UTC)", key: "start" },
+          { title: "End (UTC)", key: "end" }
+        ],
+        rows: _.map(result.swaths.features, "properties"),
+        filename: "swath-segments",
+        note: "Segments over the animation; each appears once it ends. Download the full geometry with the API."
+      });
+      return;
+    }
+    // over a region: its observations, with the swath segments as extras
+    const segments = {
+      label: "Swath segments CSV",
+      filename: "swath-segments.csv",
+      columns: ["satellite", "instrument", "start", "end"],
+      rows: _.map(result.swaths.features, function(feature) {
+        const p = feature.properties;
+        return [p.satellite, p.instrument, p.start, p.end];
+      })
+    };
+    const epoch = new Date(analysisResult.payload.start).getTime();
+    const iso = function(seconds) { return new Date(epoch + seconds * 1000).toISOString(); };
     showResultsTable({
-      title: "Swath Segments",
+      title: "Observations of the Region",
       columns: [
-        { title: "Satellite", key: "satellite" },
-        { title: "Instrument", key: "instrument" },
-        { title: "Start (UTC)", key: "start" },
-        { title: "End (UTC)", key: "end" }
+        { title: "Satellites", key: "satellite" },
+        { title: "Instruments", key: "instrument" },
+        { title: "Start (UTC)", key: "start_utc" },
+        { title: "End (UTC)", key: "end_utc" },
+        { title: "Duration (min)", key: "duration_min", format: number2 }
       ],
-      rows: _.map(result.swaths.features, "properties"),
-      filename: "swath-segments",
-      note: "Each segment appears in the animation once it ends. Download the full geometry with the API."
+      rows: _.map(result.observations, function(o) {
+        return {
+          satellite: o.satellite,
+          instrument: o.instrument,
+          start_utc: iso(o.start),
+          end_utc: iso(o.end),
+          duration_min: (o.end - o.start) / 60
+        };
+      }),
+      filename: "region-observations",
+      note: "Periods over the analysis period when any part of the region is observed (overlapping observations merged). " +
+        "Swaths show over the animation: click a row within it to jump to it.",
+      summary: function(container) { renderRegionSummary(container, result.summary); },
+      extras: [segments],
+      onRowClick: function(row) {
+        const start = Cesium.JulianDate.fromIso8601(row.start_utc);
+        if (Cesium.JulianDate.greaterThan(start, viewer.clock.stopTime)) {
+          return;
+        }
+        viewer.clock.currentTime = start;
+        viewer.clock.shouldAnimate = true;
+        $("#results-dialog").modal("hide");
+      }
     });
   } else {
     const ids = _.map(result.points.features, function(f) { return f.properties.id; });
@@ -770,44 +858,26 @@ function limitAnimation() {
   animate.val(Math.min(requestedAnimate, limit));
 }
 
-// The swaths analysis suits short periods, so selecting it shortens a long
-// duration; the duration it replaced returns on selecting another analysis
-// (unless edited meanwhile).
-const SWATHS_MAX_DAYS = 3;
-const SWATHS_DEFAULT_DAYS = 0.25;
-let durationBeforeSwaths = null; // days
-
-function adjustDurationForType(type) {
-  const input = $("#analysis-duration");
-  if (type == "swaths") {
-    if (Number(input.val()) > SWATHS_MAX_DAYS) {
-      durationBeforeSwaths = input.val();
-      input.val(SWATHS_DEFAULT_DAYS);
-    }
-  } else if (durationBeforeSwaths !== null) {
-    input.val(durationBeforeSwaths);
-    durationBeforeSwaths = null;
-  }
+// Shows the region panel if the selected analysis uses the region, and the
+// region itself while editing it (not over results shown).
+function updateRegionPanel(showResults) {
+  const region = Boolean(usesRegion(getAnalysisType()));
+  $(".region-panel").toggle(region);
+  updateRegionControls();
+  $("#swaths-region-options").toggle($("#swaths-region-enabled").is(":checked"));
+  showRegion(region && !showResults);
 }
 
 function changeAnalysisType() {
   const type = getAnalysisType();
   $(".analysis-panel").removeClass("shown");
   $(".analysis-panel[data-analysis~='" + type + "']").addClass("shown");
-  $(".region-panel").toggle(ANALYSES[type].region);
   $("#analysis-description").text(ANALYSES[type].description);
-  $(".animate-control").toggle(type != "swaths");
-  adjustDurationForType(type);
   limitAnimation();
   // picking (region vertices or target points) applies to one analysis type
   stopMapPick();
   const showResults = Boolean(analysisResult && analysisResult.type == type);
-  // the region shows while editing it (not over its results)
-  if (!ANALYSES[type].region) {
-    showRegion(false);
-  } else if (!showResults) {
-    showRegion(true);
-  }
+  updateRegionPanel(showResults);
   showAnalysisLayers(showResults);
   enableResultButtons(showResults);
   renderSiteEntities();
@@ -841,17 +911,22 @@ $(document).ready(function() {
     viewer.clock.currentTime = viewer.clock.startTime.clone();
     changeAnalysisType();
   });
-  $("#analysis-duration").change(function() {
-    // an edited duration stays on leaving the swaths analysis
-    durationBeforeSwaths = null;
-    limitAnimation();
-  });
+  $("#analysis-duration").change(limitAnimation);
   $("#analysis-animate").change(function() {
     const value = Number($(this).val());
     if (value > 0) {
       requestedAnimate = value;
     }
     limitAnimation();
+  });
+  $("#swaths-region-enabled").change(function() {
+    // picking region vertices stops with the region
+    stopMapPick();
+    const type = getAnalysisType();
+    updateRegionPanel(Boolean(analysisResult && analysisResult.type == type));
+  });
+  $("#swaths-coincidence-enabled").change(function() {
+    $("#swaths-coincidence-options").toggle($(this).is(":checked"));
   });
   $("#sample-size-enabled").change(function() {
     $("#sample-size-options").toggle($(this).is(":checked"));

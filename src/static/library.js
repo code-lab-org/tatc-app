@@ -197,6 +197,22 @@ function coverageRunMetrics(terms) {
 const RUN_METRICS = {
   coverage: coverageRunMetrics(COVERAGE_TERMS.coverage),
   coincidence: coverageRunMetrics(COVERAGE_TERMS.coincidence),
+  // (swaths over a region)
+  swaths: {
+    curveTerms: COVERAGE_TERMS.region,
+    headline: { label: "Area observed", value: function(s) { return s.covered; }, kind: "share" },
+    rows: [
+      { label: "Area observed", value: function(s) { return s.covered; }, kind: "share" },
+      { label: "Observations of the region", value: function(s) { return s.observations; }, kind: "count" },
+      { label: "Mean revisit time", value: function(s) { return s.revisit && s.revisit.mean; }, kind: "duration" },
+      { label: "90th percentile revisit time", value: function(s) { return s.revisit && s.revisit.p90; }, kind: "duration" },
+      { label: "Longest gap", value: function(s) { return s.max_gap; }, kind: "duration" },
+      { label: "Area in common", optional: true, value: function(s) { return s.coincidence && s.coincidence.common; }, kind: "share" },
+      { label: "Coincident footprints", optional: true, value: function(s) { return s.coincidence && s.coincidence.pairs; }, kind: "count" },
+      { label: "Region area (km²)", value: function(s) { return s.area; }, kind: "number" },
+      { label: "Analysis period", value: function(s) { return _.last(s.coverage.times); }, kind: "duration" }
+    ]
+  },
   latency: {
     headline: { label: "Region downlinked", value: function(s) { return s.downlinked; }, kind: "share" },
     rows: [
@@ -344,10 +360,11 @@ function renderComparison() {
       _.map(values, function(value) { return $("<td>").text(formatMetric(value, row.kind, unit)); })
     ));
   });
-  if (COVERAGE_TERMS[type]) {
+  const curveTerms = metrics.curveTerms || COVERAGE_TERMS[type];
+  if (curveTerms) {
     $("<div>").addClass("summary-charts").appendTo(root).append(comparisonChart(_.map(runs, function(run) {
       return { name: run.name, color: run.color, curve: run.summary.coverage };
-    }), COVERAGE_TERMS[type]));
+    }), curveTerms));
   }
 }
 
@@ -387,6 +404,14 @@ function setAnalysisInputs(type, request) {
     $("#swaths-step").val(request.step);
     if (request.segment) {
       $("#swaths-segment").val(request.segment / 60);
+    }
+    $("#swaths-region-enabled").prop("checked", Boolean(request.region)).trigger("change");
+    const coincidence = request.coincidence;
+    $("#swaths-coincidence-enabled").prop("checked", Boolean(coincidence));
+    $("#swaths-coincidence-options").toggle(Boolean(coincidence));
+    if (coincidence) {
+      $("#swaths-coincidence-difference").val(Number(((coincidence.max_time_difference || 0) / 60).toFixed(6)));
+      $("#swaths-coincidence-platforms").val(coincidence.platforms || "members");
     }
   } else if (type == "latency" && request.during_contact) {
     $("#latency-contact").val(request.during_contact);

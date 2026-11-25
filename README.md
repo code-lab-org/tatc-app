@@ -31,7 +31,10 @@ tasks and visualized with animated results (CZML) in the GUI:
    satellites and constellations) observe a point of the grid at once, within a time
    difference, as for cross-calibration matchups, with the statistics of coverage of those
    periods (and optionally their sampling sufficiency).
- * Ground track swaths (`/analyze/swaths`): instrument swaths that accumulate over time.
+ * Ground track swaths (`/analyze/swaths`): instrument swaths that accumulate over the
+   animation; optionally clipped to a region, with the share of its area observed over the
+   analysis period, its observations and revisit, and optionally coincident swaths: the areas
+   two satellites observe in common within a time difference.
  * Data latency (`/analyze/latency`): latency to downlink observations at ground stations.
  * Point access (`/analyze/overflight`): access windows of satellites to target points.
 
@@ -89,6 +92,7 @@ and response bodies.
 | `GET /tasks/{group_id}/progress` | Get the progress of a group of parallel tasks |
 | `POST /tasks/{task_id}/revoke` | Cancel a task (and, with `group_id`, its group of parallel tasks) |
 | `POST /generate/points`, `POST /generate/cells` | Generate points or cells (GeoJSON) |
+| `POST /generate/region` | Get the outline of a region (GeoJSON) to display it |
 | `POST /validate/space-system` | Validate a satellite or constellation and summarize its members |
 | `GET /catalog/systems`, `POST /catalog/systems/{system_id}/build` | List and build satellite systems of the TAT-C system catalog |
 | `GET /catalog/instruments`, `POST /catalog/instruments/{entry_id}/add` | List and add instruments of the TAT-C instrument catalog |

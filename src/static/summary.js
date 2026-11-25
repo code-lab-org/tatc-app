@@ -27,6 +27,17 @@ const COVERAGE_TERMS = {
     curveColumn: "Observed",
     samples: "Observations"
   },
+  // (the area curves of the swath coverage of a region)
+  region: {
+    curveTitle: "Share of the region's area observed so far",
+    curveSubtitle: "Within a swath at least once",
+    curveColumn: "Observed"
+  },
+  regionCommon: {
+    curveTitle: "Share of the region's area observed in common so far",
+    curveSubtitle: "Within coincident swaths of two satellites at least once",
+    curveColumn: "In common"
+  },
   coincidence: {
     observed: "Region with coincidences",
     twice: "with at least two",
@@ -513,6 +524,43 @@ function renderCoverageSummary(container, summary, terms) {
     renderSampleSizeSummary(root, summary.sample_size);
   }
   root.append($("<p>").addClass("small text-muted mb-0").text(weightingNote(summary)));
+}
+
+// Renders the summary of the swath coverage of a region in a container.
+function renderRegionSummary(container, summary) {
+  const root = $("<div>").addClass("summary").appendTo($(container).empty());
+  const tiles = $("<div>").addClass("summary-tiles").appendTo(root);
+  tiles.append(statTile("Area observed", formatShare(summary.covered),
+    "of " + formatValue(summary.area) + " km²"));
+  if (summary.revisit) {
+    const unit = durationUnit(summary.revisit.p90);
+    tiles.append(statTile("Mean revisit time", formatDuration(summary.revisit.mean, unit),
+      distributionDetail(summary.revisit, unit)));
+  } else {
+    tiles.append(statTile("Mean revisit time", "–",
+      summary.observations ? "observed once" : "the region is not observed"));
+  }
+  tiles.append(statTile("Observations", summary.observations.toLocaleString(),
+    summary.access ? "mean duration " + formatDuration(summary.access.mean) : "of any part of the region"));
+  tiles.append(statTile("Longest gap", formatDuration(summary.max_gap),
+    "without an observation, including the ends of the period"));
+  const charts = $("<div>").addClass("summary-charts").appendTo(root);
+  charts.append(coverageChart(summary.coverage, COVERAGE_TERMS.region));
+  const coincidence = summary.coincidence;
+  if (coincidence) {
+    root.append($("<div>").addClass("summary-section-title").text("Coincident swaths"));
+    const common = $("<div>").addClass("summary-tiles").appendTo(root);
+    common.append(statTile("Area in common", formatShare(coincidence.common),
+      "observed by two satellites within the time difference"));
+    common.append(statTile("Coincident footprints", coincidence.pairs.toLocaleString(),
+      coincidence.time_difference
+        ? "median " + formatDuration(coincidence.time_difference.median) + " apart"
+        : "pairs of overlapping footprints"));
+    $("<div>").addClass("summary-charts").appendTo(root).append(
+      coverageChart(coincidence.coverage, COVERAGE_TERMS.regionCommon));
+  }
+  root.append($("<p>").addClass("small text-muted mb-0").text(
+    "Areas are of the swaths' footprints sampled every step, measured on the WGS 84 ellipsoid."));
 }
 
 // Formats a length (meters) in kilometers.

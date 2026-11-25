@@ -1,5 +1,6 @@
-// Region of interest and grids of points and cells for coverage and latency
-// analyses.
+// Region of interest: grids of points and cells for the analyses that sample
+// one (coverage, coincidence, and latency), or else its outline (swaths over
+// a region).
 
 // vertices (Cartesian3) of a custom region, and its polygon on the map
 let regionPoints = [];
@@ -9,6 +10,13 @@ let regionEntity = null;
 const gridPoints = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
 const gridCells = viewer.scene.primitives.add(new Cesium.PrimitiveCollection());
 const gridCellOutlines = viewer.scene.primitives.add(new Cesium.PolylineCollection());
+
+// the outline of the region (other than a custom one, drawn as its polygon)
+// for analyses without a grid
+const regionOutline = new Cesium.CustomDataSource("region-outline");
+viewer.dataSources.add(regionOutline);
+let outlineDrawn = false;
+let outlineRequest = 0;
 
 // Gets the type of the edges of cells in the region: geodesic for global
 // regions (rhumb lines cannot reach the poles), and rhumb lines otherwise.
@@ -95,14 +103,120 @@ function showRegionGrid(show) {
   gridCellOutlines.show = show;
 }
 
-// Shows (generating the grid if needed) or hides the region and its grid.
+// Tests whether the selected analysis samples a grid of the region (see
+// `ANALYSES`).
+function regionUsesGrid() {
+  return _.get(ANALYSES, [getAnalysisType(), "grid"], true);
+}
+
+// Shows (generating them if needed) or hides the region and its grid, or its
+// outline for analyses without a grid.
 function showRegion(show) {
+  const grid = regionUsesGrid();
   regionEntity.show = show && $("#region-type").val() == "custom";
-  if (show && gridPoints.length == 0) {
+  regionOutline.show = show && !grid;
+  if (show && !grid && !outlineDrawn) {
+    drawRegionOutline();
+  }
+  if (show && grid && gridPoints.length == 0) {
     generateRegionGrid();
   } else {
-    showRegionGrid(show);
+    showRegionGrid(show && grid);
   }
+}
+
+// Shows the controls of the grid only for analyses that sample one, and
+// enables editing the region only if it has settings to edit.
+function updateRegionControls() {
+  const grid = regionUsesGrid();
+  const type = $("#region-type").val();
+  $("#region-generate-group, #region-grid-settings").toggle(grid);
+  $("#region-edit")
+    .prop("disabled", !grid && type != "latitude" && type != "latlon")
+    .attr("title", grid ? "Edit region and grid" : "Edit region");
+  $("#region-dialog-title").text(grid ? "Edit Region and Grid" : "Edit Region");
+}
+
+// Updates the display of the changed region: its grid, or its outline
+// (the other is redone when it next shows).
+function refreshRegion() {
+  if (regionUsesGrid()) {
+    clearRegionOutline();
+    generateRegionGrid();
+  } else {
+    cancelRegionGrid();
+    drawRegionOutline();
+  }
+}
+
+function clearRegionOutline() {
+  outlineRequest++;
+  outlineDrawn = false;
+  regionOutline.entities.removeAll();
+}
+
+// Splits the rings of a (multi)polygon into runs of [longitude, latitude]
+// vertices, leaving out the edges along the antimeridian (such as the sides
+// of a band of latitude), which are not edges on the globe.
+function outlineRuns(geometry) {
+  const polygons = geometry.type == "MultiPolygon" ? geometry.coordinates : [geometry.coordinates];
+  const runs = [];
+  _.forEach(polygons, function(rings) {
+    _.forEach(rings, function(ring) {
+      let run = [];
+      _.forEach(ring, function(vertex, i) {
+        const previous = ring[i - 1];
+        if (previous && Math.abs(vertex[0]) == 180 && previous[0] == vertex[0]) {
+          if (run.length > 1) {
+            runs.push(run);
+          }
+          run = [];
+        }
+        run.push([vertex[0], vertex[1]]);
+      });
+      if (run.length > 1) {
+        runs.push(run);
+      }
+    });
+  });
+  return runs;
+}
+
+// Draws the outline of the region (none for a custom region, drawn as its
+// polygon, or for the globe).
+function drawRegionOutline() {
+  clearRegionOutline();
+  const request = outlineRequest;
+  outlineDrawn = true;
+  $("#grid-error").hide().text("");
+  const type = $("#region-type").val();
+  if (type == "custom" || type == "global") {
+    return;
+  }
+  postJson("/generate/region", { mask: getRegionMask() })
+    .done(function(collection) {
+      if (request != outlineRequest) {
+        return;
+      }
+      _.forEach(collection.features, function(feature) {
+        _.forEach(outlineRuns(feature.geometry), function(run) {
+          regionOutline.entities.add({
+            polyline: {
+              positions: Cesium.Cartesian3.fromDegreesArray(_.flatten(run)),
+              arcType: Cesium.ArcType.RHUMB,
+              width: 2,
+              material: Cesium.Color.DODGERBLUE
+            }
+          });
+        });
+      });
+    })
+    .fail(function(xhr) {
+      if (request == outlineRequest) {
+        outlineDrawn = false;
+        $("#grid-error").text(formatError(xhr)).show();
+      }
+    });
 }
 
 // Adds cell polygons (GeoJSON features) as ground primitives (with edges of
@@ -139,6 +253,14 @@ function addCellPrimitives(features, collection, outlines, arcType, colorFunctio
     appearance: new Cesium.PerInstanceColorAppearance({ flat: true, translucent: true }),
     releaseGeometryInstances: false
   }));
+}
+
+// Cancels generating the grid, and clears it (to generate when it next
+// shows).
+function cancelRegionGrid() {
+  gridRequest++;
+  $("#region-generate").prop("disabled", false).find(".spinner-border").hide();
+  clearRegionGrid();
 }
 
 let gridRequest = 0;
@@ -209,6 +331,7 @@ function changeRegionType() {
   if (type != "custom") {
     $("#cell-strips").val("none");
   }
+  updateRegionControls();
 }
 
 function regionPanelVisible() {
@@ -245,7 +368,7 @@ $(document).ready(function() {
           throw new Error("A region requires at least three points.");
         }
         setRegionCoordinates(coordinates);
-        generateRegionGrid();
+        refreshRegion();
       } catch (e) {
         alert("Invalid coordinates: " + e.message);
         updateCoordinatesText();
@@ -269,7 +392,7 @@ $(document).ready(function() {
   selectButton.click(function() {
     if (isMapPicking(selectButton)) {
       stopMapPick();
-      generateRegionGrid();
+      refreshRegion();
       return;
     }
     startMapPick(selectButton, addRegionPoint, stoppedPicking);
@@ -290,9 +413,9 @@ $(document).ready(function() {
   $("#region-type").change(function() {
     stopMapPick(selectButton);
     changeRegionType();
-    generateRegionGrid();
+    refreshRegion();
   });
   $("#region-generate").click(generateRegionGrid);
-  $("#region-dialog").on("hidden.bs.modal", generateRegionGrid);
+  $("#region-dialog").on("hidden.bs.modal", refreshRegion);
   changeRegionType();
 });

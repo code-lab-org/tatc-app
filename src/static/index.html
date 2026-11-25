@@ -182,7 +182,7 @@
                   <input type="number" min="0.01" max="365" value="7" step="any" class="form-control" id="analysis-duration">
                   <div class="input-group-append"><span class="input-group-text">days</span></div>
                 </div>
-                <label for="analysis-animate" class="col-sm-2 col-form-label animate-control" title="Length of the satellite animation (orbit tracks) from the start, up to the analysis duration">Animate</label>
+                <label for="analysis-animate" class="col-sm-2 col-form-label animate-control" title="Length of the satellite animation (orbit tracks and swaths) from the start, up to the analysis duration">Animate</label>
                 <div class="input-group col-sm-3 animate-control">
                   <input type="number" min="0.1" max="168" value="24" step="any" class="form-control" id="analysis-animate">
                   <div class="input-group-append"><span class="input-group-text">h</span></div>
@@ -190,7 +190,17 @@
               </div>
             </div>
 
-            <!-- Region (coverage and latency) -->
+            <!-- Swaths: limit to a region -->
+            <div class="analysis-panel" data-analysis="swaths">
+              <div class="form-group">
+                <div class="form-check">
+                  <input type="checkbox" class="form-check-input" id="swaths-region-enabled">
+                  <label for="swaths-region-enabled" class="form-check-label" title="Clip swaths to a region, sampled over the whole analysis duration: the share of its area observed over time, its observations and revisit">Limit to a region</label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Region (coverage, coincidence, latency, and swaths over a region) -->
             <div class="form-group region-panel">
               <div class="row">
                 <label for="region-type" class="col-sm-3 col-form-label">Region</label>
@@ -209,7 +219,7 @@
                     </button>
                   </div>
                 </div>
-                <div class="input-group col-sm-3">
+                <div class="input-group col-sm-3" id="region-generate-group">
                   <button type="button" class="btn btn-outline-primary btn-block" id="region-generate">
                     <span class="spinner-border spinner-border-sm" style="display:none" role="status" aria-hidden="true"></span>
                     Grid
@@ -332,7 +342,7 @@
             <!-- Swaths -->
             <div class="analysis-panel" data-analysis="swaths">
               <div class="form-group row">
-                <label for="swaths-step" class="col-sm-3 col-form-label">Step</label>
+                <label for="swaths-step" class="col-sm-3 col-form-label" title="Time step at which footprints are sampled (each sweeps over its step)">Step</label>
                 <div class="input-group col-sm-4">
                   <input type="number" min="5" max="600" value="60" step="any" class="form-control" id="swaths-step">
                   <div class="input-group-append"><span class="input-group-text">s</span></div>
@@ -344,7 +354,33 @@
                   <input type="number" min="1" max="1440" value="10" step="any" class="form-control" id="swaths-segment">
                   <div class="input-group-append"><span class="input-group-text">min</span></div>
                 </div>
-                <div class="col-sm-5 small text-muted">Swaths accumulate as each segment completes. The animation spans the analysis duration.</div>
+                <div class="col-sm-5 small text-muted">Swaths accumulate as each segment completes, over the animation.</div>
+              </div>
+              <div id="swaths-region-options" style="display:none">
+                <div class="form-group">
+                  <div class="form-check">
+                    <input type="checkbox" class="form-check-input" id="swaths-coincidence-enabled">
+                    <label for="swaths-coincidence-enabled" class="form-check-label" title="Areas of the region that the swaths of two satellites observe in common, within a time difference">Coincident swaths</label>
+                  </div>
+                </div>
+                <div id="swaths-coincidence-options" style="display:none">
+                  <div class="form-group row">
+                    <label for="swaths-coincidence-platforms" class="col-sm-5 col-form-label" title="What counts as a distinct platform: each member satellite, or each satellite or constellation of the design">Platforms</label>
+                    <div class="col-sm-7">
+                      <select class="form-control" id="swaths-coincidence-platforms">
+                        <option value="members" selected>Member satellites</option>
+                        <option value="systems">Satellites and constellations</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="form-group row">
+                    <label for="swaths-coincidence-difference" class="col-sm-5 col-form-label" title="Maximum time between footprints that coincide">Max. time difference</label>
+                    <div class="input-group col-sm-7">
+                      <input type="number" min="0" value="10" step="any" class="form-control" id="swaths-coincidence-difference">
+                      <div class="input-group-append"><span class="input-group-text">min</span></div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -755,7 +791,7 @@
     <div class="modal-dialog" role="document">
       <div class="modal-content dark-panel">
         <div class="modal-header">
-          <h5 class="modal-title">Edit Region and Grid</h5>
+          <h5 class="modal-title" id="region-dialog-title">Edit Region and Grid</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
             <span aria-hidden="true">&times;</span>
           </button>
@@ -783,37 +819,39 @@
               <div class="input-group-append"><span class="input-group-text">&deg; max</span></div>
             </div>
           </div>
-          <h6>Points</h6>
-          <div class="form-group row">
-            <label for="point-method" class="col-sm-3 col-form-label">Method</label>
-            <div class="col-sm-9">
-              <select class="form-control" id="point-method">
-                <option value="equally_spaced" selected>Equally Spaced</option>
-                <option value="fibonacci_lattice">Fibonacci Lattice</option>
-              </select>
+          <div id="region-grid-settings">
+            <h6>Points</h6>
+            <div class="form-group row">
+              <label for="point-method" class="col-sm-3 col-form-label">Method</label>
+              <div class="col-sm-9">
+                <select class="form-control" id="point-method">
+                  <option value="equally_spaced" selected>Equally Spaced</option>
+                  <option value="fibonacci_lattice">Fibonacci Lattice</option>
+                </select>
+              </div>
             </div>
-          </div>
-          <div class="form-group row">
-            <label for="point-distance" class="col-sm-3 col-form-label">Distance</label>
-            <div class="input-group col-sm-9">
-              <input type="number" min="100" value="1000" step="any" class="form-control" id="point-distance">
-              <div class="input-group-append"><span class="input-group-text">km</span></div>
+            <div class="form-group row">
+              <label for="point-distance" class="col-sm-3 col-form-label">Distance</label>
+              <div class="input-group col-sm-9">
+                <input type="number" min="100" value="1000" step="any" class="form-control" id="point-distance">
+                <div class="input-group-append"><span class="input-group-text">km</span></div>
+              </div>
             </div>
-          </div>
-          <h6>Cells</h6>
-          <div class="form-group row">
-            <label for="cell-distance" class="col-sm-3 col-form-label">Distance</label>
-            <div class="input-group col-sm-5">
-              <input type="number" min="100" value="2500" step="any" class="form-control" id="cell-distance">
-              <div class="input-group-append"><span class="input-group-text">km</span></div>
-            </div>
-            <label for="cell-strips" class="col-sm-2 col-form-label">Strips</label>
-            <div class="col-sm-2 pl-0">
-              <select class="form-control" id="cell-strips">
-                <option value="none" selected>None</option>
-                <option value="lat">Lat</option>
-                <option value="lon">Lon</option>
-              </select>
+            <h6>Cells</h6>
+            <div class="form-group row">
+              <label for="cell-distance" class="col-sm-3 col-form-label">Distance</label>
+              <div class="input-group col-sm-5">
+                <input type="number" min="100" value="2500" step="any" class="form-control" id="cell-distance">
+                <div class="input-group-append"><span class="input-group-text">km</span></div>
+              </div>
+              <label for="cell-strips" class="col-sm-2 col-form-label">Strips</label>
+              <div class="col-sm-2 pl-0">
+                <select class="form-control" id="cell-strips">
+                  <option value="none" selected>None</option>
+                  <option value="lat">Lat</option>
+                  <option value="lon">Lon</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>

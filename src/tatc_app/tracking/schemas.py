@@ -5,15 +5,15 @@ Schema specifications for tracking analysis endpoints.
 """
 
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Union
+from typing import List, Optional, Union
 
 import pandas as pd
-from geojson_pydantic import FeatureCollection, Polygon
+from geojson_pydantic import Polygon
 from pydantic import AwareDatetime, Field, PrivateAttr, model_validator
 from shapely.geometry import box, mapping
 from tatc.schemas import Satellite
 
-from ..analysis.schemas import MAX_DISPLAY_STEPS, AnalysisRequest, AnimatedResult
+from ..analysis.schemas import MAX_DISPLAY_STEPS
 from ..generation.schemas import TimeGenerator
 from ..satellites import SpaceSystemInput, expand_members, validate_instrument_index
 from ..utils.schemas import CamelModel
@@ -109,75 +109,4 @@ class GroundTrackAnalysisRequest(OrbitTrackAnalysisRequest):
         None,
         description="Elevation (meters) above datum in the WGS 84 coordinate "
         "system, or `null` for the mean elevation of the footprint.",
-    )
-
-
-class SwathAnalysisRequest(AnalysisRequest):
-    """
-    User request to analyze the swaths of instruments as they accumulate
-    over time. Orbit tracks and footprints are sampled every `step` over the
-    whole analysis period (so `display` does not apply).
-    """
-
-    instrument_index: Optional[int] = Field(
-        0, ge=0, description="Instrument index, or `null` for all instruments."
-    )
-    step: timedelta = Field(
-        timedelta(seconds=60),
-        gt=timedelta(0),
-        description="Time step to sample orbit tracks and footprints.",
-    )
-    segment: Optional[timedelta] = Field(
-        timedelta(minutes=10),
-        gt=timedelta(0),
-        description="Duration of each swath segment (displayed once it ends), "
-        "or `null` to only compute orbit tracks.",
-    )
-
-    @model_validator(mode="after")
-    def validate_instruments(self) -> "SwathAnalysisRequest":
-        """
-        Validates the instrument index is in bounds.
-        """
-        validate_instrument_index(self.satellites, self.instrument_index)
-        return self
-
-    @model_validator(mode="after")
-    def validate_no_display(self) -> "SwathAnalysisRequest":
-        """
-        Validates `display` is not set (swaths are sampled every `step`).
-        """
-        if self.display is not None:
-            raise ValueError(
-                "Invalid display: swath analyses sample the whole analysis "
-                "period every `step`."
-            )
-        return self
-
-    def get_display_times(self) -> pd.DatetimeIndex:
-        """
-        Gets the times at which to sample orbit tracks and footprints.
-
-        Returns:
-            pandas.DatetimeIndex: The times.
-        """
-        return TimeGenerator(start=self.start, end=self.end, delta=self.step).to_index(
-            MAX_DISPLAY_STEPS
-        )
-
-
-class SwathAnalysisResult(AnimatedResult):
-    """
-    Results of a swath analysis.
-    """
-
-    swaths: FeatureCollection = Field(
-        ...,
-        description="Swath segments with properties `satellite`, `instrument`, "
-        "`start`, and `end`.",
-    )
-    systems: Dict[str, int] = Field(
-        {},
-        description="Index of the requested satellite or constellation of "
-        "each member satellite, by name.",
     )

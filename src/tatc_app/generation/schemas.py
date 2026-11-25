@@ -14,6 +14,7 @@ from geojson_pydantic import Polygon
 from pydantic import (
     AfterValidator,
     AwareDatetime,
+    BaseModel,
     Field,
     StringConstraints,
     model_validator,
@@ -49,6 +50,33 @@ CountryCode = Annotated[
 # a mask to limit the extent of generated points or cells: a polygon, a known
 # shape, or a country
 Mask = Union[Polygon, KnownShape, CountryCode]
+
+
+def mask_spec(mask: Optional[Mask]) -> Optional[Union[dict, str]]:
+    """
+    Gets the specification of a mask that `resolve_mask` resolves: a GeoJSON
+    geometry, a known shape or country code, or `None`.
+    """
+    if mask is None:
+        return None
+    if isinstance(mask, BaseModel):
+        return mask.model_dump(mode="json")
+    if isinstance(mask, Enum):
+        return mask.value
+    return str(mask)
+
+
+class RegionOutlineRequest(CamelModel):
+    """
+    Request for the outline of a region, to display it.
+    """
+
+    mask: Optional[Mask] = Field(
+        None,
+        description="The region: a polygon, a known shape, or an ISO 3166-1 "
+        "alpha-3 country code (`null` for the globe, without an outline).",
+        examples=["conus"],
+    )
 
 
 class PointGenerator(CamelModel):

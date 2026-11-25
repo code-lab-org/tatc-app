@@ -7,7 +7,7 @@ from tatc.schemas import (
     WalkerConstellation,
 )
 
-from tatc_app.tracking.schemas import SwathAnalysisRequest, SwathAnalysisResult
+from tatc_app.swaths.schemas import SwathAnalysisRequest, SwathAnalysisResult
 
 from .base import TatcTestCase
 
@@ -124,14 +124,6 @@ class AnalyzeSwathsTestCase(TatcTestCase):
                 start=self.start,
                 end=self.end,
             )
-        # swaths sample the whole period every step (not display times)
-        with self.assertRaises(ValueError):
-            SwathAnalysisRequest(
-                satellites=[self.constellation],
-                start=self.start,
-                end=self.end,
-                display={"start": self.start, "end": self.end, "delta": 60},
-            )
         # tracks carry the chosen colors of instruments
         request.instrument_colors = [[None, "#00ff00"]]
         task = self.run_analysis("/analyze/swaths", request)
@@ -218,3 +210,59 @@ class AnalyzeSwathsTestCase(TatcTestCase):
             },
         )
         self.assertEqual(response.status_code, 422)
+
+    def test_display(self):
+        # the animation (and swath segments) span the first hour
+        display_end = self.start + timedelta(hours=1)
+        request = SwathAnalysisRequest(
+            satellites=[self.constellation],
+            start=self.start,
+            end=self.end,
+            display={"start": self.start, "end": display_end, "delta": 120},
+            step=timedelta(seconds=60),
+            segment=timedelta(minutes=30),
+        )
+        self.assertEqual(request.get_display_end(), display_end)
+        # without a region, footprints are sampled only over the animation
+        self.assertEqual(request.get_sample_times()[-1], display_end)
+        task = self.run_analysis("/analyze/swaths", request)
+        result = SwathAnalysisResult.model_validate(
+            self.get_json(f"/analyze/swaths/{task['task_id']}")
+        )
+        for track in result.tracks.tracks:
+            # 1 hour at 120 second steps (inclusive)
+            self.assertEqual(len(track.positions), 4 * 31)
+        # two segments per member over the hour
+        self.assertEqual(len(result.swaths.features), 2 * 2)
+        for feature in result.swaths.features:
+            self.assertLessEqual(
+                datetime.fromisoformat(feature.properties["end"]), display_end
+            )
+        self.assertIsNone(result.summary)
+        self.assertIsNone(result.region)
+        self.assertEqual(result.observations, [])
+
+    def test_saved_run_without_region(self):
+        request = SwathAnalysisRequest(
+            satellites=[self.constellation],
+            start=self.start,
+            end=self.start + timedelta(hours=1),
+        )
+        task = self.run_analysis("/analyze/swaths", request)
+        response = self.client.post(
+            "/runs",
+            json={
+                "name": "Swaths",
+                "analysis": "swaths",
+                "taskId": task["task_id"],
+                "request": request.model_dump(mode="json"),
+                "design": {
+                    "version": 2,
+                    "satellites": [],
+                    "stations": [],
+                    "targets": [],
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIsNone(response.json()["summary"])
