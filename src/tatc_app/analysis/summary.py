@@ -453,8 +453,14 @@ def summarize_sufficiency(  # pylint: disable=too-many-arguments,too-many-locals
         sampling_error, _ = summarize_values(
             points["sampling_error"].to_numpy(dtype=float), weights
         )
+    # of observed points (those with an error): others have none
     effective_samples, _ = summarize_values(
-        points["effective_samples"].to_numpy(dtype=float), weights
+        np.where(
+            np.isfinite(relative),
+            points["effective_samples"].to_numpy(dtype=float),
+            np.nan,
+        ),
+        weights,
     )
     revisit_p90, _ = summarize_values(seconds(points["revisit_p90"]), weights)
     max_gap, max_gap_histogram = summarize_values(seconds(points["max_gap"]), weights)

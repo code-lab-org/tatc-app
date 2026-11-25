@@ -82,13 +82,15 @@ def compute_sufficiency(  # pylint: disable=too-many-arguments,too-many-locals
         crs=points.crs or "EPSG:4326",
     )
     if observations is None or observations.empty:
-        # (the sampling error of no observations is undefined)
+        # as `estimate_sampling_error` gives targets without samples (tatc
+        # 3.7.0 fails for observations without any rows): no error, and no
+        # effective samples
         error = pd.DataFrame(
             {
                 "target_hash": targets["target_hash"],
                 "relative_error": np.nan,
                 "sampling_error": np.nan,
-                "effective_samples": np.nan,
+                "effective_samples": 0.0,
             }
         )
         observations = observations if observations is not None else pd.DataFrame()
@@ -152,9 +154,10 @@ def grid_sufficiency(
     Grids the sampling sufficiency of points to cells: the root-mean-square
     `relative_error` (and `sampling_error`) of the points in each cell (a
     typical error of a point, not the error of the cell's mean, which would
-    need a spatial correlation of the field), their mean `effective_samples`
-    and `local_time_coverage`, and their longest `max_gap`, over the points
-    with a value (`NaN`, or `NaT`, for a cell without any).
+    need a spatial correlation of the field) and mean `effective_samples`
+    of its observed points (those with an error), and the mean
+    `local_time_coverage` and longest `max_gap` of all its points (`NaN`, or
+    `NaT`, for a cell without any).
 
     Args:
         points (pandas.DataFrame): The points, with their sufficiency (see
@@ -172,11 +175,15 @@ def grid_sufficiency(
     reductions.update(TIME_COLUMNS)
     result = cells.copy()
     members = [cell_targets.get(str(cell_id), []) for cell_id in cells["cell_id"]]
+    observed = np.isfinite(points["relative_error"].to_numpy(dtype=float))
     for column, reduction in reductions.items():
         timedeltas = pd.api.types.is_timedelta64_dtype(points[column])
         values = (
             points[column].dt.total_seconds() if timedeltas else points[column]
         ).to_numpy(dtype=float)
+        if column == "effective_samples":
+            # (points not observed have none, rather than a count of zero)
+            values = np.where(observed, values, np.nan)
         gridded = np.array([_reduce(values[m], reduction) for m in members])
         result[column] = pd.to_timedelta(gridded, unit="s") if timedeltas else gridded
     return result

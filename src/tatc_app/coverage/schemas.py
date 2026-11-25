@@ -94,8 +94,9 @@ class CoverageAnalysisResult(AnimatedResult):
         description="Cell-level coverage statistics (`cell_id`, `samples`, "
         "mean `access` and `revisit` in seconds), for every cell. With "
         "sufficiency, also the root-mean-square `relative_error` (and "
-        "`sampling_error`) of its points, their mean `effective_samples` and "
-        "`local_time_coverage`, and their longest `max_gap`.",
+        "`sampling_error`) and mean `effective_samples` of its observed "
+        "points, and the mean `local_time_coverage` and longest `max_gap` of "
+        "all its points.",
     )
     timeline: Timeline = Field(
         ..., description="Observations of points (in the order of `points`)."

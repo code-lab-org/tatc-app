@@ -95,6 +95,8 @@ class ComputeSufficiencyTestCase(TatcTestCase):
         self.assertEqual(points["max_gap"][1], pd.Timedelta(hours=12))
         self.assertEqual(points["max_gap"][2], pd.Timedelta(hours=24))
         self.assertTrue(np.isnan(points["relative_error"][2]))
+        # a point not observed has no effective samples
+        self.assertEqual(points["effective_samples"][2], 0)
         # p0 is sampled once in each 6-hour interval of its local day
         self.assertEqual(points["local_time_coverage"][0], 1.0)
         self.assertEqual(points["local_time_coverage"][1], 0.25)
@@ -123,6 +125,8 @@ class ComputeSufficiencyTestCase(TatcTestCase):
         self.assertEqual(len(points), 3)
         self.assertTrue(points["relative_error"].isna().all())
         self.assertTrue(points["sampling_error"].isna().all())
+        # as points not observed when others are (see test_compute_sufficiency)
+        self.assertTrue((points["effective_samples"] == 0).all())
         self.assertTrue((points["max_gap"] == pd.Timedelta(days=1)).all())
         self.assertTrue((points["local_time_coverage"] == 0).all())
         self.assertEqual(result.local_time_samples.sum(), 0)
@@ -151,6 +155,9 @@ class ComputeSufficiencyTestCase(TatcTestCase):
         self.assertAlmostEqual(
             gridded["sampling_error"][1], gridded["relative_error"][1]
         )
+        # the mean effective samples of the observed points (not p2's zero)
+        effective = points["effective_samples"].to_numpy(dtype=float)
+        self.assertAlmostEqual(gridded["effective_samples"][1], effective[:2].mean())
         # the longest gap of any point, and the mean local-time coverage (of 8
         # bins: 4 sampled by p0, 1 by p1)
         self.assertEqual(gridded["max_gap"][1], pd.Timedelta(hours=24))
@@ -166,7 +173,8 @@ class SummarizeSufficiencyTestCase(TatcTestCase):
             {
                 "target_hash": ["p0", "p1", "p2", "p3"],
                 "relative_error": [0.1, 0.3, 0.5, np.nan],
-                "effective_samples": [8.0, 4.0, 2.0, np.nan],
+                # (zero for p3, not observed, as tatc gives it)
+                "effective_samples": [8.0, 4.0, 2.0, 0.0],
                 "revisit_p50": [pd.Timedelta(hours=h) for h in (1, 2, 4)] + [pd.NaT],
                 "revisit_p90": [pd.Timedelta(hours=h) for h in (2, 4, 8)] + [pd.NaT],
                 "max_gap": [pd.Timedelta(hours=h) for h in (3, 6, 12, 24)],
@@ -191,7 +199,10 @@ class SummarizeSufficiencyTestCase(TatcTestCase):
         self.assertEqual(uniform.relative_error.count, 3)
         self.assertAlmostEqual(uniform.relative_error.mean, 0.3)
         self.assertAlmostEqual(sum(uniform.relative_error_histogram.shares), 1)
+        # of the observed points only
+        self.assertEqual(uniform.effective_samples.count, 3)
         self.assertAlmostEqual(uniform.effective_samples.median, 4)
+        self.assertAlmostEqual(uniform.effective_samples.mean, 14 / 3)
         self.assertEqual(uniform.revisit_p90.count, 3)
         # every point has a longest gap, the whole period if not observed
         self.assertEqual(uniform.max_gap.count, 4)
