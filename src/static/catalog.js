@@ -12,6 +12,12 @@ const SYSTEM_CLASS_LABELS = {
   geostationary: "Geostationary"
 };
 
+const ROLE_LABELS = {
+  observing: "observing",
+  transmitting: "navigation (transmitting)",
+  relaying: "data relay (relaying)"
+};
+
 let catalogSystems = null;
 let catalogUnchecked = {}; // instruments the user unchecked, by identifier
 
@@ -74,7 +80,7 @@ function loadCatalogSystems() {
 }
 
 function isActive(spacecraft) {
-  return spacecraft.status != "retired";
+  return spacecraft.status != "retired" && spacecraft.status != "storage";
 }
 
 function renderCatalogSystems() {
@@ -108,7 +114,7 @@ function renderCatalogSystem() {
     return;
   }
   renderCatalogDetails(details, system.operator + " · "
-    + (system.role == "transmitting" ? "navigation (transmitting)" : "observing"), system);
+    + (ROLE_LABELS[system.role] || system.role), system);
   _.forEach(system.spacecraft, function(spacecraft) {
     const id = "catalog-member-" + spacecraft.id;
     const label = $("<label>").addClass("form-check-label").attr("for", id).text(

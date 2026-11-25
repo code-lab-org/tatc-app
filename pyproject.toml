@@ -30,7 +30,7 @@ dependencies = [
     "itsdangerous",
     "msgpack-asgi",
     "python-dotenv",
-    "tatc >= 3.7.0, < 3.8",
+    "tatc >= 3.8.0, < 3.9",
     "tzlocal",
     "uvicorn[standard]"
 ]

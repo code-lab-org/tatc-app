@@ -1,5 +1,5 @@
 // Declarative specifications of the space-domain schemas of the TAT-C library
-// (version 3.7): satellites and constellations, orbits, and instruments, with
+// (version 3.8): satellites and constellations, orbits, and instruments, with
 // the units of form fields and their conversion to the library's SI units.
 //
 // Field properties:

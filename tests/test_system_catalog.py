@@ -107,6 +107,26 @@ class SystemCatalogTestCase(TatcTestCase):
         # Suomi NPP is retired
         self.assertEqual([m["id"] for m in result["members"]], ["noaa-20", "noaa-21"])
 
+    def test_build_relay_satellites(self):
+        tdrs = next(s for s in list_satellite_systems() if s.id == "tdrs")
+        self.assertEqual(tdrs.role, "relaying")
+        statuses = {s.id: s.status for s in tdrs.spacecraft}
+        self.assertIn("storage", statuses.values())
+        result = self.build("tdrs")
+        # spares in storage are not built by default, as retired spacecraft
+        self.assertEqual(
+            [m["id"] for m in result["members"]],
+            [
+                i
+                for i, status in statuses.items()
+                if status not in ("retired", "storage")
+            ],
+        )
+        # relay satellites carry no cataloged instruments, without a warning
+        satellite = adapter.validate_python(result["satellites"][0])
+        self.assertEqual([i.name for i in satellite.instruments], ["Default"])
+        self.assertFalse(any("cataloged instrument" in w for w in result["warnings"]))
+
     def test_build_without_gp_elements(self):
         result = self.build("trmm", members=["trmm"])
         self.assertEqual(result["members"][0]["orbit_source"], "catalog")
