@@ -1,12 +1,14 @@
 """
-Task specifications for analyses of the swath coverage of a region.
+Task specifications for analyses of ground track swaths, optionally over a
+region.
 
-The analysis period is split into windows of times, analyzed in parallel:
-each collects the footprints of every member satellite at its times,
-clipped to the region (and those of the following `max_time_difference`,
-to pair them with coincident footprints), and the observations of the
-region. The combining task merges the swath segments of the windows, the
-areas observed by the times of a coverage curve, and the observations.
+The sample times are split into windows, analyzed in parallel: each
+collects the footprints of member satellites at its times, clipped to the
+region if any (and those of the following `max_time_difference`, to pair
+them with coincident footprints), and the observations of the region. The
+combining task merges the swath segments of the windows (over the
+animation), the areas observed by the times of a coverage curve, and the
+observations.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -37,13 +39,19 @@ from ..analysis.summary import (
     SwathCoincidenceSummary,
     summarize_values,
 )
-from ..analysis.tasks import combine_animation, deserialize_members, tag, untag
+from ..analysis.tasks import (
+    combine_animation,
+    deserialize_members,
+    parse_times,
+    tag,
+    untag,
+)
 from ..utils.serialization import concat, empty_frame, from_geojson, to_geojson
 from ..worker import app
-from .schemas import RegionAnalysisResult, RegionObservation
+from .schemas import RegionObservation, SwathAnalysisResult
 
 # number of time steps of each window analyzed in parallel
-WINDOW_STEPS = int(os.getenv("TATC_REGION_WINDOW_STEPS", "1440"))
+WINDOW_STEPS = int(os.getenv("TATC_SWATH_WINDOW_STEPS", "1440"))
 
 # an equal-area projection (cylindrical, on the WGS 84 ellipsoid) to measure
 # areas of geometries in longitude and latitude, including whole bands of
@@ -130,36 +138,41 @@ def _segment(times: pd.Series, start: datetime, segment: timedelta) -> np.ndarra
 
 def analyze_window(  # pylint: disable=too-many-arguments,too-many-locals
     members: list,
-    region: Union[Polygon, MultiPolygon],
+    region: Optional[Union[Polygon, MultiPolygon]],
     times: pd.DatetimeIndex,
     window_end: datetime,
     start: datetime,
     end: datetime,
+    display_end: datetime,
     step: timedelta,
-    segment: timedelta,
+    segment: Optional[timedelta],
     instrument_index: Optional[int] = None,
     max_time_difference: Optional[timedelta] = None,
     systems: Optional[Dict[str, str]] = None,
 ) -> Dict[str, pd.DataFrame]:
     """
     Analyzes a window of times: the footprints of the members at the times
-    before the window's end (its own times), clipped to the region, as swath
-    segments and pieces of the area observed by each time of the coverage
-    curve; the observations of the region in the window; and, with a maximum
-    time difference, the coincident footprints whose earlier time is the
-    window's own (paired with footprints up to that difference after it).
+    before the window's end (its own times), clipped to the region if any,
+    as swath segments over the animation; with a region, the pieces of its
+    area observed by each time of the coverage curve and its observations
+    in the window; and, with a maximum time difference, the coincident
+    footprints whose earlier time is the window's own (paired with
+    footprints up to that difference after it).
 
     Args:
         members (list): The member satellites.
-        region (Union[Polygon, MultiPolygon]): The region.
+        region (Optional[Union[Polygon, MultiPolygon]]): The region, or
+            `None` for unclipped swaths.
         times (pandas.DatetimeIndex): The times of the window: its own, and
             those of the following maximum time difference.
-        window_end (datetime.datetime): The end of the window (exclusive,
-            unless it is the end of the analysis).
+        window_end (datetime.datetime): The end of the window (exclusive).
         start (datetime.datetime): The start of the analysis period.
         end (datetime.datetime): The end of the analysis period.
+        display_end (datetime.datetime): The end of the animation, after
+            which swath segments (and coincident ones) are not given.
         step (datetime.timedelta): The time step (over which footprints sweep).
-        segment (datetime.timedelta): The duration of each swath segment.
+        segment (Optional[datetime.timedelta]): The duration of each swath
+            segment, or `None` to give no swath segments.
         instrument_index (Optional[int]): The instrument index, or `None` for all.
         max_time_difference (Optional[datetime.timedelta]): The maximum time
             difference of coincident footprints, or `None` not to find them.
@@ -167,13 +180,12 @@ def analyze_window(  # pylint: disable=too-many-arguments,too-many-locals
             name, if coincident footprints are between systems.
 
     Returns:
-        Dict[str, pandas.DataFrame]: the `swaths`, `area` pieces,
-            `observations`, and (with a maximum time difference) coincident
-            `pairs` (dissolved), `common` area pieces, and `differences` of
-            the window.
+        Dict[str, pandas.DataFrame]: the `swaths`; with a region, its `area`
+            pieces and `observations`; and (with a maximum time difference)
+            coincident `pairs` (dissolved), `common` area pieces, and
+            `differences` of the window.
     """
-    last = pd.Timestamp(window_end) >= pd.Timestamp(end)
-    own_times = times[(times <= window_end) if last else (times < window_end)]
+    own_times = times[times < window_end]
     footprints = collect_footprints(
         members,
         list(times),
@@ -190,16 +202,28 @@ def analyze_window(  # pylint: disable=too-many-arguments,too-many-locals
         if not footprints.empty
         else footprints
     )
+    shown = own[own.time <= pd.Timestamp(display_end)] if not own.empty else own
     result = {
-        "swaths": _swath_segments(own, start, end, step, segment),
-        "area": _dissolve_pieces(own, own.get("time"), start, end),
-        "observations": _region_observations(
-            region, members, own_times, step, end, instrument_index
-        ),
+        "swaths": (
+            _swath_segments(shown, start, display_end, step, segment)
+            if segment is not None
+            else empty_frame(SWATH_COLUMNS)
+        )
     }
+    if region is not None:
+        result["area"] = _dissolve_pieces(own, own.get("time"), start, end)
+        result["observations"] = _region_observations(
+            region, members, own_times, step, end, instrument_index
+        )
     if max_time_difference is not None:
         pairs = _coincident_pairs(footprints, own_times, max_time_difference, systems)
-        result["pairs"] = _pair_segments(pairs, start, segment)
+        # coincident segments over the animation (each shows at its later time)
+        shown_pairs = (
+            pairs[pd.to_datetime(pairs.time_2, utc=True) <= pd.Timestamp(display_end)]
+            if not pairs.empty and segment is not None
+            else pairs.iloc[0:0]
+        )
+        result["pairs"] = _pair_segments(shown_pairs, start, segment)
         result["common"] = _dissolve_pieces(pairs, pairs.get("time_2"), start, end)
         result["differences"] = pd.DataFrame(
             {
@@ -222,7 +246,7 @@ def _swath_segments(
 ) -> gpd.GeoDataFrame:
     """
     Dissolves footprints into swath segments of each instrument of each
-    satellite (see `tracking.tasks.compute_swaths`).
+    satellite, from the start of the analysis to an end.
     """
     if footprints.empty:
         return empty_frame(SWATH_COLUMNS)
@@ -340,32 +364,36 @@ def _pair_segments(
 
 
 @app.task
-def collect_region_window_task(  # pylint: disable=too-many-arguments
+def collect_swath_window_task(  # pylint: disable=too-many-arguments
     members: List[str],
-    region: str,
+    region: Optional[str],
     times: List[str],
     window_end: str,
     start: str,
     end: str,
+    display_end: str,
     step: float,
-    segment: float,
+    segment: Optional[float],
     instrument_index: Optional[int] = None,
     max_time_difference: Optional[float] = None,
     systems: Optional[dict] = None,
 ) -> list:
     """
-    Task to analyze a window of times of the swath coverage of a region (see
-    `analyze_window`).
+    Task to analyze a window of times of the swaths of member satellites
+    (see `analyze_window`).
 
     Args:
         members (List[str]): JSON serialized member satellites.
-        region (str): GeoJSON serialized region geometry.
+        region (Optional[str]): GeoJSON serialized region geometry, or
+            `None` for unclipped swaths.
         times (List[str]): ISO 8601 serialized times of the window.
         window_end (str): ISO 8601 serialized end of the window.
         start (str): ISO 8601 serialized start of the analysis period.
         end (str): ISO 8601 serialized end of the analysis period.
+        display_end (str): ISO 8601 serialized end of the animation.
         step (float): Time step (seconds).
-        segment (float): Swath segment duration (seconds).
+        segment (Optional[float]): Swath segment duration (seconds), or
+            `None` to give no swath segments.
         instrument_index (Optional[int]): Instrument index, or `None` for all.
         max_time_difference (Optional[float]): Maximum time difference
             (seconds) of coincident footprints, or `None` not to find them.
@@ -377,20 +405,21 @@ def collect_region_window_task(  # pylint: disable=too-many-arguments
     """
     results = analyze_window(
         deserialize_members(members),
-        shape(json.loads(region)),
-        pd.DatetimeIndex([datetime.fromisoformat(t) for t in times]).tz_convert("UTC"),
+        None if region is None else shape(json.loads(region)),
+        parse_times(times),
         datetime.fromisoformat(window_end),
         datetime.fromisoformat(start),
         datetime.fromisoformat(end),
+        datetime.fromisoformat(display_end),
         timedelta(seconds=step),
-        timedelta(seconds=segment),
+        None if segment is None else timedelta(seconds=segment),
         instrument_index,
         None if max_time_difference is None else timedelta(seconds=max_time_difference),
         systems,
     )
     return [
         tag(
-            f"region-{kind}",
+            f"swath-{kind}",
             (
                 frame.to_json(orient="records")
                 if kind == "differences"
@@ -499,10 +528,19 @@ def summarize_region(  # pylint: disable=too-many-arguments,too-many-locals
     return summary, aggregated
 
 
+def _frames(results: list, kind: str, **kwargs) -> gpd.GeoDataFrame:
+    """
+    Concatenates the (GeoJSON serialized) frames of a kind of the windows.
+    """
+    return concat(
+        from_geojson(data, **kwargs) for data in untag(results, f"swath-{kind}")
+    )
+
+
 @app.task
-def combine_region_task(  # pylint: disable=too-many-arguments,too-many-locals
+def combine_swaths_task(  # pylint: disable=too-many-arguments,too-many-locals
     results: list,
-    region: str,
+    region: Optional[str],
     start: str,
     end: str,
     colors: dict,
@@ -510,12 +548,13 @@ def combine_region_task(  # pylint: disable=too-many-arguments,too-many-locals
     coincidence: bool = False,
 ) -> str:
     """
-    Task to combine the windows of an analysis of the swath coverage of a
-    region (and the orbit tracks of member satellites).
+    Task to combine the windows of a swath analysis (and the orbit tracks of
+    member satellites).
 
     Args:
         results (list): Tagged results of parallel tasks.
-        region (str): GeoJSON serialized region geometry.
+        region (Optional[str]): GeoJSON serialized region geometry, or
+            `None` for unclipped swaths.
         start (str): ISO 8601 serialized start of the analysis period.
         end (str): ISO 8601 serialized end of the analysis period.
         colors (dict): Display colors by member satellite name.
@@ -524,24 +563,45 @@ def combine_region_task(  # pylint: disable=too-many-arguments,too-many-locals
         coincidence (bool): Whether the windows found coincident footprints.
 
     Returns:
-        str: JSON serialized `RegionAnalysisResult`.
+        str: JSON serialized `SwathAnalysisResult`.
     """
     animation = combine_animation(results, start, colors)
     start_time = datetime.fromisoformat(start)
     end_time = datetime.fromisoformat(end)
-    geometry = shape(json.loads(region))
-
-    def frames(kind: str, **kwargs) -> gpd.GeoDataFrame:
-        return concat(
-            from_geojson(data, **kwargs) for data in untag(results, f"region-{kind}")
-        )
 
     swaths = _merge_segments(
-        frames("swaths", datetimes=["start", "end"], columns=SWATH_COLUMNS),
+        _frames(results, "swaths", datetimes=["start", "end"], columns=SWATH_COLUMNS),
         ["satellite", "instrument", "segment"],
         SWATH_COLUMNS,
     )
-    observations = frames(
+    result = {
+        "swaths": json.loads(to_geojson(swaths.drop(columns="segment"))),
+        "tracks": animation.tracks,
+        "colors": animation.colors,
+        "systems": systems or {},
+    }
+    if region is not None:
+        result |= _region_results(
+            results, shape(json.loads(region)), start_time, end_time, coincidence
+        )
+    return SwathAnalysisResult(**result).model_dump_json()
+
+
+def _region_results(
+    results: list,
+    geometry: Union[Polygon, MultiPolygon],
+    start_time: datetime,
+    end_time: datetime,
+    coincidence: bool,
+) -> dict:
+    """
+    Combines the results of the windows over a region: the region, its
+    coincident swath segments, its observations, and the summary of its
+    coverage (fields of a `SwathAnalysisResult`).
+    """
+
+    observations = _frames(
+        results,
         "observations",
         datetimes=["start", "epoch", "end"],
         columns=OBSERVATION_COLUMNS,
@@ -549,42 +609,41 @@ def combine_region_task(  # pylint: disable=too-many-arguments,too-many-locals
     pairs = common = differences = None
     if coincidence:
         pairs = _merge_segments(
-            frames("pairs", datetimes=["start", "end"], columns=PAIR_COLUMNS),
+            _frames(results, "pairs", datetimes=["start", "end"], columns=PAIR_COLUMNS),
             ["satellite_1", "satellite_2", "segment"],
             PAIR_COLUMNS,
         )
-        common = frames("common", columns=PIECE_COLUMNS)
+        common = _frames(results, "common", columns=PIECE_COLUMNS)
         differences = np.array(
             [
                 row["seconds"]
-                for data in untag(results, "region-differences")
+                for data in untag(results, "swath-differences")
                 for row in json.loads(data)
             ],
             dtype=float,
         )
     summary, aggregated = summarize_region(
         geometry,
-        frames("area", columns=PIECE_COLUMNS),
+        _frames(results, "area", columns=PIECE_COLUMNS),
         observations,
         start_time,
         end_time,
         common,
         differences,
     )
-    return RegionAnalysisResult(
-        region={
+    return {
+        "region": {
             "type": "FeatureCollection",
             "features": [
                 {"type": "Feature", "geometry": mapping(geometry), "properties": {}}
             ],
         },
-        swaths=json.loads(to_geojson(swaths.drop(columns="segment"))),
-        coincident=(
+        "coincident": (
             None
             if pairs is None
             else json.loads(to_geojson(pairs.drop(columns="segment")))
         ),
-        observations=[
+        "observations": [
             RegionObservation(
                 satellite=str(row.satellite),
                 instrument=str(row.instrument),
@@ -601,11 +660,8 @@ def combine_region_task(  # pylint: disable=too-many-arguments,too-many-locals
                 _seconds(aggregated["end"], start_time) if not aggregated.empty else [],
             )
         ],
-        tracks=animation.tracks,
-        colors=animation.colors,
-        systems=systems or {},
-        summary=summary,
-    ).model_dump_json()
+        "summary": summary,
+    }
 
 
 def _merge_segments(

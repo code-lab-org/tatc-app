@@ -30,7 +30,6 @@ class AnalysisType(str, Enum):
     swaths = "swaths"
     latency = "latency"
     access = "access"
-    region = "region"
 
 
 def check_size(*values: Any) -> None:

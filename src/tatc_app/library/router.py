@@ -20,8 +20,7 @@ from ..coincidence.schemas import CoincidenceAnalysisRequest
 from ..coverage.schemas import CoverageAnalysisRequest
 from ..latency.schemas import LatencyAnalysisRequest
 from ..overflight.schemas import OverflightAnalysisRequest
-from ..region.schemas import RegionAnalysisRequest
-from ..tracking.schemas import SwathAnalysisRequest
+from ..swaths.schemas import SwathAnalysisRequest
 from .database import library
 from .schemas import (
     AnalysisType,
@@ -46,7 +45,6 @@ REQUEST_MODELS = {
     AnalysisType.swaths: SwathAnalysisRequest,
     AnalysisType.latency: LatencyAnalysisRequest,
     AnalysisType.access: OverflightAnalysisRequest,
-    AnalysisType.region: RegionAnalysisRequest,
 }
 
 # the summary schema of each type of analysis with a summary
@@ -54,8 +52,12 @@ SUMMARY_MODELS = {
     AnalysisType.coverage: CoverageSummary,
     AnalysisType.coincidence: CoverageSummary,
     AnalysisType.latency: LatencySummary,
-    AnalysisType.region: RegionSummary,
+    AnalysisType.swaths: RegionSummary,
 }
+
+# the types of analysis whose results have a summary only for some requests
+# (swaths, only over a region)
+OPTIONAL_SUMMARIES = {AnalysisType.swaths}
 
 
 def check_capacity(table: str, user: User) -> None:
@@ -156,8 +158,12 @@ def get_run_summary(analysis: AnalysisType, task_id: UUID) -> Optional[dict]:
                 "or expired). Run the analysis again to save it.",
             ) from exc
         raise
+    summary = result.get("summary") if isinstance(result, dict) else None
+    # swath analyses summarize only the coverage of a region
+    if summary is None and analysis in OPTIONAL_SUMMARIES and "swaths" in result:
+        return None
     try:
-        return model.model_validate(result.get("summary")).model_dump(mode="json")
+        return model.model_validate(summary).model_dump(mode="json")
     except (AttributeError, ValidationError) as exc:
         raise HTTPException(
             status_code=422,

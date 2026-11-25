@@ -18,8 +18,8 @@ from tatc.schemas import (
     WalkerConstellation,
 )
 
-from tatc_app.region.schemas import RegionAnalysisRequest, RegionAnalysisResult
-from tatc_app.region.tasks import area_km2
+from tatc_app.swaths.schemas import SwathAnalysisRequest, SwathAnalysisResult
+from tatc_app.swaths.tasks import area_km2
 
 from .base import TatcTestCase
 
@@ -56,8 +56,8 @@ class RegionTestCase(TatcTestCase):
             instruments=[INSTRUMENT],
         )
 
-    def request(self, **kwargs) -> RegionAnalysisRequest:
-        return RegionAnalysisRequest(
+    def request(self, **kwargs) -> SwathAnalysisRequest:
+        return SwathAnalysisRequest(
             **{
                 "satellites": [self.constellation, self.satellite],
                 "start": START,
@@ -72,12 +72,12 @@ class RegionTestCase(TatcTestCase):
             }
         )
 
-    def analyze(self, request, window_steps=None) -> RegionAnalysisResult:
-        with mock.patch("tatc_app.region.router.WINDOW_STEPS", window_steps or 100000):
-            task = self.run_analysis("/analyze/region", request)
+    def analyze(self, request, window_steps=None) -> SwathAnalysisResult:
+        with mock.patch("tatc_app.swaths.router.WINDOW_STEPS", window_steps or 100000):
+            task = self.run_analysis("/analyze/swaths", request)
         self.task_id = task["task_id"]
-        return RegionAnalysisResult.model_validate(
-            self.get_json(f"/analyze/region/{task['task_id']}")
+        return SwathAnalysisResult.model_validate(
+            self.get_json(f"/analyze/swaths/{task['task_id']}")
         )
 
     def test_area(self):
@@ -120,7 +120,7 @@ class RegionTestCase(TatcTestCase):
         # swaths and common areas to display
         self.assertGreater(len(result.swaths.features), 0)
         self.assertGreater(len(result.coincident.features), 0)
-        czml = self.get_json(f"/analyze/region/{self.task_id}/czml")
+        czml = self.get_json(f"/analyze/swaths/{self.task_id}/czml")
         self.assertTrue(any(p["id"].startswith("coincident/") for p in czml))
         self.assertTrue(any(p["id"].startswith("swath/") for p in czml))
 
@@ -132,6 +132,32 @@ class RegionTestCase(TatcTestCase):
         self.assertEqual(one.observations, many.observations)
         self.assertEqual(one.coincidence.pairs, many.coincidence.pairs)
         self.assertAlmostEqual(one.coincidence.common, many.coincidence.common, 6)
+
+    def test_display(self):
+        # the animation limits the swaths and coincident swaths given, but
+        # not the summary of the whole analysis period
+        display_end = START + timedelta(hours=4)
+        full = self.analyze(self.request(), window_steps=200)
+        shown = self.analyze(
+            self.request(display={"start": START, "end": display_end, "delta": 60}),
+            window_steps=200,
+        )
+        self.assertAlmostEqual(shown.summary.covered, full.summary.covered, 6)
+        self.assertEqual(shown.summary.observations, full.summary.observations)
+        self.assertEqual(
+            shown.summary.coincidence.pairs, full.summary.coincidence.pairs
+        )
+        self.assertEqual(len(shown.observations), len(full.observations))
+        for track in shown.tracks.tracks:
+            self.assertEqual(len(track.positions), 4 * 241)
+        for collection in (shown.swaths, shown.coincident):
+            self.assertGreater(len(collection.features), 0)
+            for feature in collection.features:
+                self.assertLessEqual(
+                    datetime.fromisoformat(feature.properties["end"]), display_end
+                )
+        self.assertLess(len(shown.swaths.features), len(full.swaths.features))
+        self.assertLess(len(shown.coincident.features), len(full.coincident.features))
 
     def test_systems(self):
         result = self.analyze(
@@ -170,7 +196,7 @@ class RegionTestCase(TatcTestCase):
             "/runs",
             json={
                 "name": "Region",
-                "analysis": "region",
+                "analysis": "swaths",
                 "taskId": self.task_id,
                 "request": request.model_dump(mode="json"),
                 "design": {
@@ -191,7 +217,7 @@ class RegionTestCase(TatcTestCase):
         single = self.satellite.model_dump(mode="json")
         for changes in (
             {"region": "XYZ"},
-            {"display": {"start": base["start"], "end": base["end"], "delta": 60}},
+            {"region": None},
             {"satellites": [single]},
             {
                 "satellites": [base["satellites"][0]],
@@ -200,9 +226,9 @@ class RegionTestCase(TatcTestCase):
             {"coincidence": {"maxTimeDifference": -1}},
             {"step": 0},
         ):
-            response = self.client.post("/analyze/region", json=base | changes)
+            response = self.client.post("/analyze/swaths", json=base | changes)
             self.assertEqual(response.status_code, 422, changes)
         # one satellite, without coincident swaths, is valid
         valid = base | {"satellites": [single]}
         valid.pop("coincidence")
-        RegionAnalysisRequest.model_validate(valid)
+        SwathAnalysisRequest.model_validate(valid)

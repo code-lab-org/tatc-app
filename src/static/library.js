@@ -197,7 +197,9 @@ function coverageRunMetrics(terms) {
 const RUN_METRICS = {
   coverage: coverageRunMetrics(COVERAGE_TERMS.coverage),
   coincidence: coverageRunMetrics(COVERAGE_TERMS.coincidence),
-  region: {
+  // (swaths over a region)
+  swaths: {
+    curveTerms: COVERAGE_TERMS.region,
     headline: { label: "Area observed", value: function(s) { return s.covered; }, kind: "share" },
     rows: [
       { label: "Area observed", value: function(s) { return s.covered; }, kind: "share" },
@@ -358,10 +360,11 @@ function renderComparison() {
       _.map(values, function(value) { return $("<td>").text(formatMetric(value, row.kind, unit)); })
     ));
   });
-  if (COVERAGE_TERMS[type]) {
+  const curveTerms = metrics.curveTerms || COVERAGE_TERMS[type];
+  if (curveTerms) {
     $("<div>").addClass("summary-charts").appendTo(root).append(comparisonChart(_.map(runs, function(run) {
       return { name: run.name, color: run.color, curve: run.summary.coverage };
-    }), COVERAGE_TERMS[type]));
+    }), curveTerms));
   }
 }
 
@@ -397,22 +400,18 @@ function setAnalysisInputs(type, request) {
     setCoincidenceInputs(request);
     setSufficiencyInputs(request.sufficiency);
     setSampleSizeInputs(request.sample_size);
-  } else if (type == "region") {
-    $("#region-step").val(request.step);
-    if (request.segment) {
-      $("#region-segment").val(request.segment / 60);
-    }
-    const coincidence = request.coincidence;
-    $("#region-coincidence-enabled").prop("checked", Boolean(coincidence));
-    $("#region-coincidence-options").toggle(Boolean(coincidence));
-    if (coincidence) {
-      $("#region-coincidence-difference").val(Number(((coincidence.max_time_difference || 0) / 60).toFixed(6)));
-      $("#region-coincidence-platforms").val(coincidence.platforms || "members");
-    }
   } else if (type == "swaths") {
     $("#swaths-step").val(request.step);
     if (request.segment) {
       $("#swaths-segment").val(request.segment / 60);
+    }
+    $("#swaths-region-enabled").prop("checked", Boolean(request.region)).trigger("change");
+    const coincidence = request.coincidence;
+    $("#swaths-coincidence-enabled").prop("checked", Boolean(coincidence));
+    $("#swaths-coincidence-options").toggle(Boolean(coincidence));
+    if (coincidence) {
+      $("#swaths-coincidence-difference").val(Number(((coincidence.max_time_difference || 0) / 60).toFixed(6)));
+      $("#swaths-coincidence-platforms").val(coincidence.platforms || "members");
     }
   } else if (type == "latency" && request.during_contact) {
     $("#latency-contact").val(request.during_contact);

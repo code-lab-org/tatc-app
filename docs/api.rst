@@ -88,20 +88,27 @@ of a coverage analysis, of coincidences rather than observations.
 
 .. autopydantic_model:: tatc_app.coincidence.schemas.CoincidenceAnalysisResult
 
-Swath Coverage of a Region
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+Ground Track Swaths
+^^^^^^^^^^^^^^^^^^^
 
-A region analysis samples the footprints of instruments every ``step`` over
-the analysis period, clipped to the region: the share of its area observed
-over time (measured in an equal-area projection of the WGS 84 ellipsoid), its
-observations (when any part of it is observed), and, with ``coincidence``, the
-areas that two platforms observe in common within ``max_time_difference``.
+A swath analysis samples the footprints of instruments every ``step``,
+dissolved into segments that accumulate over the animation (``display``, by
+default every ``step`` over the analysis period): swath segments are given
+only over it.
 
-.. autopydantic_model:: tatc_app.region.schemas.RegionAnalysisRequest
+With a ``region``, footprints are clipped to it and sampled over the whole
+analysis period, to summarize the share of its area observed over time
+(measured in an equal-area projection of the WGS 84 ellipsoid), its
+observations (when any part of it is observed), and, with ``coincidence``,
+the areas that two platforms observe in common within
+``max_time_difference``. Without one, footprints are sampled only over the
+animation.
 
-.. autopydantic_model:: tatc_app.region.schemas.SwathCoincidenceOptions
+.. autopydantic_model:: tatc_app.swaths.schemas.SwathAnalysisRequest
 
-.. autopydantic_model:: tatc_app.region.schemas.RegionAnalysisResult
+.. autopydantic_model:: tatc_app.swaths.schemas.SwathCoincidenceOptions
+
+.. autopydantic_model:: tatc_app.swaths.schemas.SwathAnalysisResult
 
 .. autopydantic_model:: tatc_app.analysis.summary.RegionSummary
 
@@ -123,13 +130,6 @@ Point Access (Overflight)
 
 .. autopydantic_model:: tatc_app.overflight.schemas.OverflightAnalysisResult
 
-Ground Track Swaths
-^^^^^^^^^^^^^^^^^^^
-
-.. autopydantic_model:: tatc_app.tracking.schemas.SwathAnalysisRequest
-
-.. autopydantic_model:: tatc_app.tracking.schemas.SwathAnalysisResult
-
 Orbit and Ground Tracks
 ^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -148,6 +148,10 @@ generate them.
 .. autopydantic_model:: tatc_app.generation.schemas.CellGenerator
 
 .. autopydantic_model:: tatc_app.generation.schemas.TimeGenerator
+
+The outline of a region (a polygon, known shape, or country) displays it.
+
+.. autopydantic_model:: tatc_app.generation.schemas.RegionOutlineRequest
 
 .. autoclass:: tatc_app.generation.schemas.PointGeneratorMethod
    :members:

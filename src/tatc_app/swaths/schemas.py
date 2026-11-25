@@ -1,11 +1,11 @@
 """
-Schema specifications for analyses of the swath coverage of a region.
+Schema specifications for analyses of ground track swaths, optionally over a
+region.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from datetime import timedelta
-from enum import Enum
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Union
 
 import pandas as pd
@@ -17,26 +17,12 @@ from ..analysis.schemas import MAX_DISPLAY_STEPS, AnalysisRequest, AnimatedResul
 from ..analysis.summary import RegionSummary
 from ..coincidence.schemas import CoincidencePlatforms
 from ..generation.masks import resolve_mask
-from ..generation.schemas import Mask, TimeGenerator
+from ..generation.schemas import Mask, TimeGenerator, mask_spec
 from ..satellites import validate_instrument_index
 from ..utils.schemas import CamelModel
 
-# the region of a request without one: the globe
+# the region of the known shape `global`
 GLOBE = box(-180, -90, 180, 90)
-
-
-def mask_spec(mask: Optional[Mask]) -> Optional[Union[dict, str]]:
-    """
-    Gets the specification of a mask that `resolve_mask` resolves: a GeoJSON
-    geometry, a known shape or country code, or `None`.
-    """
-    if mask is None:
-        return None
-    if isinstance(mask, BaseModel):
-        return mask.model_dump(mode="json")
-    if isinstance(mask, Enum):
-        return mask.value
-    return str(mask)
 
 
 class SwathCoincidenceOptions(CamelModel):
@@ -68,45 +54,58 @@ class SwathCoincidenceOptions(CamelModel):
         return value
 
 
-class RegionAnalysisRequest(AnalysisRequest):
+class SwathAnalysisRequest(AnalysisRequest):
     """
-    User request to analyze the swath coverage of a region: the footprints
-    of instruments sampled every `step` over the analysis period (so
-    `display` does not apply), clipped to the region, with the share of its
-    area observed over time, its observations (when any part of it is
-    observed), and optionally the areas that platforms observe in common.
+    User request to analyze the swaths of instruments as they accumulate
+    over time: footprints sampled every `step`, dissolved into segments.
+
+    With a `region`, footprints are clipped to it and sampled over the whole
+    analysis period, to give the share of its area observed over time, its
+    observations (when any part of it is observed), and optionally the areas
+    that platforms observe in common. Without one, footprints are sampled
+    only over the animation.
+
+    Orbit tracks animate results over the `display` times (by default,
+    every `step` over the whole analysis period), and swath segments are
+    given only over them, to limit the size of results.
     """
 
-    region: Optional[Mask] = Field(
-        None,
-        description="The region: a polygon, a known shape, or a country code "
-        "(`null` for the globe).",
-    )
     instrument_index: Optional[int] = Field(
-        None, ge=0, description="Instrument index, or `null` for all instruments."
+        0, ge=0, description="Instrument index, or `null` for all instruments."
     )
     step: timedelta = Field(
         timedelta(seconds=60),
         gt=timedelta(0),
-        description="Time step to sample orbit tracks and footprints.",
+        description="Time step to sample footprints.",
     )
-    segment: timedelta = Field(
+    segment: Optional[timedelta] = Field(
         timedelta(minutes=10),
         gt=timedelta(0),
-        description="Duration of each displayed swath segment.",
+        description="Duration of each swath segment (displayed once it ends), "
+        "or `null` to give no swath segments.",
+    )
+    region: Optional[Mask] = Field(
+        None,
+        description="The region to clip swaths to and whose coverage to "
+        "summarize: a polygon, a known shape, or a country code (`null` for "
+        "no region: unclipped swaths, without a summary).",
     )
     coincidence: Optional[SwathCoincidenceOptions] = Field(
         None,
-        description="Options to also find coincident swaths (`null` to skip " "it).",
+        description="Options to also find coincident swaths over the region "
+        "(`null` to skip it).",
     )
     # the region's geometry
     _region: Optional[Union[Polygon, MultiPolygon]] = PrivateAttr(None)
 
     @model_validator(mode="after")
-    def validate_region(self) -> "RegionAnalysisRequest":
+    def validate_region(self) -> "SwathAnalysisRequest":
         """
-        Validates the region resolves to a polygon with an area.
+        Validates the region (if any) resolves to a polygon with an area.
         """
+        if self.region is None:
+            self._region = None
+            return self
         try:
             region = resolve_mask(mask_spec(self.region))
         except (ValueError, KeyError) as exc:
@@ -118,19 +117,16 @@ class RegionAnalysisRequest(AnalysisRequest):
         return self
 
     @model_validator(mode="after")
-    def validate_options(self) -> "RegionAnalysisRequest":
+    def validate_options(self) -> "SwathAnalysisRequest":
         """
-        Validates the instrument index, that `display` is not set (footprints
-        are sampled every `step`), and that coincident swaths have at least
-        two platforms.
+        Validates the instrument index, the sample times, and that coincident
+        swaths have a region and at least two platforms.
         """
         validate_instrument_index(self.satellites, self.instrument_index)
-        if self.display is not None:
-            raise ValueError(
-                "Invalid display: region analyses sample the whole analysis "
-                "period every `step`."
-            )
+        self.get_sample_times()
         if self.coincidence is not None:
+            if self._region is None:
+                raise ValueError("Coincident swaths need a region.")
             systems = self.get_platform_systems()
             count = (
                 len(self.get_members())
@@ -148,20 +144,50 @@ class RegionAnalysisRequest(AnalysisRequest):
                 )
         return self
 
-    def get_region(self) -> Union[Polygon, MultiPolygon]:
+    def get_region(self) -> Optional[Union[Polygon, MultiPolygon]]:
         """
-        Gets the region's geometry (the globe, without a region).
+        Gets the region's geometry, or `None` without a region.
         """
         return self._region
 
     def get_display_times(self) -> pd.DatetimeIndex:
         """
-        Gets the times at which to sample orbit tracks and footprints.
+        Gets the times at which to sample orbit tracks to animate results:
+        the `display` times, or every `step` over the analysis period.
 
         Returns:
             pandas.DatetimeIndex: The times.
         """
+        if self.display is not None:
+            return self.display.to_index(MAX_DISPLAY_STEPS)
         return TimeGenerator(start=self.start, end=self.end, delta=self.step).to_index(
+            MAX_DISPLAY_STEPS
+        )
+
+    def get_display_end(self) -> datetime:
+        """
+        Gets the end of the animation (at most the end of the analysis
+        period), after which swath segments are not given.
+
+        Returns:
+            datetime.datetime: The end of the animation.
+        """
+        if self.display is None:
+            return self.end
+        return min(self.end, self.display.end)
+
+    def get_sample_times(self) -> pd.DatetimeIndex:
+        """
+        Gets the times at which to sample footprints: every `step` over the
+        analysis period with a region, or else over the animation.
+
+        Returns:
+            pandas.DatetimeIndex: The times.
+        """
+        end = self.end if self._region is not None else self.get_display_end()
+        if end - self.start < self.step:
+            return pd.DatetimeIndex([self.start, end]).tz_convert("UTC")
+        return TimeGenerator(start=self.start, end=end, delta=self.step).to_index(
             MAX_DISPLAY_STEPS
         )
 
@@ -196,30 +222,34 @@ class RegionObservation(BaseModel):
     end: float = Field(..., description="End (seconds since the analysis start).")
 
 
-class RegionAnalysisResult(AnimatedResult):
+class SwathAnalysisResult(AnimatedResult):
     """
-    Results of an analysis of the swath coverage of a region.
+    Results of a swath analysis.
     """
 
-    region: FeatureCollection = Field(..., description="The region.")
     swaths: FeatureCollection = Field(
         ...,
-        description="Swath segments clipped to the region, with properties "
-        "`satellite`, `instrument`, `start`, and `end`.",
+        description="Swath segments (clipped to the region, if any) over the "
+        "animation, with properties `satellite`, `instrument`, `start`, and "
+        "`end`.",
     )
+    region: Optional[FeatureCollection] = Field(None, description="The region, if any.")
     coincident: Optional[FeatureCollection] = Field(
         None,
         description="Areas of the region observed in common by two platforms "
-        "(dissolved by pair and segment), with properties `satellite_1`, "
-        "`satellite_2`, `start` (the earlier time), and `end` (the later), if "
-        "coincident swaths were found.",
+        "over the animation (dissolved by pair and segment), with properties "
+        "`satellite_1`, `satellite_2`, `start` (the earlier time), and `end` "
+        "(the later), if coincident swaths were found.",
     )
     observations: List[RegionObservation] = Field(
-        [], description="Observations of the region, in order of time."
+        [],
+        description="Observations of the region (if any), in order of time.",
     )
     systems: Dict[str, int] = Field(
         {},
         description="Index of the requested satellite or constellation of "
         "each member satellite, by name.",
     )
-    summary: RegionSummary = Field(..., description="Summary of the region's coverage.")
+    summary: Optional[RegionSummary] = Field(
+        None, description="Summary of the region's coverage (if any)."
+    )
