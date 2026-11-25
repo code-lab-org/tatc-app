@@ -55,6 +55,15 @@ Coverage and Revisit
 
 .. autopydantic_model:: tatc_app.analysis.summary.CoverageSummary
 
+A coverage analysis may also assess sampling sufficiency (``sufficiency`` of
+its request): how well the observations of each point estimate the mean of a
+field over the analysis period, for a field with a decorrelation time, and how
+they spread in time and local time of day.
+
+.. autopydantic_model:: tatc_app.coverage.schemas.SufficiencyOptions
+
+.. autopydantic_model:: tatc_app.analysis.summary.SufficiencySummary
+
 Data Latency
 ^^^^^^^^^^^^
 

@@ -12,7 +12,7 @@ them by it (`Weighting.area`).
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import List, Optional, Union
 
@@ -62,26 +62,24 @@ def get_weighting(points: Union[list, PointGenerator]) -> Weighting:
 
 class Distribution(BaseModel):
     """
-    Weighted distribution of a statistic (in seconds) over the points with a
-    value.
+    Weighted distribution of a statistic (in its units: seconds for times)
+    over the points with a value.
     """
 
     count: int = Field(..., description="Number of points with a value.")
-    mean: float = Field(..., description="Weighted mean (seconds).")
-    median: float = Field(..., description="Weighted median (seconds).")
-    p90: float = Field(..., description="Weighted 90th percentile (seconds).")
-    max: float = Field(..., description="Maximum (seconds).")
+    mean: float = Field(..., description="Weighted mean.")
+    median: float = Field(..., description="Weighted median.")
+    p90: float = Field(..., description="Weighted 90th percentile.")
+    max: float = Field(..., description="Maximum.")
 
 
 class Histogram(BaseModel):
     """
-    Weighted histogram of a statistic (in seconds) over the points with a
-    value.
+    Weighted histogram of a statistic (in its units: seconds for times) over
+    the points with a value.
     """
 
-    edges: List[float] = Field(
-        ..., description="Edges of equal-width bins (seconds), from zero."
-    )
+    edges: List[float] = Field(..., description="Edges of equal-width bins, from zero.")
     shares: List[float] = Field(
         ..., description="Weighted share of the points with a value in each bin."
     )
@@ -97,6 +95,69 @@ class CoverageCurve(BaseModel):
     )
     shares: List[float] = Field(
         ..., description="Weighted share of points observed by each time."
+    )
+
+
+class SufficiencySummary(BaseModel):
+    """
+    Summary of the sampling sufficiency of the points of a region.
+    """
+
+    decorrelation_time: float = Field(
+        ..., description="Decorrelation time of the field (seconds)."
+    )
+    standard_deviation: Optional[float] = Field(
+        None, description="Standard deviation of the field, if given."
+    )
+    target_relative_error: Optional[float] = Field(
+        None, description="Required relative error, if given."
+    )
+    sufficient: Optional[float] = Field(
+        None,
+        description="Weighted share of points whose relative error is at most "
+        "the target (points not observed have none, and fall short).",
+    )
+    relative_error: Optional[Distribution] = Field(
+        None,
+        description="Distribution of the sampling error relative to the field's "
+        "standard deviation, of observed points.",
+    )
+    relative_error_histogram: Optional[Histogram] = Field(
+        None, description="Histogram of the relative error."
+    )
+    sampling_error: Optional[Distribution] = Field(
+        None,
+        description="Distribution of the sampling error (in the units of the "
+        "field), given its standard deviation.",
+    )
+    effective_samples: Optional[Distribution] = Field(
+        None,
+        description="Distribution of the effective number of independent "
+        "samples of observed points.",
+    )
+    revisit_p90: Optional[Distribution] = Field(
+        None,
+        description="Distribution of the 90th percentile time (seconds) between "
+        "consecutive samples, of points observed at least twice.",
+    )
+    max_gap: Optional[Distribution] = Field(
+        None,
+        description="Distribution of the longest time (seconds) without a "
+        "sample, including from the start and to the end of the period (the "
+        "whole period for points not observed).",
+    )
+    max_gap_histogram: Optional[Histogram] = Field(
+        None, description="Histogram of the longest time without a sample."
+    )
+    local_time_coverage: float = Field(
+        ...,
+        description="Weighted mean share of the intervals of the day in which "
+        "points are sampled.",
+    )
+    local_time_shares: List[float] = Field(
+        ...,
+        description="Weighted share of all samples in each equal interval of "
+        "the (local solar) day, from midnight.",
     )
 
 
@@ -128,6 +189,9 @@ class CoverageSummary(BaseModel):
     )
     coverage: CoverageCurve = Field(
         ..., description="Share of points observed at least once, over time."
+    )
+    sufficiency: Optional[SufficiencySummary] = Field(
+        None, description="Summary of sampling sufficiency, if assessed."
     )
 
 
@@ -225,15 +289,21 @@ def seconds(values: pd.Series) -> np.ndarray:
 
 
 def summarize_values(
-    values: np.ndarray, weights: np.ndarray
+    values: np.ndarray,
+    weights: np.ndarray,
+    min_top: float = 1.0,
+    digits: int = 3,
 ) -> tuple[Optional[Distribution], Optional[Histogram]]:
     """
     Summarizes the (finite) values of a statistic of points as a distribution
     and a histogram.
 
     Args:
-        values (numpy.ndarray): The values (seconds; NaN if none).
+        values (numpy.ndarray): The values (such as seconds; NaN if none).
         weights (numpy.ndarray): The weights of points.
+        min_top (float): The least top edge of the histogram (as one second
+            of times), if the values are smaller.
+        digits (int): The decimal digits to which to round histogram edges.
 
     Returns:
         tuple: The distribution and histogram, or `None` without values.
@@ -250,11 +320,11 @@ def summarize_values(
         p90=weighted_quantile(values, weights, 0.9),
         max=float(values.max()),
     )
-    # equal-width bins from zero to the maximum (or one second, if zero)
-    edges = np.linspace(0, max(float(values.max()), 1.0), HISTOGRAM_BINS + 1)
+    # equal-width bins from zero to the maximum (or the least top edge)
+    edges = np.linspace(0, max(float(values.max()), min_top), HISTOGRAM_BINS + 1)
     counts, _ = np.histogram(values, bins=edges, weights=weights)
     histogram = Histogram(
-        edges=[round(float(e), 3) for e in edges],
+        edges=[round(float(e), digits) for e in edges],
         shares=[float(c) for c in counts / weights.sum()],
     )
     return distribution, histogram
@@ -341,6 +411,83 @@ def summarize_coverage(
         revisit=revisit,
         revisit_histogram=revisit_histogram,
         coverage=coverage_curve(first_observed, weights, (end - start).total_seconds()),
+    )
+
+
+def summarize_sufficiency(  # pylint: disable=too-many-arguments,too-many-locals
+    points: pd.DataFrame,
+    local_time_samples: np.ndarray,
+    weighting: Weighting,
+    decorrelation_time: timedelta,
+    standard_deviation: Optional[float] = None,
+    target_relative_error: Optional[float] = None,
+) -> SufficiencySummary:
+    """
+    Summarizes the sampling sufficiency of points.
+
+    Args:
+        points (pandas.DataFrame): The points, with their sufficiency (see
+            `sufficiency.compute_sufficiency`) and point `geometry`.
+        local_time_samples (numpy.ndarray): The number of samples of each
+            point (rows) in each local-time bin.
+        weighting (Weighting): The weighting of points.
+        decorrelation_time (datetime.timedelta): The decorrelation time of
+            the field.
+        standard_deviation (Optional[float]): The standard deviation of the
+            field, if given.
+        target_relative_error (Optional[float]): The required relative error,
+            if given.
+
+    Returns:
+        SufficiencySummary: The summary.
+    """
+    weights = point_weights(points, weighting)
+    relative = points["relative_error"].to_numpy(dtype=float)
+    # relative errors are shares of the field's standard deviation: bins of
+    # at least 1% in all, with fine edges
+    relative_error, relative_error_histogram = summarize_values(
+        relative, weights, min_top=0.01, digits=6
+    )
+    sampling_error = None
+    if "sampling_error" in points.columns:
+        sampling_error, _ = summarize_values(
+            points["sampling_error"].to_numpy(dtype=float), weights
+        )
+    effective_samples, _ = summarize_values(
+        points["effective_samples"].to_numpy(dtype=float), weights
+    )
+    revisit_p90, _ = summarize_values(seconds(points["revisit_p90"]), weights)
+    max_gap, max_gap_histogram = summarize_values(seconds(points["max_gap"]), weights)
+    sufficient = None
+    if target_relative_error is not None:
+        # points without samples have no error, and fall short
+        meets = np.nan_to_num(relative, nan=np.inf) <= target_relative_error
+        sufficient = weighted_share(meets, weights)
+    local_coverage = points["local_time_coverage"].to_numpy(dtype=float)
+    local_coverage = np.nan_to_num(local_coverage, nan=0.0)
+    totals = (np.asarray(local_time_samples, dtype=float) * weights[:, None]).sum(
+        axis=0
+    )
+    return SufficiencySummary(
+        decorrelation_time=decorrelation_time.total_seconds(),
+        standard_deviation=standard_deviation,
+        target_relative_error=target_relative_error,
+        sufficient=sufficient,
+        relative_error=relative_error,
+        relative_error_histogram=relative_error_histogram,
+        sampling_error=sampling_error,
+        effective_samples=effective_samples,
+        revisit_p90=revisit_p90,
+        max_gap=max_gap,
+        max_gap_histogram=max_gap_histogram,
+        local_time_coverage=(
+            float(np.average(local_coverage, weights=weights))
+            if weights.sum() > 0
+            else 0.0
+        ),
+        local_time_shares=[
+            float(s) for s in (totals / totals.sum() if totals.sum() > 0 else totals)
+        ],
     )
 
 

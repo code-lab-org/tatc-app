@@ -17,7 +17,8 @@ from tatc.analysis import (
 )
 from tatc.schemas import Satellite
 
-from ..analysis.summary import Weighting, summarize_coverage
+from ..analysis.sufficiency import compute_sufficiency, grid_sufficiency
+from ..analysis.summary import Weighting, summarize_coverage, summarize_sufficiency
 from ..analysis.tasks import (
     combine_animation,
     deserialize_members,
@@ -28,7 +29,7 @@ from ..analysis.tasks import (
 from ..analysis.timeline import build_timeline
 from ..utils.serialization import concat, empty_frame, from_geojson, to_geojson
 from ..worker import app
-from .schemas import CoverageAnalysisResult
+from .schemas import CoverageAnalysisResult, SufficiencyOptions
 
 OBSERVATION_COLUMNS = [
     "target_hash",
@@ -93,7 +94,7 @@ def collect_coverage_task(points: str, satellites: list, start: str, end: str) -
     return tag("obs", to_geojson(results))
 
 
-def compute_coverage(
+def compute_coverage(  # pylint: disable=too-many-arguments
     observations: gpd.GeoDataFrame,
     points: gpd.GeoDataFrame,
     cells: gpd.GeoDataFrame,
@@ -101,6 +102,7 @@ def compute_coverage(
     members: List[str],
     end: Optional[datetime] = None,
     weighting: Weighting = Weighting.uniform,
+    sufficiency: Optional[SufficiencyOptions] = None,
 ) -> dict:
     """
     Reduces aggregated observations to coverage statistics of points and
@@ -114,8 +116,10 @@ def compute_coverage(
             analysis period).
         members (List[str]): The member satellite names.
         end (Optional[datetime.datetime]): The end of the analysis period
-            (without it, no summary).
+            (without it, no summary or sufficiency).
         weighting (Weighting): The weighting of points in the summary.
+        sufficiency (Optional[SufficiencyOptions]): Options to also assess
+            the sampling sufficiency of points and cells, or `None`.
 
     Returns:
         dict: The `points`, `cells`, `timeline`, `cell_targets`, and
@@ -129,16 +133,38 @@ def compute_coverage(
         reduced["target_hash"].tolist(),
         members,
     )
+    cell_targets = get_cell_targets(reduced, cells)
+    summary = (
+        None
+        if end is None
+        else summarize_coverage(reduced, observations, weighting, epoch, end)
+    )
+    if sufficiency is not None and end is not None:
+        assessed = compute_sufficiency(
+            observations,
+            reduced,
+            epoch,
+            end,
+            sufficiency.decorrelation_time,
+            sufficiency.standard_deviation,
+            sufficiency.local_time_bins,
+        )
+        reduced = assessed.points
+        gridded = grid_sufficiency(reduced, gridded, cell_targets)
+        summary.sufficiency = summarize_sufficiency(
+            reduced,
+            assessed.local_time_samples,
+            weighting,
+            sufficiency.decorrelation_time,
+            sufficiency.standard_deviation,
+            sufficiency.target_relative_error,
+        )
     return {
         "points": json.loads(to_geojson(reduced)),
         "cells": json.loads(to_geojson(gridded)),
         "timeline": timeline,
-        "cell_targets": get_cell_targets(reduced, cells),
-        "summary": (
-            None
-            if end is None
-            else summarize_coverage(reduced, observations, weighting, epoch, end)
-        ),
+        "cell_targets": cell_targets,
+        "summary": summary,
     }
 
 
@@ -151,6 +177,7 @@ def combine_coverage_task(
     colors: dict,
     end: Optional[str] = None,
     weighting: str = Weighting.uniform.value,
+    sufficiency: Optional[dict] = None,
 ) -> str:
     """
     Task to combine the observations of chunks of points into coverage
@@ -166,6 +193,8 @@ def combine_coverage_task(
             summary).
         weighting (str): The weighting of points in the summary (see
             `Weighting`).
+        sufficiency (Optional[dict]): JSON serialized `SufficiencyOptions`,
+            or `None` to skip sampling sufficiency.
 
     Returns:
         str: JSON serialized `CoverageAnalysisResult`.
@@ -189,6 +218,11 @@ def combine_coverage_task(
             animation.members,
             None if end is None else datetime.fromisoformat(end),
             Weighting(weighting),
+            (
+                None
+                if sufficiency is None
+                else SufficiencyOptions.model_validate(sufficiency)
+            ),
         ),
         tracks=animation.tracks,
         colors=animation.colors,

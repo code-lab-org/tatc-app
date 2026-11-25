@@ -68,6 +68,11 @@ def enqueue_coverage_analysis(
             request.get_member_colors(),
             request.end.isoformat(),
             get_weighting(request.points).value,
+            sufficiency=(
+                None
+                if request.sufficiency is None
+                else request.sufficiency.model_dump(mode="json")
+            ),
         ),
         slot,
     )

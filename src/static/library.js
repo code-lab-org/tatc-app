@@ -163,7 +163,9 @@ let savedRuns = [];
 let comparedRuns = []; // [{id, slot}]
 
 // The headline metric of runs of each analysis with a summary, and the rows
-// of their comparison: {label, value(summary), kind} (a share or duration).
+// of their comparison: {label, value(summary), kind} (a share, duration,
+// number, or count), and whether a row is `optional` (shown only if a run
+// has a value).
 const RUN_METRICS = {
   coverage: {
     headline: { label: "Region observed", value: function(s) { return s.observed; }, kind: "share" },
@@ -174,6 +176,12 @@ const RUN_METRICS = {
       { label: "Median revisit time", value: function(s) { return s.revisit && s.revisit.median; }, kind: "duration" },
       { label: "90th percentile revisit time", value: function(s) { return s.revisit && s.revisit.p90; }, kind: "duration" },
       { label: "Mean access time", value: function(s) { return s.access && s.access.mean; }, kind: "duration" },
+      // sampling sufficiency (of runs that assess it)
+      { label: "Meets target sampling error", optional: true, value: function(s) { return s.sufficiency && s.sufficiency.sufficient; }, kind: "share" },
+      { label: "Median sampling error (% of σ)", optional: true, value: function(s) { return s.sufficiency && s.sufficiency.relative_error && s.sufficiency.relative_error.median; }, kind: "share" },
+      { label: "Median effective samples", optional: true, value: function(s) { return s.sufficiency && s.sufficiency.effective_samples && s.sufficiency.effective_samples.median; }, kind: "number" },
+      { label: "90th percentile longest gap", optional: true, value: function(s) { return s.sufficiency && s.sufficiency.max_gap && s.sufficiency.max_gap.p90; }, kind: "duration" },
+      { label: "Local time-of-day coverage", optional: true, value: function(s) { return s.sufficiency && s.sufficiency.local_time_coverage; }, kind: "share" },
       { label: "Analysis period", value: function(s) { return _.last(s.coverage.times); }, kind: "duration" },
       { label: "Points", value: function(s) { return s.points; }, kind: "count" }
     ]
@@ -201,6 +209,9 @@ function formatMetric(value, kind, unit) {
   }
   if (kind == "duration") {
     return formatDuration(value, unit);
+  }
+  if (kind == "number") {
+    return formatValue(value);
   }
   return Number(value).toLocaleString();
 }
@@ -306,6 +317,10 @@ function renderComparison() {
   const body = $("<tbody>").appendTo(table);
   _.forEach(metrics.rows, function(row) {
     const values = _.map(runs, function(run) { return row.value(run.summary); });
+    // rows of optional metrics show only if a run has them
+    if (row.optional && _.every(values, function(value) { return value === null || value === undefined; })) {
+      return;
+    }
     // one unit per row of durations, so values compare at a glance
     const unit = row.kind == "duration"
       ? durationUnit(_.max(_.filter(values, _.isFinite)) || 0)
@@ -347,7 +362,9 @@ function setAnalysisInputs(type, request) {
     const hours = (new Date(request.display.end) - new Date(request.display.start)) / 3600e3;
     $("#analysis-animate").val(Number(hours.toFixed(6))).trigger("change");
   }
-  if (type == "swaths") {
+  if (type == "coverage") {
+    setSufficiencyInputs(request.sufficiency);
+  } else if (type == "swaths") {
     $("#swaths-step").val(request.step);
     if (request.segment) {
       $("#swaths-segment").val(request.segment / 60);
