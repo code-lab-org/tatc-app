@@ -233,6 +233,50 @@
               <div class="alert alert-danger small mt-2" id="grid-error" style="display:none"></div>
             </div>
 
+            <!-- Coverage: sampling sufficiency -->
+            <div class="analysis-panel" data-analysis="coverage">
+              <div class="form-group">
+                <div class="form-check">
+                  <input type="checkbox" class="form-check-input" id="sufficiency-enabled">
+                  <label for="sufficiency-enabled" class="form-check-label" title="How well each point's observations estimate the mean of a field over the analysis period, and how they spread in time and local time of day">Sampling sufficiency</label>
+                </div>
+              </div>
+              <div id="sufficiency-options" style="display:none">
+                <div class="form-group row">
+                  <label for="sufficiency-decorrelation" class="col-sm-5 col-form-label" title="Time over which the field's values become nearly independent: hours for convective precipitation, days for synoptic temperature">Decorrelation time</label>
+                  <div class="input-group col-sm-7">
+                    <input type="number" min="0.01" value="3" step="any" class="form-control" id="sufficiency-decorrelation">
+                    <div class="input-group-append">
+                      <select class="custom-select" id="sufficiency-decorrelation-unit" aria-label="Decorrelation time unit">
+                        <option value="3600" selected>h</option>
+                        <option value="86400">d</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div class="form-group row">
+                  <label for="sufficiency-target" class="col-sm-5 col-form-label" title="Required sampling error, relative to the field's standard deviation, to report the share of the region that meets it">Target error</label>
+                  <div class="input-group col-sm-7">
+                    <input type="number" min="0.1" step="any" class="form-control" id="sufficiency-target" placeholder="optional">
+                    <div class="input-group-append"><span class="input-group-text">% of σ</span></div>
+                  </div>
+                </div>
+                <div class="form-group row">
+                  <label for="sufficiency-sigma" class="col-sm-5 col-form-label" title="Standard deviation of the field, to also give the sampling error in its units">Field std. dev. (σ)</label>
+                  <div class="col-sm-7">
+                    <input type="number" min="0" step="any" class="form-control" id="sufficiency-sigma" placeholder="optional">
+                  </div>
+                </div>
+                <div class="form-group row">
+                  <label for="sufficiency-bins" class="col-sm-5 col-form-label" title="Number of equal intervals of the local solar day in which to count samples">Local-time bins</label>
+                  <div class="col-sm-7">
+                    <input type="number" min="1" max="24" value="8" step="1" class="form-control" id="sufficiency-bins">
+                  </div>
+                </div>
+                <p class="small text-muted">The error estimate assumes a steady field without a daily cycle; local-time coverage shows how samples spread over the day.</p>
+              </div>
+            </div>
+
             <!-- Swaths -->
             <div class="analysis-panel" data-analysis="swaths">
               <div class="form-group row">

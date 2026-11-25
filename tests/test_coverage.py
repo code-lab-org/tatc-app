@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta, timezone
 
+import numpy as np
 import pandas as pd
 from tatc.analysis import (
     aggregate_observations,
     collect_observations,
+    estimate_sampling_error,
     grid_observations,
     reduce_observations,
 )
@@ -18,7 +20,11 @@ from tatc.schemas import (
     WalkerConstellation,
 )
 
-from tatc_app.coverage.schemas import CoverageAnalysisRequest, CoverageAnalysisResult
+from tatc_app.coverage.schemas import (
+    CoverageAnalysisRequest,
+    CoverageAnalysisResult,
+    SufficiencyOptions,
+)
 from tatc_app.generation.schemas import CellGenerator, PointGenerator
 from tatc_app.utils.serialization import from_geojson
 
@@ -103,6 +109,10 @@ class CoverageAnalysisTestCase(TatcTestCase):
         self.assertTrue(all(s >= 0 for s in result.timeline.start))
         # cells map to points
         self.assertTrue(len(result.cell_targets) > 0)
+        # sampling sufficiency is not assessed unless requested
+        self.assertNotIn("relative_error", result.points.features[0].properties)
+        self.assertNotIn("relative_error", result.cells.features[0].properties)
+        self.assertIsNone(result.summary.sufficiency)
         # tracks for each member, colored by constellation
         self.assertEqual(len(result.tracks.tracks), len(members))
         self.assertTrue(all(c == "#ff0000" for c in result.colors.values()))
@@ -113,6 +123,109 @@ class CoverageAnalysisTestCase(TatcTestCase):
             {p["id"] for p in czml[1:]},
             {f"sat/{m.name}" for m in members} | {f"fp/{m.name}/0" for m in members},
         )
+
+    def test_analyze_coverage_sufficiency(self):
+        task = self.run_analysis(
+            "/analyze/coverage",
+            CoverageAnalysisRequest(
+                satellites=[self.satellite],
+                start=self.start,
+                end=self.end,
+                points=PointGenerator(method="equally_spaced", distance=5000e3),
+                cells=CellGenerator(method="equally_spaced", distance=5000e3),
+                sufficiency=SufficiencyOptions(
+                    decorrelation_time=timedelta(hours=3),
+                    standard_deviation=2.0,
+                    target_relative_error=0.3,
+                    local_time_bins=6,
+                ),
+            ),
+        )
+        result = CoverageAnalysisResult.model_validate(
+            self.get_json(f"/analyze/coverage/{task['task_id']}")
+        )
+        points = generate_points_uniform_spacing(5000e3)
+        observations = aggregate_observations(
+            collect_observations(
+                points,
+                self.satellite.generate_members(),
+                self.start,
+                self.end,
+                instrument_index=None,
+            )
+        )
+        expected = estimate_sampling_error(
+            observations,
+            self.start,
+            self.end,
+            timedelta(hours=3),
+            2.0,
+            targets=points.geometry,
+        )
+        actual = from_geojson(
+            result.points.model_dump_json(),
+            timedeltas=["revisit_p50", "revisit_p90", "max_gap"],
+        )
+        merged = actual.merge(
+            expected.drop(columns="geometry"),
+            on="target_hash",
+            suffixes=("", "_expected"),
+        )
+        self.assertEqual(len(merged), len(points))
+        np.testing.assert_allclose(
+            merged["relative_error"].to_numpy(dtype=float),
+            merged["relative_error_expected"].to_numpy(dtype=float),
+            equal_nan=True,
+        )
+        np.testing.assert_allclose(
+            merged["sampling_error"].to_numpy(dtype=float),
+            2 * merged["relative_error"].to_numpy(dtype=float),
+            equal_nan=True,
+        )
+        # every point has a longest gap within the period
+        self.assertTrue((actual["max_gap"] <= self.end - self.start).all())
+        self.assertTrue(actual["local_time_coverage"].between(0, 1).all())
+        # cells have the sufficiency of their points
+        properties = result.cells.features[0].properties
+        for column in (
+            "relative_error",
+            "sampling_error",
+            "effective_samples",
+            "max_gap",
+            "local_time_coverage",
+        ):
+            self.assertIn(column, properties)
+        # the summary
+        summary = result.summary.sufficiency
+        self.assertEqual(summary.decorrelation_time, 3 * 3600)
+        self.assertEqual(summary.standard_deviation, 2.0)
+        self.assertEqual(len(summary.local_time_shares), 6)
+        self.assertAlmostEqual(sum(summary.local_time_shares), 1)
+        self.assertEqual(
+            summary.relative_error.count, int(actual["relative_error"].notna().sum())
+        )
+        self.assertGreaterEqual(summary.sufficient, 0)
+        self.assertLessEqual(summary.sufficient, result.summary.observed)
+
+    def test_analyze_coverage_invalid_sufficiency(self):
+        for sufficiency in (
+            {"decorrelationTime": 0},
+            {"decorrelation_time": -60},
+            {"decorrelationTime": 3600, "localTimeBins": 0},
+            {"decorrelationTime": 3600, "standardDeviation": 0},
+        ):
+            response = self.client.post(
+                "/analyze/coverage",
+                json={
+                    "satellites": [self.satellite.model_dump(mode="json")],
+                    "start": "2022-06-01T00:00:00Z",
+                    "end": "2022-06-02T00:00:00Z",
+                    "points": {"method": "equally_spaced", "distance": 5000e3},
+                    "cells": {"method": "equally_spaced", "distance": 5000e3},
+                    "sufficiency": sufficiency,
+                },
+            )
+            self.assertEqual(response.status_code, 422, sufficiency)
 
     def test_analyze_coverage_points_list(self):
         points = [

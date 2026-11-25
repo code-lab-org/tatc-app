@@ -209,11 +209,16 @@ function coverageChart(curve) {
   return chart.card;
 }
 
-// Column chart of a histogram of durations (shares of points in equal-width
-// bins), each column with its own hover and focus tooltip.
-function histogramChart(histogram, title, subtitle, noun) {
+// Column chart of a histogram: the shares of points (or of another
+// `options.of`, such as samples) in equal-width bins of a statistic, each
+// column with its own hover and focus tooltip. The axis is labeled by `axis`
+// in a unit (`options.unit`: {label, seconds}, the size of one unit in the
+// histogram's values; by default, a unit of durations in seconds).
+function histogramChart(histogram, title, subtitle, axis, options) {
+  options = options || {};
+  const of = options.of || "points";
   const maxEdge = _.last(histogram.edges);
-  const unit = durationUnit(maxEdge);
+  const unit = options.unit || durationUnit(maxEdge);
   const bins = _.map(histogram.shares, function(share, i) {
     return { from: histogram.edges[i], to: histogram.edges[i + 1], share: share };
   });
@@ -221,7 +226,7 @@ function histogramChart(histogram, title, subtitle, noun) {
     return formatValue(bin.from / unit.seconds) + "–" + formatValue(bin.to / unit.seconds) + " " + unit.label;
   };
   const chart = chartCard(title, subtitle, {
-    columns: ["Mean " + noun + " (" + unit.label + ")", "Share of points"],
+    columns: [axis + " (" + unit.label + ")", "Share of " + of],
     rows: _.map(bins, function(bin) { return [binLabel(bin), formatShare(bin.share)]; })
   });
   const plotWidth = CHART.width - CHART.left - CHART.right;
@@ -233,7 +238,7 @@ function histogramChart(histogram, title, subtitle, noun) {
   const xTicks = _.map(_.filter(niceTicks(maxEdge / unit.seconds, 5), function(v) {
     return v * unit.seconds <= maxEdge * 1.0001;
   }), function(v) { return { x: x(v * unit.seconds), label: formatValue(v) }; });
-  drawAxes(chart.svg, yMax, yTicks, xTicks, "Mean " + noun + " (" + unit.label + ")");
+  drawAxes(chart.svg, yMax, yTicks, xTicks, axis + " (" + unit.label + ")");
 
   const slot = plotWidth / bins.length;
   // columns at most 24 units wide, with a 2-unit gap between neighbors
@@ -259,12 +264,12 @@ function histogramChart(histogram, title, subtitle, noun) {
     const hit = svgElement("rect", {
       x: CHART.left + i * slot, y: CHART.top, width: slot, height: plotHeight,
       fill: "transparent", tabindex: 0,
-      "aria-label": binLabel(bin) + ": " + formatShare(bin.share) + " of points"
+      "aria-label": binLabel(bin) + ": " + formatShare(bin.share) + " of " + of
     });
     const highlight = function(on) {
       $(chart.svg).find(".summary-bar[data-bin='" + i + "']").toggleClass("hover", on);
       if (on) {
-        showTooltip(chart, CHART.left + (i + 0.5) * slot, top, formatShare(bin.share), "of points, " + binLabel(bin));
+        showTooltip(chart, CHART.left + (i + 0.5) * slot, top, formatShare(bin.share), "of " + of + ", " + binLabel(bin));
       } else {
         chart.tooltip.hide();
       }
@@ -461,9 +466,72 @@ function renderCoverageSummary(container, summary) {
   charts.append(coverageChart(summary.coverage));
   if (summary.revisit_histogram) {
     charts.append(histogramChart(summary.revisit_histogram, "Mean revisit time",
-      "Points observed at least twice", "revisit"));
+      "Points observed at least twice", "Mean revisit"));
+  }
+  if (summary.sufficiency) {
+    renderSufficiencySummary(root, summary.sufficiency);
   }
   root.append($("<p>").addClass("small text-muted mb-0").text(weightingNote(summary)));
+}
+
+// Formats a relative error (a share of the field's standard deviation).
+function formatRelativeError(value) {
+  return formatValue(100 * value) + "% of σ";
+}
+
+// Renders the summary of sampling sufficiency (`sufficiency` of a coverage
+// summary) in a container.
+function renderSufficiencySummary(container, sufficiency) {
+  container.append($("<div>").addClass("summary-section-title").text("Sampling sufficiency"));
+  container.append($("<div>").addClass("summary-section-note").text(
+    "Error of estimating each point's mean of a field over the period from its samples, for a field " +
+    "with a decorrelation time of " + formatDuration(sufficiency.decorrelation_time) +
+    (sufficiency.standard_deviation ? " and a standard deviation (σ) of " + formatValue(sufficiency.standard_deviation) : "") +
+    ". The estimate assumes a steady field without a daily cycle."
+  ));
+  const tiles = $("<div>").addClass("summary-tiles").appendTo(container);
+  if (sufficiency.sufficient !== null && sufficiency.sufficient !== undefined) {
+    tiles.append(statTile("Region meeting target", formatShare(sufficiency.sufficient),
+      "sampling error at most " + formatRelativeError(sufficiency.target_relative_error)));
+  }
+  const error = sufficiency.relative_error;
+  if (error) {
+    tiles.append(statTile("Median sampling error", formatRelativeError(error.median),
+      "90th percentile " + formatRelativeError(error.p90) +
+      (sufficiency.sampling_error ? " · median " + formatValue(sufficiency.sampling_error.median) + " in field units" : "")));
+  } else {
+    tiles.append(statTile("Median sampling error", "–", "no point is observed"));
+  }
+  if (sufficiency.effective_samples) {
+    tiles.append(statTile("Effective samples", formatValue(sufficiency.effective_samples.median),
+      "median independent samples per point"));
+  }
+  if (sufficiency.max_gap) {
+    const unit = durationUnit(sufficiency.max_gap.p90);
+    tiles.append(statTile("Longest gap", formatDuration(sufficiency.max_gap.median, unit),
+      "median · 90th percentile " + formatDuration(sufficiency.max_gap.p90, unit)));
+  }
+  tiles.append(statTile("Local time-of-day coverage", formatShare(sufficiency.local_time_coverage),
+    "mean share of " + sufficiency.local_time_shares.length + " intervals of the day sampled"));
+
+  const charts = $("<div>").addClass("summary-charts").appendTo(container);
+  if (sufficiency.relative_error_histogram) {
+    charts.append(histogramChart(sufficiency.relative_error_histogram, "Sampling error",
+      "Observed points, relative to the field's standard deviation", "Sampling error",
+      { unit: { label: "% of σ", seconds: 0.01 } }));
+  }
+  if (sufficiency.max_gap_histogram) {
+    charts.append(histogramChart(sufficiency.max_gap_histogram, "Longest gap without a sample",
+      "Including from the start and to the end of the period", "Longest gap"));
+  }
+  const bins = sufficiency.local_time_shares.length;
+  if (bins > 0 && _.sum(sufficiency.local_time_shares) > 0) {
+    charts.append(histogramChart({
+      edges: _.map(_.range(bins + 1), function(i) { return 24 * i / bins; }),
+      shares: sufficiency.local_time_shares
+    }, "Samples by local time of day", "Local (mean solar) time of all samples", "Local time",
+    { unit: { label: "h", seconds: 1 }, of: "samples" }));
+  }
 }
 
 // Renders the summary of latency results in a container.
@@ -486,7 +554,7 @@ function renderLatencySummary(container, summary) {
   if (summary.latency_histogram) {
     $("<div>").addClass("summary-charts").appendTo(root).append(
       histogramChart(summary.latency_histogram, "Mean latency",
-        "Points with a downlinked observation", "latency")
+        "Points with a downlinked observation", "Mean latency")
     );
   }
   root.append($("<p>").addClass("small text-muted mb-0").text(weightingNote(summary)));

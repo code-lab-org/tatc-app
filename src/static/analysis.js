@@ -219,6 +219,27 @@ const DISPLAY_MODES = {
       value: "final-samples", label: "Number of observations (final)", unit: "",
       property: "samples",
       range: rangeFromZero("samples")
+    },
+    // sampling sufficiency (only of results that assess it)
+    {
+      value: "relative-error", label: "Sampling error, % of σ (final)", unit: "%",
+      sufficiency: true, reverse: true, property: "relative_error", scale: 100,
+      range: rangeOfValues("relative_error", 100)
+    },
+    {
+      value: "effective-samples", label: "Effective independent samples (final)", unit: "",
+      sufficiency: true, property: "effective_samples",
+      range: rangeFromZero("effective_samples")
+    },
+    {
+      value: "max-gap", label: "Longest gap without a sample (final)", unit: "h",
+      sufficiency: true, reverse: true, property: "max_gap", scale: 1 / 3600,
+      range: rangeOfValues("max_gap", 1 / 3600)
+    },
+    {
+      value: "local-time", label: "Local time-of-day coverage (final)", unit: "%",
+      sufficiency: true, property: "local_time_coverage", scale: 100,
+      range: function() { return [0, 100]; }
     }
   ],
   latency: [
@@ -236,13 +257,28 @@ const DISPLAY_MODES = {
   ]
 };
 
+// Lists the display modes of results of a type: those of sampling
+// sufficiency only if the results assess it. Keeps the selected mode if it
+// is listed.
+function updateDisplayModes(type, result) {
+  const select = $("#" + type + "-mode");
+  const selected = select.val();
+  const assessed = Boolean(result && result.summary && result.summary.sufficiency);
+  const modes = _.filter(DISPLAY_MODES[type], function(mode) { return !mode.sufficiency || assessed; });
+  fillSelect(select, modes);
+  if (_.some(modes, { value: selected })) {
+    select.val(selected);
+  }
+}
+
 // Applies the display mode of coverage or latency results.
 function applyDisplayMode() {
   if (!analysisResult || !targetLayer) {
     return;
   }
   const type = analysisResult.type;
-  const spec = _.find(DISPLAY_MODES[type], { value: $("#" + type + "-mode").val() });
+  const spec = _.find(DISPLAY_MODES[type], { value: $("#" + type + "-mode").val() }) ||
+    DISPLAY_MODES[type][0];
   const range = getScaleRange(spec.range(analysisResult.result.points.features));
   let mode;
   if (spec.property) {
@@ -265,10 +301,78 @@ function applyDisplayMode() {
 
 // --- Running analyses ---
 
+// Gets the options of sampling sufficiency of a coverage analysis: null if
+// not assessed, or (showing an error) undefined if invalid.
+function getSufficiencySpec() {
+  if (!$("#sufficiency-enabled").is(":checked")) {
+    return null;
+  }
+  const optional = function(selector) {
+    const text = String($(selector).val()).trim();
+    return text === "" ? null : Number(text);
+  };
+  const decorrelation = Number($("#sufficiency-decorrelation").val()) *
+    Number($("#sufficiency-decorrelation-unit").val());
+  const sigma = optional("#sufficiency-sigma");
+  const target = optional("#sufficiency-target");
+  const bins = Number($("#sufficiency-bins").val());
+  let error = null;
+  if (!(decorrelation > 0)) {
+    error = "The decorrelation time must be positive.";
+  } else if (sigma !== null && !(sigma > 0)) {
+    error = "The field's standard deviation must be positive (or blank).";
+  } else if (target !== null && !(target > 0)) {
+    error = "The target error must be positive (or blank).";
+  } else if (!(Number.isInteger(bins) && bins >= 1 && bins <= 24)) {
+    error = "The number of local-time bins must be a whole number from 1 to 24.";
+  }
+  if (error) {
+    $("#analysis-error").text(error).show();
+    return undefined;
+  }
+  return {
+    decorrelation_time: decorrelation,
+    standard_deviation: sigma,
+    target_relative_error: target === null ? null : target / 100,
+    local_time_bins: bins
+  };
+}
+
+// Sets the inputs of sampling sufficiency from the options of a coverage
+// request (none to turn it off).
+function setSufficiencyInputs(sufficiency) {
+  $("#sufficiency-enabled").prop("checked", Boolean(sufficiency));
+  $("#sufficiency-options").toggle(Boolean(sufficiency));
+  if (!sufficiency) {
+    return;
+  }
+  const seconds = Number(sufficiency.decorrelation_time);
+  if (seconds > 0) {
+    const unit = seconds >= 86400 && seconds % 86400 == 0 ? 86400 : 3600;
+    $("#sufficiency-decorrelation-unit").val(String(unit));
+    $("#sufficiency-decorrelation").val(Number((seconds / unit).toFixed(6)));
+  }
+  const sigma = sufficiency.standard_deviation;
+  $("#sufficiency-sigma").val(sigma === null || sigma === undefined ? "" : sigma);
+  const target = sufficiency.target_relative_error;
+  $("#sufficiency-target").val(target === null || target === undefined ? "" : Number((100 * target).toFixed(6)));
+  if (sufficiency.local_time_bins) {
+    $("#sufficiency-bins").val(sufficiency.local_time_bins);
+  }
+}
+
 // Gets the request of an analysis type, or shows an error and returns null.
 function getAnalysisPayload(type, base) {
   if (type == "coverage") {
-    return _.assign(base, { points: getPointsSpec(), cells: getCellsSpec() });
+    const sufficiency = getSufficiencySpec();
+    if (sufficiency === undefined) {
+      return null;
+    }
+    return _.assign(base, {
+      points: getPointsSpec(),
+      cells: getCellsSpec(),
+      sufficiency: sufficiency
+    });
   } else if (type == "swaths") {
     // swaths animate over the analysis period
     return _.assign(_.omit(base, "display"), {
@@ -366,6 +470,7 @@ function startAnalysis(type, payload, designSnapshot) {
           cellTargets: result.cell_targets,
           arcType: arcType
         });
+        updateDisplayModes(type, result);
         applyDisplayMode();
       }
       loadCzmlLayer("analysis", endpoint + "/" + taskId + "/czml", { clock: false }).then(function(source) {
@@ -408,15 +513,42 @@ function showAnalysisData() {
     });
   };
   if (type == "coverage") {
+    const sufficiency = result.summary && result.summary.sufficiency;
+    const percent = function(share) { return share === null || share === undefined ? null : 100 * share; };
+    let columns = pointColumns.concat([
+      { title: "Mean access (s)", key: "access_s", format: number2 },
+      { title: "Mean revisit (h)", key: "revisit_h", format: number2 }
+    ]);
+    if (sufficiency) {
+      columns = columns.concat(
+        [{ title: "Sampling error (% of σ)", key: "relative_error_pct", format: number2 }],
+        sufficiency.standard_deviation ? [{ title: "Sampling error", key: "sampling_error", format: number2 }] : [],
+        [
+          { title: "Effective samples", key: "effective_samples", format: number2 },
+          { title: "Median time between samples (h)", key: "revisit_p50_h", format: number2 },
+          { title: "90th pct. time between samples (h)", key: "revisit_p90_h", format: number2 },
+          { title: "Longest gap (h)", key: "max_gap_h", format: number2 },
+          { title: "Local-time coverage (%)", key: "local_time_pct", format: number2 }
+        ]
+      );
+    }
     showResultsTable({
       title: "Coverage Statistics",
-      columns: pointColumns.concat([
-        { title: "Mean access (s)", key: "access_s", format: number2 },
-        { title: "Mean revisit (h)", key: "revisit_h", format: number2 }
-      ]),
-      rows: pointRows(function(p) { return { access_s: p.access, revisit_h: hours(p.revisit) }; }),
+      columns: columns,
+      rows: pointRows(function(p) {
+        return _.assign({ access_s: p.access, revisit_h: hours(p.revisit) }, sufficiency ? {
+          relative_error_pct: percent(p.relative_error),
+          sampling_error: p.sampling_error,
+          effective_samples: p.effective_samples,
+          revisit_p50_h: hours(p.revisit_p50),
+          revisit_p90_h: hours(p.revisit_p90),
+          max_gap_h: hours(p.max_gap),
+          local_time_pct: percent(p.local_time_coverage)
+        } : {});
+      }),
       filename: "coverage-points",
-      note: "Statistics of each point over the analysis period. Overlapping observations by several satellites count once.",
+      note: "Statistics of each point over the analysis period. Overlapping observations by several satellites count once." +
+        (sufficiency ? " Mean revisit runs from the end of one observation to the start of the next; times between samples run between their midpoints." : ""),
       summary: result.summary ? function(container) { renderCoverageSummary(container, result.summary); } : null
     });
   } else if (type == "latency") {
@@ -600,6 +732,9 @@ $(document).ready(function() {
       requestedAnimate = value;
     }
     limitAnimation();
+  });
+  $("#sufficiency-enabled").change(function() {
+    $("#sufficiency-options").toggle($(this).is(":checked"));
   });
   $("#analysis-run").click(runSelectedAnalysis);
   $("#analysis-data").click(showAnalysisData);
