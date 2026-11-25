@@ -209,6 +209,7 @@ function toCsv(columns, rows) {
 //   filename:   name (without extension) of the JSON and CSV downloads
 //   note:       optional note shown above the table
 //   extras:     optional additional CSV downloads {label, filename, columns, rows}
+//   summary:    optional function(container) that renders a summary above the table
 //   onRowClick: optional function(row) called when a row is clicked
 let resultsTable = null;
 function showResultsTable(options) {
@@ -218,6 +219,10 @@ function showResultsTable(options) {
   const onRowClick = options.onRowClick;
   $("#results-title").text(options.title);
   $("#results-note").text(options.note || "");
+  $("#results-summary").empty();
+  if (options.summary) {
+    options.summary($("#results-summary")[0]);
+  }
   if (resultsTable) {
     resultsTable.destroy();
     $("#results-table").empty().off("click");

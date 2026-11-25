@@ -4,12 +4,13 @@ Schema specifications for coverage analysis endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from geojson_pydantic import FeatureCollection
 from pydantic import Field
 
 from ..analysis.schemas import AnimatedResult, PointsCellsAnalysisRequest
+from ..analysis.summary import CoverageSummary
 from ..analysis.timeline import Timeline
 
 
@@ -39,4 +40,7 @@ class CoverageAnalysisResult(AnimatedResult):
     )
     cell_targets: Dict[str, List[int]] = Field(
         {}, description="Indices of the points within each cell, by `cell_id`."
+    )
+    summary: Optional[CoverageSummary] = Field(
+        None, description="Summary of coverage over the points."
     )

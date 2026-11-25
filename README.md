@@ -26,6 +26,10 @@ tasks and visualized with animated results (CZML) in the GUI:
  * Data latency (`/analyze/latency`): latency to downlink observations at ground stations.
  * Point access (`/analyze/overflight`): access windows of satellites to target points.
 
+Coverage and latency results also summarize the region: the share of it
+observed (or downlinked), distributions of revisit (or latency) times, and the
+share observed over time, weighting points by the area each represents.
+
 Each analysis has endpoints to enqueue it (`POST`), retrieve its results
 (`GET .../{task_id}`), and retrieve an animated CZML document
 (`GET .../{task_id}/czml`). `POST /validate/space-system` validates a satellite

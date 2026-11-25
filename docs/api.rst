@@ -35,6 +35,17 @@ member tracks of ``AnimatedResult``.
 
 .. autopydantic_model:: tatc_app.analysis.schemas.AnimatedResult
 
+Results of coverage and latency analyses include a summary over their points:
+shares of the region, and distributions of the points' statistics, weighted
+by the area each point represents for points equally spaced in latitude and
+longitude (see ``Weighting``).
+
+.. autopydantic_model:: tatc_app.analysis.summary.Distribution
+
+.. autopydantic_model:: tatc_app.analysis.summary.Histogram
+
+.. autopydantic_model:: tatc_app.analysis.summary.CoverageCurve
+
 Coverage and Revisit
 ^^^^^^^^^^^^^^^^^^^^
 
@@ -42,12 +53,16 @@ Coverage and Revisit
 
 .. autopydantic_model:: tatc_app.coverage.schemas.CoverageAnalysisResult
 
+.. autopydantic_model:: tatc_app.analysis.summary.CoverageSummary
+
 Data Latency
 ^^^^^^^^^^^^
 
 .. autopydantic_model:: tatc_app.latency.schemas.LatencyAnalysisRequest
 
 .. autopydantic_model:: tatc_app.latency.schemas.LatencyAnalysisResult
+
+.. autopydantic_model:: tatc_app.analysis.summary.LatencySummary
 
 Point Access (Overflight)
 ^^^^^^^^^^^^^^^^^^^^^^^^^

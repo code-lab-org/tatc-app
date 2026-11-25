@@ -6,7 +6,7 @@ Task specifications for coverage analysis endpoints.
 
 import json
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 import geopandas as gpd
 from tatc.analysis import (
@@ -17,6 +17,7 @@ from tatc.analysis import (
 )
 from tatc.schemas import Satellite
 
+from ..analysis.summary import Weighting, summarize_coverage
 from ..analysis.tasks import (
     combine_animation,
     deserialize_members,
@@ -98,20 +99,27 @@ def compute_coverage(
     cells: gpd.GeoDataFrame,
     epoch: datetime,
     members: List[str],
+    end: Optional[datetime] = None,
+    weighting: Weighting = Weighting.uniform,
 ) -> dict:
     """
     Reduces aggregated observations to coverage statistics of points and
-    cells, and a timeline of observations.
+    cells, a timeline of observations, and a summary over the points.
 
     Args:
         observations (geopandas.GeoDataFrame): The aggregated observations.
         points (geopandas.GeoDataFrame): The points.
         cells (geopandas.GeoDataFrame): The cells.
-        epoch (datetime.datetime): The reference time.
+        epoch (datetime.datetime): The reference time (the start of the
+            analysis period).
         members (List[str]): The member satellite names.
+        end (Optional[datetime.datetime]): The end of the analysis period
+            (without it, no summary).
+        weighting (Weighting): The weighting of points in the summary.
 
     Returns:
-        dict: The `points`, `cells`, `timeline`, and `cell_targets`.
+        dict: The `points`, `cells`, `timeline`, `cell_targets`, and
+            `summary`.
     """
     reduced = reduce_observations(observations, targets=points).reset_index(drop=True)
     gridded = grid_observations(reduced, cells)
@@ -126,12 +134,23 @@ def compute_coverage(
         "cells": json.loads(to_geojson(gridded)),
         "timeline": timeline,
         "cell_targets": get_cell_targets(reduced, cells),
+        "summary": (
+            None
+            if end is None
+            else summarize_coverage(reduced, observations, weighting, epoch, end)
+        ),
     }
 
 
 @app.task
 def combine_coverage_task(
-    results: list, points: str, cells: str, start: str, colors: dict
+    results: list,
+    points: str,
+    cells: str,
+    start: str,
+    colors: dict,
+    end: Optional[str] = None,
+    weighting: str = Weighting.uniform.value,
 ) -> str:
     """
     Task to combine the observations of chunks of points into coverage
@@ -143,6 +162,10 @@ def combine_coverage_task(
         cells (str): GeoJSON serialized cells.
         start (str): ISO 8601 serialized start time (reference time).
         colors (dict): Display colors by member satellite name.
+        end (Optional[str]): ISO 8601 serialized end time (without it, no
+            summary).
+        weighting (str): The weighting of points in the summary (see
+            `Weighting`).
 
     Returns:
         str: JSON serialized `CoverageAnalysisResult`.
@@ -164,6 +187,8 @@ def combine_coverage_task(
             from_geojson(cells, columns=["cell_id", "geometry"]),
             animation.epoch,
             animation.members,
+            None if end is None else datetime.fromisoformat(end),
+            Weighting(weighting),
         ),
         tracks=animation.tracks,
         colors=animation.colors,

@@ -1,0 +1,354 @@
+// Summaries of coverage and latency results over a region (`summary` of
+// their results, see the server's `analysis/summary.py`): a row of headline
+// statistics and charts (the share of the region observed over time, and a
+// histogram of revisit or latency times), each with a table of its data.
+// Charts are plain SVG, styled by the `summary-` classes of styles.css.
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+// chart geometry (SVG user units; charts scale to their container's width)
+const CHART = { width: 520, height: 220, top: 14, right: 40, bottom: 36, left: 46 };
+
+// --- Formatting ---
+
+// Picks a unit to show durations up to a maximum (seconds).
+function durationUnit(maxSeconds) {
+  if (maxSeconds < 120) { return { label: "s", seconds: 1 }; }
+  if (maxSeconds < 2 * 3600) { return { label: "min", seconds: 60 }; }
+  if (maxSeconds < 72 * 3600) { return { label: "h", seconds: 3600 }; }
+  return { label: "d", seconds: 86400 };
+}
+
+// Formats a number with up to 3 significant digits (and thousands separators).
+function formatValue(value) {
+  if (value === null || value === undefined || !isFinite(value)) {
+    return "–";
+  }
+  const digits = Math.abs(value) >= 100 ? 0 : Math.abs(value) >= 10 ? 1 : 2;
+  return Number(value).toLocaleString(undefined, { maximumFractionDigits: digits });
+}
+
+function formatDuration(seconds, unit) {
+  unit = unit || durationUnit(seconds);
+  return formatValue(seconds / unit.seconds) + " " + unit.label;
+}
+
+function formatShare(share) {
+  return formatValue(100 * share) + "%";
+}
+
+// Gets about `count` round tick values from 0 to (at least) a maximum.
+function niceTicks(max, count) {
+  if (!(max > 0)) {
+    return [0, 1];
+  }
+  const rough = max / (count || 4);
+  const power = Math.pow(10, Math.floor(Math.log10(rough)));
+  const step = _.find([1, 2, 2.5, 5, 10], function(m) { return m * power >= rough; }) * power;
+  return _.map(_.range(0, Math.ceil(max / step - 1e-9) + 1), function(i) { return i * step; });
+}
+
+// --- DOM helpers ---
+
+function svgElement(name, attributes) {
+  const element = document.createElementNS(SVG_NS, name);
+  _.forEach(attributes, function(value, key) { element.setAttribute(key, value); });
+  return element;
+}
+
+function svgText(text, attributes) {
+  const element = svgElement("text", attributes);
+  element.textContent = text;
+  return element;
+}
+
+// Creates a chart card: a title, the SVG plot (with a tooltip), and a
+// collapsible table of the chart's data.
+function chartCard(title, subtitle, table) {
+  const card = $("<div>").addClass("summary-chart");
+  card.append($("<div>").addClass("summary-chart-title").text(title));
+  if (subtitle) {
+    card.append($("<div>").addClass("summary-chart-subtitle").text(subtitle));
+  }
+  const plot = $("<div>").addClass("summary-plot").appendTo(card);
+  const svg = svgElement("svg", {
+    viewBox: "0 0 " + CHART.width + " " + CHART.height,
+    role: "img",
+    "aria-label": title
+  });
+  plot.append(svg);
+  const tooltip = $("<div>").addClass("summary-tooltip").attr("role", "status").hide().appendTo(plot);
+  const details = $("<details>").addClass("summary-data").appendTo(card);
+  details.append($("<summary>").text("Chart data"));
+  const tableElement = $("<table>").addClass("table table-sm small mb-0").appendTo(details);
+  tableElement.append($("<thead>").append($("<tr>").append(_.map(table.columns, function(column) {
+    return $("<th>").text(column);
+  }))));
+  tableElement.append($("<tbody>").append(_.map(table.rows, function(row) {
+    return $("<tr>").append(_.map(row, function(value) { return $("<td>").text(value); }));
+  })));
+  return { card: card, svg: svg, plot: plot, tooltip: tooltip };
+}
+
+// Shows the tooltip of a chart at a position (SVG units), with a value (the
+// strong element) and a label.
+function showTooltip(chart, x, y, value, label) {
+  chart.tooltip.empty().append(
+    $("<div>").addClass("summary-tooltip-value").text(value),
+    $("<div>").addClass("summary-tooltip-label").text(label)
+  ).show();
+  const scale = chart.plot.width() / CHART.width || 1;
+  const left = Math.min(x * scale + 10, chart.plot.width() - chart.tooltip.outerWidth());
+  chart.tooltip.css({ left: Math.max(0, left) + "px", top: Math.max(0, y * scale - 48) + "px" });
+}
+
+// Draws the gridlines and y-axis labels (shares, 0 to `max`), and the x-axis
+// labels at `xTicks` (values with positions).
+function drawAxes(svg, yMax, yTicks, xTicks, xTitle) {
+  const plotWidth = CHART.width - CHART.left - CHART.right;
+  const plotHeight = CHART.height - CHART.top - CHART.bottom;
+  const axes = svgElement("g", { class: "summary-axes" });
+  _.forEach(yTicks, function(tick) {
+    const y = CHART.top + plotHeight * (1 - tick / yMax);
+    axes.appendChild(svgElement("line", {
+      x1: CHART.left, x2: CHART.left + plotWidth, y1: y, y2: y, class: "summary-grid"
+    }));
+    axes.appendChild(svgText(formatValue(100 * tick) + "%", {
+      x: CHART.left - 6, y: y + 4, "text-anchor": "end", class: "summary-tick"
+    }));
+  });
+  _.forEach(xTicks, function(tick) {
+    axes.appendChild(svgText(tick.label, {
+      x: tick.x, y: CHART.top + plotHeight + 16, "text-anchor": "middle", class: "summary-tick"
+    }));
+  });
+  axes.appendChild(svgText(xTitle, {
+    x: CHART.left + plotWidth / 2, y: CHART.height - 4, "text-anchor": "middle", class: "summary-axis-title"
+  }));
+  svg.appendChild(axes);
+}
+
+// --- Charts ---
+
+// Line (and area) chart of the share of the region observed over time, with
+// a crosshair and tooltip that snap to the nearest sample.
+function coverageChart(curve) {
+  const duration = _.last(curve.times) || 1;
+  const unit = durationUnit(duration);
+  const rows = _.map(_.range(0, curve.times.length, Math.max(1, Math.floor(curve.times.length / 20))), function(i) {
+    return [formatValue(curve.times[i] / unit.seconds), formatShare(curve.shares[i])];
+  });
+  const chart = chartCard(
+    "Share of the region observed so far",
+    "Observed at least once, since the start of the analysis",
+    { columns: ["Time (" + unit.label + ")", "Observed"], rows: rows }
+  );
+  const plotWidth = CHART.width - CHART.left - CHART.right;
+  const plotHeight = CHART.height - CHART.top - CHART.bottom;
+  const x = function(t) { return CHART.left + plotWidth * t / duration; };
+  const y = function(share) { return CHART.top + plotHeight * (1 - share); };
+  const yTicks = [0, 0.25, 0.5, 0.75, 1];
+  const xTicks = _.map(_.filter(niceTicks(duration / unit.seconds, 5), function(v) {
+    return v * unit.seconds <= duration * 1.0001;
+  }), function(v) { return { x: x(v * unit.seconds), label: formatValue(v) }; });
+  drawAxes(chart.svg, 1, yTicks, xTicks, "Time since start (" + unit.label + ")");
+
+  const points = _.map(curve.times, function(t, i) { return [x(t), y(curve.shares[i])]; });
+  const line = _.map(points, function(p, i) { return (i ? "L" : "M") + p[0].toFixed(1) + "," + p[1].toFixed(1); }).join("");
+  chart.svg.appendChild(svgElement("path", {
+    d: line + "L" + x(duration) + "," + y(0) + "L" + x(0) + "," + y(0) + "Z", class: "summary-area"
+  }));
+  chart.svg.appendChild(svgElement("path", { d: line, class: "summary-line" }));
+  // direct label of the final value at the end of the line
+  const end = _.last(points);
+  chart.svg.appendChild(svgText(formatShare(_.last(curve.shares)), {
+    x: end[0] + 6, y: end[1] + 4, class: "summary-end-label"
+  }));
+
+  // crosshair, marker, and the overlay that tracks the pointer
+  const crosshair = svgElement("line", { y1: CHART.top, y2: CHART.top + plotHeight, class: "summary-crosshair", visibility: "hidden" });
+  const marker = svgElement("circle", { r: 4, class: "summary-marker", visibility: "hidden" });
+  chart.svg.appendChild(crosshair);
+  chart.svg.appendChild(marker);
+  const overlay = svgElement("rect", {
+    x: CHART.left, y: CHART.top, width: plotWidth, height: plotHeight,
+    fill: "transparent", tabindex: 0, "aria-label": "Share observed over time (use the arrow keys)"
+  });
+  chart.svg.appendChild(overlay);
+  let current = points.length - 1;
+  function show(i) {
+    current = Math.max(0, Math.min(points.length - 1, i));
+    const p = points[current];
+    crosshair.setAttribute("x1", p[0]);
+    crosshair.setAttribute("x2", p[0]);
+    crosshair.setAttribute("visibility", "visible");
+    marker.setAttribute("cx", p[0]);
+    marker.setAttribute("cy", p[1]);
+    marker.setAttribute("visibility", "visible");
+    showTooltip(chart, p[0], p[1], formatShare(curve.shares[current]),
+      "observed by " + formatDuration(curve.times[current], unit));
+  }
+  function hide() {
+    crosshair.setAttribute("visibility", "hidden");
+    marker.setAttribute("visibility", "hidden");
+    chart.tooltip.hide();
+  }
+  overlay.addEventListener("pointermove", function(event) {
+    const box = chart.svg.getBoundingClientRect();
+    const svgX = (event.clientX - box.left) * CHART.width / box.width;
+    show(Math.round((svgX - CHART.left) / plotWidth * (points.length - 1)));
+  });
+  overlay.addEventListener("pointerleave", hide);
+  overlay.addEventListener("focus", function() { show(current); });
+  overlay.addEventListener("blur", hide);
+  overlay.addEventListener("keydown", function(event) {
+    const step = event.shiftKey ? 10 : 1;
+    if (event.key == "ArrowRight") { show(current + step); event.preventDefault(); }
+    if (event.key == "ArrowLeft") { show(current - step); event.preventDefault(); }
+  });
+  return chart.card;
+}
+
+// Column chart of a histogram of durations (shares of points in equal-width
+// bins), each column with its own hover and focus tooltip.
+function histogramChart(histogram, title, subtitle, noun) {
+  const maxEdge = _.last(histogram.edges);
+  const unit = durationUnit(maxEdge);
+  const bins = _.map(histogram.shares, function(share, i) {
+    return { from: histogram.edges[i], to: histogram.edges[i + 1], share: share };
+  });
+  const binLabel = function(bin) {
+    return formatValue(bin.from / unit.seconds) + "–" + formatValue(bin.to / unit.seconds) + " " + unit.label;
+  };
+  const chart = chartCard(title, subtitle, {
+    columns: ["Mean " + noun + " (" + unit.label + ")", "Share of points"],
+    rows: _.map(bins, function(bin) { return [binLabel(bin), formatShare(bin.share)]; })
+  });
+  const plotWidth = CHART.width - CHART.left - CHART.right;
+  const plotHeight = CHART.height - CHART.top - CHART.bottom;
+  const yTicks = niceTicks(_.max(histogram.shares) || 1, 4);
+  const yMax = _.last(yTicks);
+  const x = function(seconds) { return CHART.left + plotWidth * seconds / maxEdge; };
+  const y = function(share) { return CHART.top + plotHeight * (1 - share / yMax); };
+  const xTicks = _.map(_.filter(niceTicks(maxEdge / unit.seconds, 5), function(v) {
+    return v * unit.seconds <= maxEdge * 1.0001;
+  }), function(v) { return { x: x(v * unit.seconds), label: formatValue(v) }; });
+  drawAxes(chart.svg, yMax, yTicks, xTicks, "Mean " + noun + " (" + unit.label + ")");
+
+  const slot = plotWidth / bins.length;
+  // columns at most 24 units wide, with a 2-unit gap between neighbors
+  const width = Math.min(24, slot - 2);
+  _.forEach(bins, function(bin, i) {
+    const left = CHART.left + i * slot + (slot - width) / 2;
+    const top = y(bin.share);
+    const height = CHART.top + plotHeight - top;
+    if (height > 0) {
+      // rounded at the data end (top), square at the baseline
+      const r = Math.min(4, height, width / 2);
+      chart.svg.appendChild(svgElement("path", {
+        d: "M" + left + "," + (top + height) + "V" + (top + r) +
+          "Q" + left + "," + top + " " + (left + r) + "," + top +
+          "H" + (left + width - r) +
+          "Q" + (left + width) + "," + top + " " + (left + width) + "," + (top + r) +
+          "V" + (top + height) + "Z",
+        class: "summary-bar",
+        "data-bin": i
+      }));
+    }
+    // the hit target is the whole slot, taller and wider than the column
+    const hit = svgElement("rect", {
+      x: CHART.left + i * slot, y: CHART.top, width: slot, height: plotHeight,
+      fill: "transparent", tabindex: 0,
+      "aria-label": binLabel(bin) + ": " + formatShare(bin.share) + " of points"
+    });
+    const highlight = function(on) {
+      $(chart.svg).find(".summary-bar[data-bin='" + i + "']").toggleClass("hover", on);
+      if (on) {
+        showTooltip(chart, CHART.left + (i + 0.5) * slot, top, formatShare(bin.share), "of points, " + binLabel(bin));
+      } else {
+        chart.tooltip.hide();
+      }
+    };
+    hit.addEventListener("pointerenter", function() { highlight(true); });
+    hit.addEventListener("pointerleave", function() { highlight(false); });
+    hit.addEventListener("focus", function() { highlight(true); });
+    hit.addEventListener("blur", function() { highlight(false); });
+    chart.svg.appendChild(hit);
+  });
+  return chart.card;
+}
+
+// --- Summaries ---
+
+// A stat tile: a label, a value, and an optional detail line.
+function statTile(label, value, detail) {
+  return $("<div>").addClass("summary-tile").append(
+    $("<div>").addClass("summary-tile-label").text(label),
+    $("<div>").addClass("summary-tile-value").text(value),
+    detail ? $("<div>").addClass("summary-tile-detail").text(detail) : null
+  );
+}
+
+function distributionDetail(distribution, unit) {
+  return "median " + formatDuration(distribution.median, unit) +
+    " · 90th percentile " + formatDuration(distribution.p90, unit);
+}
+
+function weightingNote(summary) {
+  return summary.weighting == "area"
+    ? "Shares and statistics weight each of the " + summary.points.toLocaleString() +
+      " points by the area it represents (points equally spaced in latitude and longitude crowd toward the poles)."
+    : "Shares and statistics weight each of the " + summary.points.toLocaleString() + " points equally.";
+}
+
+// Renders the summary of coverage results in a container.
+function renderCoverageSummary(container, summary) {
+  const root = $("<div>").addClass("summary").appendTo($(container).empty());
+  const tiles = $("<div>").addClass("summary-tiles").appendTo(root);
+  tiles.append(statTile("Region observed", formatShare(summary.observed),
+    formatShare(summary.revisited) + " observed at least twice"));
+  if (summary.revisit) {
+    const unit = durationUnit(summary.revisit.p90);
+    tiles.append(statTile("Mean revisit time", formatDuration(summary.revisit.mean, unit),
+      distributionDetail(summary.revisit, unit)));
+  } else {
+    tiles.append(statTile("Mean revisit time", "–", "no point is observed twice"));
+  }
+  if (summary.access) {
+    tiles.append(statTile("Mean access time", formatDuration(summary.access.mean),
+      "per observation of observed points"));
+  }
+  const charts = $("<div>").addClass("summary-charts").appendTo(root);
+  charts.append(coverageChart(summary.coverage));
+  if (summary.revisit_histogram) {
+    charts.append(histogramChart(summary.revisit_histogram, "Mean revisit time",
+      "Points observed at least twice", "revisit"));
+  }
+  root.append($("<p>").addClass("small text-muted mb-0").text(weightingNote(summary)));
+}
+
+// Renders the summary of latency results in a container.
+function renderLatencySummary(container, summary) {
+  const root = $("<div>").addClass("summary").appendTo($(container).empty());
+  const tiles = $("<div>").addClass("summary-tiles").appendTo(root);
+  tiles.append(statTile("Region downlinked", formatShare(summary.downlinked),
+    "with an observation downlinked in the period"));
+  if (summary.latency) {
+    const unit = durationUnit(summary.latency.p90);
+    tiles.append(statTile("Mean latency", formatDuration(summary.latency.mean, unit),
+      distributionDetail(summary.latency, unit)));
+  } else {
+    tiles.append(statTile("Mean latency", "–", "no observation is downlinked"));
+  }
+  tiles.append(statTile("Contacts", summary.contacts.toLocaleString(),
+    summary.contact_duration === null || summary.contact_duration === undefined
+      ? "with ground stations"
+      : "mean duration " + formatDuration(summary.contact_duration)));
+  if (summary.latency_histogram) {
+    $("<div>").addClass("summary-charts").appendTo(root).append(
+      histogramChart(summary.latency_histogram, "Mean latency",
+        "Points with a downlinked observation", "latency")
+    );
+  }
+  root.append($("<p>").addClass("small text-muted mb-0").text(weightingNote(summary)));
+}

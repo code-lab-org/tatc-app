@@ -16,6 +16,7 @@ from ..analysis.endpoints import (
     get_analysis_result,
     serialize_members,
 )
+from ..analysis.summary import get_weighting
 from ..celery.quota import TaskSlot, analysis_slot
 from ..celery.schemas import CeleryTask
 from ..cesium.czml import animation_packets, link_packets, site_packets
@@ -71,6 +72,7 @@ def enqueue_latency_analysis(
             stations,
             request.start.isoformat(),
             request.get_member_colors(),
+            get_weighting(request.points).value,
         ),
         slot,
     )

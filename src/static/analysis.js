@@ -401,7 +401,8 @@ function showAnalysisData() {
       ]),
       rows: pointRows(function(p) { return { access_s: p.access, revisit_h: hours(p.revisit) }; }),
       filename: "coverage-points",
-      note: "Statistics of each point over the analysis period. Overlapping observations by several satellites count once."
+      note: "Statistics of each point over the analysis period. Overlapping observations by several satellites count once.",
+      summary: result.summary ? function(container) { renderCoverageSummary(container, result.summary); } : null
     });
   } else if (type == "latency") {
     const contacts = result.contacts;
@@ -411,7 +412,8 @@ function showAnalysisData() {
       columns: pointColumns.concat([{ title: "Mean latency (h)", key: "latency_h", format: number2 }]),
       rows: pointRows(function(p) { return { latency_h: hours(p.latency) }; }),
       filename: "latency-points",
-      note: contacts.start.length + " contacts with ground stations.",
+      note: "Statistics of each point over the analysis period.",
+      summary: result.summary ? function(container) { renderLatencySummary(container, result.summary); } : null,
       extras: [{
         label: "Contacts CSV",
         filename: "latency-contacts.csv",
