@@ -336,6 +336,47 @@ function formatError(xhr) {
   return String(xhr || "Request failed.");
 }
 
+// --- Formatting ---
+
+// Formats a number with at most a number of decimals (default: 1), with
+// thousands separators.
+function formatNumber(value, digits) {
+  return Number(value).toLocaleString(undefined, { maximumFractionDigits: digits === undefined ? 1 : digits });
+}
+
+// Formats a number with up to 3 significant digits (and thousands separators).
+function formatValue(value) {
+  if (value === null || value === undefined || !isFinite(value)) {
+    return "–";
+  }
+  const digits = Math.abs(value) >= 100 ? 0 : Math.abs(value) >= 10 ? 1 : 2;
+  return Number(value).toLocaleString(undefined, { maximumFractionDigits: digits });
+}
+
+// Gets the unit to show durations up to a maximum (seconds) in.
+function durationUnit(maxSeconds) {
+  if (maxSeconds < 120) { return { label: "s", seconds: 1 }; }
+  if (maxSeconds < 2 * 3600) { return { label: "min", seconds: 60 }; }
+  if (maxSeconds < 72 * 3600) { return { label: "h", seconds: 3600 }; }
+  return { label: "d", seconds: 86400 };
+}
+
+// Formats a duration (seconds) in a unit (default: one that suits it).
+function formatDuration(seconds, unit) {
+  unit = unit || durationUnit(seconds);
+  return formatValue(seconds / unit.seconds) + " " + unit.label;
+}
+
+// Formats a share (from 0 to 1) as a percentage.
+function formatShare(share) {
+  return formatValue(100 * share) + "%";
+}
+
+// Formats a length (meters) in kilometers.
+function formatKilometers(meters) {
+  return formatValue(meters / 1000) + " km";
+}
+
 // --- Authentication ---
 
 const signedInListeners = [];

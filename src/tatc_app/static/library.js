@@ -240,7 +240,7 @@ function formatMetric(value, kind, unit) {
     return formatValue(value);
   }
   if (kind == "length") {
-    return formatValue(value / 1000) + " km";
+    return formatKilometers(value);
   }
   return Number(value).toLocaleString();
 }

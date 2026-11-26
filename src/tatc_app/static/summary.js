@@ -54,33 +54,7 @@ const COVERAGE_TERMS = {
   }
 };
 
-// --- Formatting ---
-
-// Picks a unit to show durations up to a maximum (seconds).
-function durationUnit(maxSeconds) {
-  if (maxSeconds < 120) { return { label: "s", seconds: 1 }; }
-  if (maxSeconds < 2 * 3600) { return { label: "min", seconds: 60 }; }
-  if (maxSeconds < 72 * 3600) { return { label: "h", seconds: 3600 }; }
-  return { label: "d", seconds: 86400 };
-}
-
-// Formats a number with up to 3 significant digits (and thousands separators).
-function formatValue(value) {
-  if (value === null || value === undefined || !isFinite(value)) {
-    return "–";
-  }
-  const digits = Math.abs(value) >= 100 ? 0 : Math.abs(value) >= 10 ? 1 : 2;
-  return Number(value).toLocaleString(undefined, { maximumFractionDigits: digits });
-}
-
-function formatDuration(seconds, unit) {
-  unit = unit || durationUnit(seconds);
-  return formatValue(seconds / unit.seconds) + " " + unit.label;
-}
-
-function formatShare(share) {
-  return formatValue(100 * share) + "%";
-}
+// --- Axes ---
 
 // Gets about `count` round tick values from 0 to (at least) a maximum.
 function niceTicks(max, count) {
@@ -563,10 +537,6 @@ function renderRegionSummary(container, summary) {
     "Areas are of the swaths' footprints sampled every step, measured on the WGS 84 ellipsoid."));
 }
 
-// Formats a length (meters) in kilometers.
-function formatKilometers(meters) {
-  return formatValue(meters / 1000) + " km";
-}
 
 // Renders the summary of ground sample sizes (`sample_size` of a coverage
 // summary) in a container.

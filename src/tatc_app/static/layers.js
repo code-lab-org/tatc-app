@@ -125,6 +125,3 @@ function renderColorbar(container, scale) {
   });
 }
 
-function formatNumber(value, digits) {
-  return Number(value).toLocaleString(undefined, { maximumFractionDigits: digits === undefined ? 1 : digits });
-}
