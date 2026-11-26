@@ -363,6 +363,13 @@ black .
 isort .
 ```
 
+### Changelog
+
+Notable changes are recorded in [CHANGELOG.md](CHANGELOG.md). Add an entry
+under **Unreleased** with each change. To release a version, rename that
+section to the new version and date, set `__version__` in
+`src/tatc_app/__init__.py` to match, and start a new **Unreleased** section.
+
 ## Deployment
 
 Production deployments should use `compose.server.yml` and `compose.worker.yml`

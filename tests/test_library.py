@@ -1,3 +1,8 @@
+import os
+import sqlite3
+import tempfile
+import unittest
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 from uuid import uuid4
@@ -9,6 +14,7 @@ from tatc_app.auth import User, current_user
 from tatc_app.coincidence.schemas import CoincidenceAnalysisRequest
 from tatc_app.coverage.schemas import CoverageAnalysisRequest, CoverageAnalysisResult
 from tatc_app.generation.schemas import CellGenerator, PointGenerator
+from tatc_app.library.database import SCHEMA_VERSION, Library
 from tatc_app.main import app
 
 from .base import TatcTestCase
@@ -272,3 +278,111 @@ class RunsTestCase(LibraryTestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertIsNone(response.json()["summary"])
+
+    def save_run(self, task_id: str, request: dict, **kwargs):
+        return self.client.post(
+            "/runs",
+            json=dict(
+                {
+                    "name": "Run",
+                    "analysis": "coverage",
+                    "taskId": task_id,
+                    "request": request,
+                    "design": DESIGN,
+                },
+                **kwargs,
+            ),
+        )
+
+    def test_runs_under_designs(self):
+        request, task_id = self.run_coverage()
+        first = self.client.post("/designs", json={"name": "A", "design": DESIGN})
+        second = self.client.post("/designs", json={"name": "B", "design": DESIGN})
+        first, second = first.json()["id"], second.json()["id"]
+        response = self.save_run(task_id, request, designId=first)
+        self.assertEqual(response.status_code, 200, response.text)
+        saved = response.json()
+        self.assertEqual(saved["design_id"], first)
+        unfiled = self.save_run(task_id, request).json()
+        self.assertIsNone(unfiled["design_id"])
+        # designs count their runs
+        counts = {d["id"]: d["runs"] for d in self.client.get("/designs").json()}
+        self.assertEqual(counts, {first: 1, second: 0})
+        self.assertEqual(self.client.get(f"/designs/{first}").json()["runs"], 1)
+        # runs list by design
+        listed = self.client.get(f"/runs?design={first}&analysis=coverage").json()
+        self.assertEqual([r["id"] for r in listed], [saved["id"]])
+        self.assertEqual(self.client.get(f"/runs?design={second}").json(), [])
+        # moved to another design (keeping its name), then to none
+        response = self.client.patch(f"/runs/{saved['id']}", json={"designId": second})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["design_id"], second)
+        self.assertEqual(response.json()["name"], "Run")
+        response = self.client.patch(f"/runs/{saved['id']}", json={"designId": None})
+        self.assertIsNone(response.json()["design_id"])
+        # renaming keeps its design
+        self.client.patch(f"/runs/{unfiled['id']}", json={"designId": first})
+        response = self.client.patch(f"/runs/{unfiled['id']}", json={"name": "New"})
+        self.assertEqual(response.json()["design_id"], first)
+        # deleting a design deletes its runs
+        self.assertEqual(self.client.delete(f"/designs/{first}").status_code, 204)
+        self.assertEqual(self.client.get(f"/runs/{unfiled['id']}").status_code, 404)
+        self.assertEqual(
+            [r["id"] for r in self.client.get("/runs").json()], [saved["id"]]
+        )
+
+    def test_runs_under_unknown_designs(self):
+        request, task_id = self.run_coverage()
+        run = self.save_run(task_id, request).json()
+        self.sign_in("b")
+        other = self.client.post("/designs", json={"name": "B", "design": DESIGN})
+        other = other.json()["id"]
+        self.sign_in("a")
+        for design_id in (str(uuid4()), other):
+            with self.subTest(design_id=design_id):
+                response = self.save_run(task_id, request, designId=design_id)
+                self.assertEqual(response.status_code, 404, response.text)
+                response = self.client.patch(
+                    f"/runs/{run['id']}", json={"designId": design_id}
+                )
+                self.assertEqual(response.status_code, 404, response.text)
+        # deleting another user's design does not delete runs under it
+        self.assertEqual(self.client.delete(f"/designs/{other}").status_code, 404)
+
+    def test_invalid_updates(self):
+        request, task_id = self.run_coverage()
+        run = self.save_run(task_id, request).json()
+        for body in ({}, {"name": None}, {"name": ""}, {"designId": "x"}):
+            with self.subTest(body=body):
+                response = self.client.patch(f"/runs/{run['id']}", json=body)
+                self.assertEqual(response.status_code, 422, response.text)
+
+
+class MigrationTestCase(unittest.TestCase):
+    def test_migrate_version_1(self):
+        # a database of version 1 of the schema, without designs of runs
+        path = os.path.join(tempfile.mkdtemp(prefix="tatc-app-test-"), "v1.db")
+        with closing(sqlite3.connect(path)) as connection:
+            connection.executescript("""
+                CREATE TABLE designs (id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
+                    name TEXT NOT NULL, data TEXT NOT NULL, created TEXT NOT NULL,
+                    updated TEXT NOT NULL);
+                CREATE TABLE runs (id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
+                    name TEXT NOT NULL, analysis TEXT NOT NULL,
+                    request TEXT NOT NULL, design TEXT NOT NULL, summary TEXT,
+                    created TEXT NOT NULL);
+                INSERT INTO designs VALUES ('d', 'u', 'D', '{}', 't', 't');
+                INSERT INTO runs VALUES ('r', 'u', 'R', 'coverage', '{}', '{}',
+                    NULL, 't');
+                PRAGMA user_version=1;
+                """)
+        library = Library(path)
+        self.assertEqual(library.list_runs("u")[0]["design_id"], None)
+        self.assertEqual(library.list_designs("u")[0]["runs"], 0)
+        library.update_run("u", "r", design_id="d")
+        self.assertEqual(library.list_designs("u")[0]["runs"], 1)
+        with closing(sqlite3.connect(path)) as connection:
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+        self.assertEqual(version, SCHEMA_VERSION)
+        # opening it again does not migrate it again
+        self.assertEqual(Library(path).list_runs("u", design_id="d")[0]["id"], "r")

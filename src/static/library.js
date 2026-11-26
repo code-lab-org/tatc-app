@@ -1,7 +1,8 @@
 // Designs and analysis runs saved to the user's account (the server's
 // `/designs` and `/runs` endpoints): the saved designs dialog of the Design
-// tab, and the saving, comparison, and running again of analysis runs of the
-// Analysis tab.
+// tab, and the saving (under the saved design of the current design),
+// comparison (with the current results), and running again of analysis runs
+// of the Analysis tab.
 
 // --- Requests ---
 
@@ -39,11 +40,12 @@ function flashStatus(element, text) {
 
 const SAVED_DESIGN_KEY = "tatc-saved-design";
 // the saved design ({id, name}) last opened or saved, which the current
-// design updates; null for a design that is not saved
+// design updates (and runs save under); null for a design that is not saved
 let savedDesignRef = null;
 
 function setSavedDesignRef(ref) {
   savedDesignRef = ref;
+  renderRunDesign();
   try {
     if (ref) {
       window.localStorage.setItem(SAVED_DESIGN_KEY, JSON.stringify(ref));
@@ -95,6 +97,7 @@ function renderDesigns(designs) {
         current ? $("<span>").addClass("badge badge-secondary ml-2").text("open") : null
       ),
       $("<td>").text(saved.satellites),
+      $("<td>").text(saved.runs),
       $("<td>").text(formatSavedTime(saved.updated)),
       $("<td>").addClass("library-actions").append(
         actionButton("fas fa-folder-open", "Open " + saved.name, function() { openDesign(saved); }),
@@ -116,7 +119,9 @@ function openDesign(saved) {
 }
 
 function deleteDesign(saved) {
-  if (!confirm("Delete the saved design “" + saved.name + "”?")) {
+  const runs = saved.runs == 1 ? "the run" : "the " + saved.runs + " runs";
+  if (!confirm("Delete the saved design “" + saved.name + "”" +
+      (saved.runs ? " and " + runs + " saved under it?" : "?"))) {
     return;
   }
   sendJson("DELETE", "/designs/" + saved.id).done(function() {
@@ -161,6 +166,12 @@ function saveCurrentDesign(update) {
 const RUN_COLORS = ["#3987e5", "#d95926", "#199e70", "#c98500"];
 let savedRuns = [];
 let comparedRuns = []; // [{id, slot}]
+// the id of the current results (before they are saved) among runs compared
+const CURRENT_RUN = "current";
+// the saved designs (that runs save under), and the groups of runs under
+// them collapsed (by design id, "" for none), of the runs dialog
+let savedDesigns = [];
+let collapsedGroups = {};
 
 // The headline metric of runs of each analysis with a summary, and the rows
 // of their comparison: {label, value(summary), kind} (a share, duration,
@@ -250,58 +261,228 @@ function showRunsError(xhr) {
   $("#runs-error").text(formatError(xhr)).show();
 }
 
+// Shows (on the Analysis tab) the saved design that runs save under: the
+// saved design last opened or saved, if any.
+function renderRunDesign() {
+  const note = $("#run-design").empty();
+  if (savedDesignRef) {
+    note.append(
+      $("<i>").addClass("fas fa-folder mr-1").attr("aria-hidden", "true"),
+      "Runs save under ",
+      $("<strong>").text(savedDesignRef.name)
+    );
+  } else {
+    note.text("Runs save under no design: save the design (Design tab, Saved) to save runs under it.");
+  }
+}
+
+// Tests whether the comparison of runs of an analysis is available.
+function canCompareRuns(type) {
+  return Boolean(RUN_METRICS[type]);
+}
+
 function runColor(id) {
   const compared = _.find(comparedRuns, { id: id });
   return compared ? RUN_COLORS[compared.slot] : null;
 }
 
+// The current results of the selected analysis as a run to compare (with
+// the saved runs), unless saved (their saved run is then marked current).
+function currentRun() {
+  if (!analysisResult || analysisResult.type != getAnalysisType()) {
+    return null;
+  }
+  if (analysisResult.savedRunId && _.some(savedRuns, { id: analysisResult.savedRunId })) {
+    return null;
+  }
+  return {
+    id: CURRENT_RUN,
+    name: "Current results",
+    summary: analysisResult.result.summary || null,
+    current: true
+  };
+}
+
+function isCurrentRun(run) {
+  return Boolean(run.current || (analysisResult && run.id === analysisResult.savedRunId));
+}
+
+// The runs to compare: the current results (if not saved) and the saved runs.
+function comparableRuns() {
+  return _.compact([currentRun()]).concat(savedRuns);
+}
+
 function openRunsDialog() {
   const type = getAnalysisType();
-  $("#runs-title").text("Saved Runs: " + ANALYSES[type].label);
+  $("#runs-title").text("Compare Runs: " + ANALYSES[type].label);
   $("#runs-error").hide();
-  comparedRuns = [];
   savedRuns = [];
+  savedDesigns = [];
+  // the current results compare from the start
+  comparedRuns = [];
+  if (analysisResult && analysisResult.type == type && analysisResult.result.summary) {
+    comparedRuns.push({ id: analysisResult.savedRunId || CURRENT_RUN, slot: 0 });
+  }
   renderRuns();
   loadRuns();
   $("#runs-dialog").modal("show");
 }
 
 function loadRuns() {
-  $.getJSON("/runs", { analysis: getAnalysisType() }).done(function(runs) {
-    savedRuns = runs;
+  $.when(
+    $.getJSON("/runs", { analysis: getAnalysisType() }),
+    $.getJSON("/designs")
+  ).done(function(runs, designs) {
+    savedRuns = runs[0];
+    savedDesigns = designs[0];
+    // the saved run of the current results may since be deleted (they then
+    // compare as not saved)
+    const savedRunId = analysisResult && analysisResult.savedRunId;
+    if (savedRunId && !_.some(savedRuns, { id: savedRunId })) {
+      delete analysisResult.savedRunId;
+      _.forEach(comparedRuns, function(c) {
+        if (c.id === savedRunId) {
+          c.id = CURRENT_RUN;
+        }
+      });
+    }
+    // and so may the saved design of the current design
+    if (savedDesignRef && !_.some(savedDesigns, { id: savedDesignRef.id })) {
+      setSavedDesignRef(null);
+    }
     // forget compared runs since deleted
-    comparedRuns = _.filter(comparedRuns, function(c) { return _.some(runs, { id: c.id }); });
+    const ids = _.map(comparableRuns(), "id");
+    comparedRuns = _.filter(comparedRuns, function(c) { return _.includes(ids, c.id); });
     renderRuns();
   }).fail(showRunsError);
+}
+
+// Groups the saved runs by the saved design they save under: the open
+// design first, then the other designs (latest saved first), then runs
+// under no design.
+function runGroups() {
+  const byDesign = _.groupBy(savedRuns, function(run) { return run.design_id || ""; });
+  const designs = _.sortBy(savedDesigns, function(d) {
+    return savedDesignRef && d.id == savedDesignRef.id ? 0 : 1;
+  });
+  const groups = _.map(designs, function(d) {
+    return {
+      id: d.id,
+      name: d.name,
+      current: Boolean(savedDesignRef && d.id == savedDesignRef.id),
+      runs: byDesign[d.id] || []
+    };
+  });
+  const known = _.map(savedDesigns, "id");
+  groups.push({
+    id: "",
+    name: "No design",
+    runs: _.filter(savedRuns, function(run) { return !run.design_id || !_.includes(known, run.design_id); })
+  });
+  return _.filter(groups, function(group) { return group.current || group.runs.length; });
+}
+
+// A header row of a group of runs (that toggles it, if collapsible).
+function groupHeader(label, icon, extras, collapsed, onToggle) {
+  const content = _.compact([
+    $("<i>").addClass(icon + " mr-2").attr("aria-hidden", "true"),
+    $("<span>").text(label)
+  ].concat(extras || []));
+  const cell = $("<td colspan='5'>");
+  if (onToggle) {
+    cell.append($("<button type='button'>")
+      .addClass("btn btn-link btn-sm runs-group-toggle")
+      .attr("aria-expanded", String(!collapsed))
+      .append(
+        $("<i>").addClass("fas fa-fw mr-1 " + (collapsed ? "fa-caret-right" : "fa-caret-down")).attr("aria-hidden", "true"),
+        content
+      )
+      .on("click", onToggle));
+  } else {
+    cell.append(content);
+  }
+  return $("<tr>").addClass("runs-group").append(cell);
+}
+
+function compareCheckbox(run) {
+  const color = runColor(run.id);
+  return $("<input type='checkbox'>")
+    .attr("aria-label", "Compare " + run.name)
+    .prop("checked", Boolean(color))
+    .prop("disabled", !run.summary || (!color && comparedRuns.length >= RUN_COLORS.length))
+    .on("change", function() { toggleCompared(run.id, this.checked); });
+}
+
+function runNameCell(run) {
+  const color = runColor(run.id);
+  return $("<td>").append(
+    color ? $("<span>").addClass("run-swatch").css("background", color) : null,
+    $("<span>").text(run.name),
+    // (the saved run of the current results)
+    isCurrentRun(run) && !run.current ? $("<span>").addClass("badge badge-info ml-2").text("current") : null
+  );
+}
+
+function runMetricCell(run, metrics) {
+  return $("<td>").text(metrics && run.summary
+    ? formatMetric(metrics.headline.value(run.summary), metrics.headline.kind)
+    : "");
 }
 
 function renderRuns() {
   const type = getAnalysisType();
   const metrics = RUN_METRICS[type];
   $("#runs-metric").text(metrics ? metrics.headline.label : "");
-  $("#runs-empty").toggle(savedRuns.length == 0);
+  const current = currentRun();
+  $("#runs-empty").toggle(savedRuns.length == 0 && !current);
   const list = $("#runs-list").empty();
-  _.forEach(savedRuns, function(run) {
-    const color = runColor(run.id);
-    const checkbox = $("<input type='checkbox'>")
-      .attr("aria-label", "Compare " + run.name)
-      .prop("checked", Boolean(color))
-      .prop("disabled", !run.summary || (!color && comparedRuns.length >= RUN_COLORS.length))
-      .on("change", function() { toggleCompared(run.id, this.checked); });
-    list.append($("<tr>").append(
-      $("<td>").append(checkbox),
-      $("<td>").append(
-        color ? $("<span>").addClass("run-swatch").css("background", color) : null,
-        $("<span>").text(run.name)
-      ),
-      $("<td>").text(formatSavedTime(run.created)),
-      $("<td>").text(metrics && run.summary ? formatMetric(metrics.headline.value(run.summary), metrics.headline.kind) : ""),
-      $("<td>").addClass("library-actions").append(
+  if (current) {
+    list.append(
+      groupHeader("Current results", "fas fa-chart-bar", null, false, null),
+      $("<tr>").addClass("runs-current").append(
+        $("<td>").addClass("runs-indent").append(compareCheckbox(current)),
+        runNameCell(current),
+        $("<td>").addClass("text-muted").text("Not saved"),
+        runMetricCell(current, metrics),
+        $("<td>").addClass("library-actions").append(
+          actionButton("fas fa-save", "Save the current results", function() { saveRun($("#runs-error")); })
+        )
+      )
+    );
+  }
+  _.forEach(runGroups(), function(group) {
+    const collapsed = Boolean(collapsedGroups[group.id]);
+    const extras = [
+      group.current ? $("<span>").addClass("badge badge-secondary ml-2").text("open design") : null,
+      $("<span>").addClass("text-muted ml-2").text("(" + group.runs.length + ")")
+    ];
+    list.append(groupHeader(group.name, group.id ? "fas fa-folder" : "far fa-folder", extras, collapsed, function() {
+      collapsedGroups[group.id] = !collapsed;
+      renderRuns();
+    }));
+    if (collapsed) {
+      return;
+    }
+    if (group.runs.length == 0) {
+      list.append($("<tr>").append($("<td colspan='5'>").addClass("text-muted runs-indent")
+        .text("No saved runs of this analysis under this design yet.")));
+    }
+    _.forEach(group.runs, function(run) {
+      const actions = $("<td>").addClass("library-actions");
+      actions.append(
         actionButton("fas fa-pen", "Rename " + run.name, function() { renameRun(run); }),
+        actionButton("fas fa-folder", "Save " + run.name + " under another design", function() { moveRun(run, actions); }),
         actionButton("fas fa-play", "Run " + run.name + " again", function() { runAgain(run); }),
         actionButton("fas fa-trash-alt", "Delete " + run.name, function() { deleteRun(run); })
-      )
-    ));
+      );
+      list.append($("<tr>").toggleClass("runs-current", isCurrentRun(run)).append(
+        $("<td>").addClass("runs-indent").append(compareCheckbox(run)),
+        runNameCell(run),
+        $("<td>").text(formatSavedTime(run.created)),
+        runMetricCell(run, metrics),
+        actions
+      ));
+    });
   });
   renderComparison();
 }
@@ -325,16 +506,19 @@ function renderComparison() {
   const container = $("#runs-compare").empty();
   const type = getAnalysisType();
   const metrics = RUN_METRICS[type];
-  if (!metrics || savedRuns.length == 0) {
+  const all = comparableRuns();
+  if (!metrics || all.length == 0) {
     return;
   }
   const runs = _.compact(_.map(comparedRuns, function(c) {
-    const run = _.find(savedRuns, { id: c.id });
+    const run = _.find(all, { id: c.id });
     return run ? _.assign({ color: RUN_COLORS[c.slot] }, run) : null;
   }));
   const root = $("<div>").addClass("summary").appendTo(container);
   if (runs.length == 0) {
-    root.append($("<p>").addClass("small text-muted mb-0").text("Check up to four runs to compare them."));
+    root.append($("<p>").addClass("small text-muted mb-0").text(
+      "Check up to four runs to compare them" + (currentRun() ? ", including the current results." : ".")
+    ));
     return;
   }
   const table = $("<table>").addClass("table table-sm small runs-metrics").appendTo(root);
@@ -374,6 +558,31 @@ function renameRun(run) {
     return;
   }
   sendJson("PATCH", "/runs/" + run.id, { name: name.trim() }).done(loadRuns).fail(showRunsError);
+}
+
+// Replaces the actions of a run with a select of the design to save it under.
+function moveRun(run, cell) {
+  const select = $("<select>")
+    .addClass("custom-select custom-select-sm runs-move")
+    .attr("aria-label", "Design to save " + run.name + " under")
+    .append(
+      _.map(savedDesigns, function(d) { return $("<option>").val(d.id).text(d.name); }),
+      $("<option>").val("").text("No design")
+    )
+    .val(_.some(savedDesigns, { id: run.design_id }) ? run.design_id : "")
+    .on("change", function() {
+      sendJson("PATCH", "/runs/" + run.id, { designId: this.value || null })
+        .done(loadRuns)
+        .fail(showRunsError);
+    })
+    // leaving the select without a change restores the actions
+    .on("blur", function() {
+      if (this.value == (run.design_id || "")) {
+        renderRuns();
+      }
+    });
+  cell.empty().append(select);
+  select.trigger("focus");
 }
 
 function deleteRun(run) {
@@ -422,6 +631,7 @@ function setAnalysisInputs(type, request) {
 
 // Runs a saved run again: loads its design, and analyzes its request as
 // saved (its region and settings, which may differ from those of the tab).
+// Runs then save under the same saved design.
 function runAgain(run) {
   if (!confirm("Replace the current design with the design of “" + run.name +
       "” and run its analysis again?")) {
@@ -430,7 +640,8 @@ function runAgain(run) {
   $.getJSON("/runs/" + run.id).done(function(saved) {
     $("#runs-dialog").modal("hide");
     importDesign(saved.design);
-    setSavedDesignRef(null);
+    const parent = _.find(savedDesigns, { id: saved.design_id });
+    setSavedDesignRef(parent ? { id: parent.id, name: parent.name } : null);
     // selecting the analysis type cancels any analysis running
     $("#analysis-type").val(saved.analysis).trigger("change");
     setAnalysisInputs(saved.analysis, saved.request);
@@ -446,30 +657,59 @@ function defaultRunName() {
     analysisResult.payload.start.substring(0, 10) + ", " + formatValue(days) + " d";
 }
 
-function saveRun() {
-  if (!analysisResult) {
+// Saves the current results (under the saved design of the current design,
+// if any), showing any error in an element.
+function saveRun(errorElement) {
+  const result = analysisResult;
+  if (!result) {
     return;
   }
-  const name = prompt("Name of the saved run:", defaultRunName());
+  const parent = savedDesignRef;
+  const name = prompt(
+    parent
+      ? "Name of the run (saved under the design “" + parent.name + "”):"
+      : "Name of the run (saved under no design: save the design first to save runs under it):",
+    defaultRunName()
+  );
   if (name === null || !name.trim()) {
     return;
   }
-  $("#analysis-error").hide();
+  errorElement.hide();
   sendJson("POST", "/runs", {
     name: name.trim(),
-    analysis: analysisResult.type,
-    taskId: analysisResult.taskId,
-    request: analysisResult.payload,
-    design: analysisResult.design
+    analysis: result.type,
+    designId: parent ? parent.id : null,
+    taskId: result.taskId,
+    request: result.payload,
+    design: result.design
   }).done(function(saved) {
-    flashStatus($("#run-saved"), "Saved “" + saved.name + "”.");
+    result.savedRunId = saved.id;
+    flashStatus($("#run-saved"), "Saved “" + saved.name + "”" + (parent ? " under “" + parent.name + "”." : "."));
+    // the current results compare as their saved run
+    if (analysisResult === result) {
+      _.forEach(comparedRuns, function(c) {
+        if (c.id === CURRENT_RUN) {
+          c.id = saved.id;
+        }
+      });
+    }
+    if ($("#runs-dialog").hasClass("show")) {
+      loadRuns();
+    }
   }).fail(function(xhr) {
-    $("#analysis-error").text(formatError(xhr)).show();
+    // the saved design may have been deleted (for example, in another tab)
+    if (parent && xhr.status == 404) {
+      setSavedDesignRef(null);
+      errorElement.text("The saved design “" + parent.name + "” was deleted. Save the run again to save it under no design.").show();
+      return;
+    }
+    errorElement.text(formatError(xhr)).show();
   });
 }
 
 $(document).ready(function() {
   loadSavedDesignRef();
+  renderRunDesign();
   $("#designs-open").click(function() {
     $("#designs-error").hide();
     renderDesignUpdate();
@@ -483,6 +723,6 @@ $(document).ready(function() {
     saveCurrentDesign(false);
   });
   $("#design-update").click(function() { saveCurrentDesign(true); });
-  $("#run-save").click(saveRun);
+  $("#run-save").click(function() { saveRun($("#analysis-error")); });
   $("#runs-open").click(openRunsDialog);
 });

@@ -76,6 +76,7 @@ class DesignInfo(BaseModel):
     satellites: int = Field(
         ..., description="Number of satellites and constellations of the design."
     )
+    runs: int = Field(..., description="Number of analysis runs saved under it.")
 
 
 class SavedDesign(DesignInfo):
@@ -94,6 +95,11 @@ class RunInput(CamelModel):
 
     name: Name = Field(..., description="Name of the run.")
     analysis: AnalysisType = Field(..., description="Type of the analysis.")
+    design_id: Optional[UUID] = Field(
+        None,
+        description="Identifier of the saved design to save the run under (the "
+        "design it analyzes may since differ), or null for none.",
+    )
     task_id: UUID = Field(
         ...,
         description="Identifier of the completed analysis task, whose results "
@@ -111,12 +117,27 @@ class RunInput(CamelModel):
         return self
 
 
-class RunRename(CamelModel):
+class RunUpdate(CamelModel):
     """
-    A new name of a saved run.
+    Changes to a saved run: its name, or the saved design it is saved under
+    (null for none). Fields left out do not change.
     """
 
-    name: Name = Field(..., description="Name of the run.")
+    name: Optional[Name] = Field(None, description="Name of the run.")
+    design_id: Optional[UUID] = Field(
+        None, description="Identifier of the saved design, or null for none."
+    )
+
+    @model_validator(mode="after")
+    def validate_fields(self) -> "RunUpdate":
+        """
+        Validates the update changes something, and does not clear the name.
+        """
+        if not self.model_fields_set:
+            raise ValueError("Nothing to update.")
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("The name of a run cannot be null.")
+        return self
 
 
 class RunInfo(BaseModel):
@@ -127,6 +148,9 @@ class RunInfo(BaseModel):
     id: UUID = Field(..., description="Identifier of the saved run.")
     name: str = Field(..., description="Name of the run.")
     analysis: AnalysisType = Field(..., description="Type of the analysis.")
+    design_id: Optional[UUID] = Field(
+        None, description="Identifier of the saved design it is saved under."
+    )
     created: str = Field(..., description="Time (ISO 8601) it was saved.")
     summary: Optional[Dict[str, Any]] = Field(
         None,
