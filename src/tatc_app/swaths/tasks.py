@@ -24,7 +24,6 @@ import pandas as pd
 import shapely
 from pyproj import Transformer
 from shapely.geometry import MultiPolygon, Polygon, mapping, shape
-from shapely.ops import transform
 from tatc.analysis import (
     aggregate_observations,
     collect_footprints,
@@ -83,7 +82,11 @@ def area_km2(geometry) -> float:
     """
     if geometry is None or geometry.is_empty:
         return 0.0
-    return transform(_TO_EQUAL_AREA.transform, geometry).area / 1e6
+    projected = shapely.transform(
+        geometry,
+        lambda c: np.column_stack(_TO_EQUAL_AREA.transform(c[:, 0], c[:, 1])),
+    )
+    return projected.area / 1e6
 
 
 def curve_seconds(start: datetime, end: datetime) -> np.ndarray:
