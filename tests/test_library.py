@@ -363,8 +363,7 @@ class MigrationTestCase(unittest.TestCase):
         # a database of version 1 of the schema, without designs of runs
         path = os.path.join(tempfile.mkdtemp(prefix="tatc-app-test-"), "v1.db")
         with closing(sqlite3.connect(path)) as connection:
-            connection.executescript(
-                """
+            connection.executescript("""
                 CREATE TABLE designs (id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
                     name TEXT NOT NULL, data TEXT NOT NULL, created TEXT NOT NULL,
                     updated TEXT NOT NULL);
@@ -376,8 +375,7 @@ class MigrationTestCase(unittest.TestCase):
                 INSERT INTO runs VALUES ('r', 'u', 'R', 'coverage', '{}', '{}',
                     NULL, 't');
                 PRAGMA user_version=1;
-                """
-            )
+                """)
         library = Library(path)
         self.assertEqual(library.list_runs("u")[0]["design_id"], None)
         self.assertEqual(library.list_designs("u")[0]["runs"], 0)
