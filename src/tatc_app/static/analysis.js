@@ -1,64 +1,11 @@
 // Analysis tab: coverage and revisit, coincident observations, ground track
 // swaths (optionally over a region), data latency with ground stations, and
 // point access (overflight) analyses, with animated results in the Cesium
-// viewer.
+// viewer. Each type of analysis (its inputs and data) is in
+// analysis-types.js; this file runs them and shows their results.
 
 let analysisResult = null; // {type, result, taskId, payload, design, duration}
 let targetLayer = null;
-
-// The analyses (in the order of the analysis select): whether each analyzes
-// a region (`"optional"` if it may, see `usesRegion`), whether it samples a
-// grid of points and cells of the region (or else analyzes the region itself,
-// shown by its outline), and whether it shows its results with a layer of
-// targets (points and cells colored by a metric, see `DISPLAY_MODES`).
-const ANALYSES = {
-  coverage: {
-    label: "Coverage and Revisit",
-    description: "Observations of a grid of points (and cells) by the checked instruments of the checked satellites. " +
-      "Animates observations accumulating over the analysis period, or shows final revisit statistics.",
-    region: true,
-    grid: true,
-    targetLayer: true,
-    endpoint: "/analyze/coverage"
-  },
-  coincidence: {
-    label: "Coincident Observations",
-    description: "Periods when several of the checked satellites (or satellites and constellations) observe a point of the grid at once, " +
-      "as for cross-calibration or multi-sensor matchups. Animates coincidences accumulating, or shows final statistics.",
-    region: true,
-    grid: true,
-    targetLayer: true,
-    endpoint: "/analyze/coincidence"
-  },
-  swaths: {
-    label: "Ground Track Swaths",
-    description: "Ground track swaths of the checked instruments, accumulating in segments over the animation. " +
-      "Limited to a region, also the share of its area observed over the analysis period, its observations and revisit, " +
-      "and optionally the areas several satellites observe in common within a time difference.",
-    region: "optional",
-    grid: false,
-    targetLayer: false,
-    endpoint: "/analyze/swaths"
-  },
-  latency: {
-    label: "Data Latency (Ground Stations)",
-    description: "Latency from the observation of each point to its downlink at a ground station. " +
-      "Animates contacts with ground stations and observations awaiting downlink.",
-    region: true,
-    grid: true,
-    targetLayer: true,
-    endpoint: "/analyze/latency"
-  },
-  access: {
-    label: "Point Access (Overflight)",
-    description: "Accesses of selected target points by each satellite, with lines of sight " +
-      "animated during each access and a table of access windows.",
-    region: false,
-    grid: false,
-    targetLayer: false,
-    endpoint: "/analyze/overflight"
-  }
-};
 
 function hasTargetLayer(type) {
   return ANALYSES[type].targetLayer;
@@ -106,6 +53,20 @@ function getBasePayload(inputs) {
       delta: Math.max(DISPLAY_STEP, Math.ceil(duration / (MAX_DISPLAY_STEPS - 1)))
     }
   };
+}
+
+// Sets the inputs of the tab from a request of an analysis of a type (as of
+// a saved run).
+function setAnalysisInputs(type, request) {
+  const start = new Date(request.start);
+  const end = new Date(request.end);
+  $("#analysis-start").val(toDateTimeInput(start));
+  $("#analysis-duration").val(inputNumber((end - start) / 86400e3)).trigger("change");
+  if (request.display) {
+    const hours = (new Date(request.display.end) - new Date(request.display.start)) / 3600e3;
+    $("#analysis-animate").val(inputNumber(hours)).trigger("change");
+  }
+  ANALYSES[type].writeInputs(request);
 }
 
 // --- Layers ---
@@ -345,215 +306,33 @@ function applyDisplayMode() {
 
 // --- Running analyses ---
 
-// Gets the options of sampling sufficiency of a coverage analysis: null if
-// not assessed, or (showing an error) undefined if invalid.
-function getSufficiencySpec() {
-  if (!$("#sufficiency-enabled").is(":checked")) {
-    return null;
-  }
-  const optional = function(selector) {
-    const text = String($(selector).val()).trim();
-    return text === "" ? null : Number(text);
-  };
-  const decorrelation = Number($("#sufficiency-decorrelation").val()) *
-    Number($("#sufficiency-decorrelation-unit").val());
-  const sigma = optional("#sufficiency-sigma");
-  const target = optional("#sufficiency-target");
-  const bins = Number($("#sufficiency-bins").val());
-  let error = null;
-  if (!(decorrelation > 0)) {
-    error = "The decorrelation time must be positive.";
-  } else if (sigma !== null && !(sigma > 0)) {
-    error = "The field's standard deviation must be positive (or blank).";
-  } else if (target !== null && !(target > 0)) {
-    error = "The target error must be positive (or blank).";
-  } else if (!(Number.isInteger(bins) && bins >= 1 && bins <= 24)) {
-    error = "The number of local-time bins must be a whole number from 1 to 24.";
-  }
-  if (error) {
-    $("#analysis-error").text(error).show();
-    return undefined;
-  }
-  return {
-    decorrelation_time: decorrelation,
-    standard_deviation: sigma,
-    target_relative_error: target === null ? null : target / 100,
-    local_time_bins: bins
-  };
+function showAnalysisError(message) {
+  $("#analysis-error").text(message).show();
 }
 
-// Sets the inputs of sampling sufficiency from the options of a coverage
-// request (none to turn it off).
-function setSufficiencyInputs(sufficiency) {
-  $("#sufficiency-enabled").prop("checked", Boolean(sufficiency));
-  $("#sufficiency-options").toggle(Boolean(sufficiency));
-  if (!sufficiency) {
-    return;
+// Gets the request of the selected analysis from the inputs of the tab, or
+// throws an `InputError`.
+function readAnalysisRequest(type) {
+  if (getSatellites().length == 0) {
+    throw new InputError("Add a satellite or constellation in the Design tab.");
   }
-  const seconds = Number(sufficiency.decorrelation_time);
-  if (seconds > 0) {
-    const unit = seconds >= 86400 && seconds % 86400 == 0 ? 86400 : 3600;
-    $("#sufficiency-decorrelation-unit").val(String(unit));
-    $("#sufficiency-decorrelation").val(Number((seconds / unit).toFixed(6)));
+  const inputs = getFilteredInputs();
+  if (inputs.satellites.length == 0) {
+    throw new InputError("Check at least one satellite and instrument to analyze.");
   }
-  const sigma = sufficiency.standard_deviation;
-  $("#sufficiency-sigma").val(sigma === null || sigma === undefined ? "" : sigma);
-  const target = sufficiency.target_relative_error;
-  $("#sufficiency-target").val(target === null || target === undefined ? "" : Number((100 * target).toFixed(6)));
-  if (sufficiency.local_time_bins) {
-    $("#sufficiency-bins").val(sufficiency.local_time_bins);
-  }
-}
-
-// Gets the options of ground sample sizes of a coverage (or coincidence)
-// analysis: null if not sized, or (showing an error) undefined if invalid.
-function getSampleSizeSpec() {
-  if (!$("#sample-size-enabled").is(":checked")) {
-    return null;
-  }
-  const text = String($("#sample-size-max").val()).trim();
-  const km = text === "" ? null : Number(text);
-  if (km !== null && !(km > 0)) {
-    $("#analysis-error").text("The maximum sample size must be positive (or blank).").show();
-    return undefined;
-  }
-  return { max_sample_size: km === null ? null : km * 1000 };
-}
-
-// Sets the inputs of ground sample sizes from the options of a request (none
-// to turn them off).
-function setSampleSizeInputs(sampleSize) {
-  $("#sample-size-enabled").prop("checked", Boolean(sampleSize));
-  $("#sample-size-options").toggle(Boolean(sampleSize));
-  const max = sampleSize && sampleSize.max_sample_size;
-  $("#sample-size-max").val(max ? Number((max / 1000).toFixed(6)) : "");
-}
-
-// Gets the options of a coincidence analysis, or (showing an error)
-// undefined if invalid.
-function getCoincidenceSpec() {
-  const minPlatforms = Number($("#coincidence-min").val());
-  const minutes = Number($("#coincidence-difference").val());
-  if (!(Number.isInteger(minPlatforms) && minPlatforms >= 2 && minPlatforms <= 20)) {
-    $("#analysis-error").text("The number of platforms at once must be a whole number from 2 to 20.").show();
-    return undefined;
-  }
-  if (!(minutes >= 0)) {
-    $("#analysis-error").text("The maximum time difference must not be negative.").show();
-    return undefined;
-  }
-  return {
-    min_platforms: minPlatforms,
-    max_time_difference: minutes * 60,
-    instantaneous: $("#coincidence-instantaneous").is(":checked"),
-    platforms: $("#coincidence-platforms").val()
-  };
-}
-
-// Sets the inputs of a coincidence analysis from its request.
-function setCoincidenceInputs(request) {
-  $("#coincidence-min").val(request.min_platforms || 2);
-  $("#coincidence-difference").val(Number(((request.max_time_difference || 0) / 60).toFixed(6)));
-  $("#coincidence-instantaneous").prop("checked", Boolean(request.instantaneous));
-  $("#coincidence-platforms").val(request.platforms || "members");
-}
-
-// Gets the request of an analysis type, or shows an error and returns null.
-function getAnalysisPayload(type, base) {
-  if (type == "coverage") {
-    const sufficiency = getSufficiencySpec();
-    const sampleSize = getSampleSizeSpec();
-    if (sufficiency === undefined || sampleSize === undefined) {
-      return null;
-    }
-    return _.assign(base, {
-      points: getPointsSpec(),
-      cells: getCellsSpec(),
-      sufficiency: sufficiency,
-      sample_size: sampleSize
-    });
-  } else if (type == "coincidence") {
-    const sufficiency = getSufficiencySpec();
-    const sampleSize = getSampleSizeSpec();
-    const coincidence = getCoincidenceSpec();
-    if (sufficiency === undefined || sampleSize === undefined || coincidence === undefined) {
-      return null;
-    }
-    return _.assign(base, coincidence, {
-      points: getPointsSpec(),
-      cells: getCellsSpec(),
-      sufficiency: sufficiency,
-      sample_size: sampleSize
-    });
-  } else if (type == "swaths") {
-    const step = Number($("#swaths-step").val());
-    const segment = Number($("#swaths-segment").val());
-    if (!(step > 0) || !(segment > 0)) {
-      $("#analysis-error").text("The step and segment must be positive.").show();
-      return null;
-    }
-    const region = usesRegion(type);
-    let coincidence = null;
-    if (region && $("#swaths-coincidence-enabled").is(":checked")) {
-      const minutes = Number($("#swaths-coincidence-difference").val());
-      if (!(minutes >= 0)) {
-        $("#analysis-error").text("The maximum time difference must not be negative.").show();
-        return null;
-      }
-      coincidence = {
-        max_time_difference: minutes * 60,
-        platforms: $("#swaths-coincidence-platforms").val()
-      };
-    }
-    // swaths over the animation; with a region, its coverage over the
-    // analysis period
-    // (a global region is the whole globe, not none)
-    return _.assign(base, {
-      region: region ? (getRegionMask() || boxPolygon(-180, -90, 180, 90)) : null,
-      instrument_index: null,
-      step: step,
-      segment: segment * 60,
-      coincidence: coincidence
-    });
-  } else if (type == "latency") {
-    if (design.stations.length == 0) {
-      $("#analysis-error").text("Add at least one ground station.").show();
-      return null;
-    }
-    return _.assign(base, {
-      points: getPointsSpec(),
-      cells: getCellsSpec(),
-      stations: design.stations,
-      during_contact: $("#latency-contact").val()
-    });
-  } else if (type == "access") {
-    if (design.targets.length == 0) {
-      $("#analysis-error").text("Add at least one target point.").show();
-      return null;
-    }
-    return _.assign(base, {
-      points: _.map(design.targets, function(target, i) {
-        return { id: i, latitude: target.latitude, longitude: target.longitude };
-      }),
-      omit_solar: !$("#access-solar").is(":checked")
-    });
-  }
-  throw new Error("Unknown analysis type: " + type);
+  return ANALYSES[type].readInputs(getBasePayload(inputs));
 }
 
 function runSelectedAnalysis() {
   const type = getAnalysisType();
-  if (getSatellites().length == 0) {
-    $("#analysis-error").text("Add a satellite or constellation in the Design tab.").show();
-    return;
-  }
-  const inputs = getFilteredInputs();
-  if (inputs.satellites.length == 0) {
-    $("#analysis-error").text("Check at least one satellite and instrument to analyze.").show();
-    return;
-  }
-  const payload = getAnalysisPayload(type, getBasePayload(inputs));
-  if (!payload) {
+  let payload;
+  try {
+    payload = readAnalysisRequest(type);
+  } catch (error) {
+    if (!(error instanceof InputError)) {
+      throw error;
+    }
+    showAnalysisError(error.message);
     return;
   }
   startAnalysis(type, payload, exportDesign());
@@ -583,7 +362,7 @@ function startAnalysis(type, payload, designSnapshot) {
     onResult: function(result, taskId) {
       // a satellite may be removed while the analysis runs
       if (hasRemovedSatellites(payload)) {
-        $("#analysis-error").text("A satellite of this analysis was removed from the design. Run the analysis again.").show();
+        showAnalysisError("A satellite of this analysis was removed from the design. Run the analysis again.");
         return;
       }
       clearAnalysisLayers();
@@ -631,217 +410,10 @@ function showAnalysisData() {
   if (!analysisResult) {
     return;
   }
-  const result = analysisResult.result;
-  const type = analysisResult.type;
   // results with a summary compare with saved runs (library.js)
-  const compare = result.summary && canCompareRuns(type) ? openRunsDialog : null;
-  const number2 = function(v) { return Number(v).toFixed(2); };
-  // columns and values shared by the statistics of points
-  const pointColumns = [
-    { title: "Target", key: "target_hash" },
-    { title: "Latitude (°)", key: "latitude_deg", format: number2 },
-    { title: "Longitude (°)", key: "longitude_deg", format: number2 },
-    { title: (COVERAGE_TERMS[type] || COVERAGE_TERMS.coverage).samples, key: "samples" }
-  ];
-  const hours = function(seconds) { return seconds === null ? null : seconds / 3600; };
-  const pointRows = function(values) {
-    return _.map(result.points.features, function(feature) {
-      return _.assign({
-        target_hash: feature.properties.target_hash,
-        latitude_deg: feature.geometry.coordinates[1],
-        longitude_deg: feature.geometry.coordinates[0],
-        samples: feature.properties.samples
-      }, values(feature.properties));
-    });
-  };
-  if (type == "coverage" || type == "coincidence") {
-    const terms = COVERAGE_TERMS[type];
-    const coincidence = type == "coincidence";
-    const sufficiency = result.summary && result.summary.sufficiency;
-    const sampleSize = result.summary && result.summary.sample_size;
-    const percent = function(share) { return share === null || share === undefined ? null : 100 * share; };
-    const km = function(meters) { return meters === null || meters === undefined ? null : meters / 1000; };
-    let columns = pointColumns.concat([
-      { title: coincidence ? "Mean coincidence duration (s)" : "Mean access (s)", key: "access_s", format: number2 },
-      { title: terms.revisitAxis + " (h)", key: "revisit_h", format: number2 }
-    ]);
-    if (sufficiency) {
-      columns = columns.concat(
-        [{ title: "Sampling error (% of σ)", key: "relative_error_pct", format: number2 }],
-        sufficiency.standard_deviation ? [{ title: "Sampling error", key: "sampling_error", format: number2 }] : [],
-        [
-          { title: "Effective samples", key: "effective_samples", format: number2 },
-          { title: "Median time between samples (h)", key: "revisit_p50_h", format: number2 },
-          { title: "90th pct. time between samples (h)", key: "revisit_p90_h", format: number2 },
-          { title: "Longest gap (h)", key: "max_gap_h", format: number2 },
-          { title: "Local-time coverage (%)", key: "local_time_pct", format: number2 }
-        ]
-      );
-    }
-    if (sampleSize) {
-      columns = columns.concat(
-        [
-          { title: "Median sample size (km)", key: "sample_size_median_km", format: number2 },
-          { title: "Smallest sample size (km)", key: "sample_size_min_km", format: number2 },
-          { title: "Observations sized", key: "observations_sized" }
-        ],
-        sampleSize.max_sample_size
-          ? [{ title: "Observations at most " + formatValue(sampleSize.max_sample_size / 1000) + " km", key: "observations_meeting" }]
-          : []
-      );
-    }
-    showResultsTable({
-      title: coincidence ? "Coincidence Statistics" : "Coverage Statistics",
-      columns: columns,
-      rows: pointRows(function(p) {
-        return _.assign({ access_s: p.access, revisit_h: hours(p.revisit) }, sufficiency ? {
-          relative_error_pct: percent(p.relative_error),
-          sampling_error: p.sampling_error,
-          effective_samples: p.effective_samples,
-          revisit_p50_h: hours(p.revisit_p50),
-          revisit_p90_h: hours(p.revisit_p90),
-          max_gap_h: hours(p.max_gap),
-          local_time_pct: percent(p.local_time_coverage)
-        } : {}, sampleSize ? {
-          sample_size_median_km: km(p.sample_size_median),
-          sample_size_min_km: km(p.sample_size_min),
-          observations_sized: p.observations_sized,
-          observations_meeting: p.observations_meeting
-        } : {});
-      }),
-      filename: type + "-points",
-      note: (coincidence
-        ? "Statistics of the coincident observations of each point over the analysis period: periods when enough platforms observe it at once."
-        : "Statistics of each point over the analysis period. Overlapping observations by several satellites count once.") +
-        (sufficiency ? " " + terms.revisitAxis + " runs from the end of one to the start of the next; times between samples run between their midpoints." : ""),
-      summary: result.summary ? function(container) { renderCoverageSummary(container, result.summary, terms); } : null,
-      onCompare: compare
-    });
-  } else if (type == "latency") {
-    const contacts = result.contacts;
-    const epoch = new Date(contacts.epoch).getTime();
-    showResultsTable({
-      title: "Data Latency Statistics",
-      columns: pointColumns.concat([{ title: "Mean latency (h)", key: "latency_h", format: number2 }]),
-      rows: pointRows(function(p) { return { latency_h: hours(p.latency) }; }),
-      filename: "latency-points",
-      note: "Statistics of each point over the analysis period.",
-      summary: result.summary ? function(container) { renderLatencySummary(container, result.summary); } : null,
-      onCompare: compare,
-      extras: [{
-        label: "Contacts CSV",
-        filename: "latency-contacts.csv",
-        columns: ["satellite", "ground_station", "start", "end", "duration_s"],
-        rows: _.map(contacts.start, function(start, k) {
-          const end = contacts.end[k];
-          return [
-            contacts.members[contacts.member[k]],
-            contacts.targets[contacts.target[k]],
-            new Date(epoch + start * 1000).toISOString(),
-            end === null ? "" : new Date(epoch + end * 1000).toISOString(),
-            end === null ? "" : (end - start).toFixed(1)
-          ];
-        })
-      }]
-    });
-  } else if (type == "swaths") {
-    if (!result.summary) {
-      showResultsTable({
-        title: "Swath Segments",
-        columns: [
-          { title: "Satellite", key: "satellite" },
-          { title: "Instrument", key: "instrument" },
-          { title: "Start (UTC)", key: "start" },
-          { title: "End (UTC)", key: "end" }
-        ],
-        rows: _.map(result.swaths.features, "properties"),
-        filename: "swath-segments",
-        note: "Segments over the animation; each appears once it ends. Download the full geometry with the API."
-      });
-      return;
-    }
-    // over a region: its observations, with the swath segments as extras
-    const segments = {
-      label: "Swath segments CSV",
-      filename: "swath-segments.csv",
-      columns: ["satellite", "instrument", "start", "end"],
-      rows: _.map(result.swaths.features, function(feature) {
-        const p = feature.properties;
-        return [p.satellite, p.instrument, p.start, p.end];
-      })
-    };
-    const epoch = new Date(analysisResult.payload.start).getTime();
-    const iso = function(seconds) { return new Date(epoch + seconds * 1000).toISOString(); };
-    showResultsTable({
-      title: "Observations of the Region",
-      columns: [
-        { title: "Satellites", key: "satellite" },
-        { title: "Instruments", key: "instrument" },
-        { title: "Start (UTC)", key: "start_utc" },
-        { title: "End (UTC)", key: "end_utc" },
-        { title: "Duration (min)", key: "duration_min", format: number2 }
-      ],
-      rows: _.map(result.observations, function(o) {
-        return {
-          satellite: o.satellite,
-          instrument: o.instrument,
-          start_utc: iso(o.start),
-          end_utc: iso(o.end),
-          duration_min: (o.end - o.start) / 60
-        };
-      }),
-      filename: "region-observations",
-      note: "Periods over the analysis period when any part of the region is observed (overlapping observations merged). " +
-        "Swaths show over the animation: click a row within it to jump to it.",
-      summary: function(container) { renderRegionSummary(container, result.summary); },
-      onCompare: compare,
-      extras: [segments],
-      onRowClick: function(row) {
-        const start = Cesium.JulianDate.fromIso8601(row.start_utc);
-        if (Cesium.JulianDate.greaterThan(start, viewer.clock.stopTime)) {
-          return;
-        }
-        viewer.clock.currentTime = start;
-        viewer.clock.shouldAnimate = true;
-        $("#results-dialog").modal("hide");
-      }
-    });
-  } else {
-    const ids = _.map(result.points.features, function(f) { return f.properties.id; });
-    const hashes = _.map(result.points.features, function(f) { return f.properties.point_id; });
-    const columns = [
-      { title: "Target", key: "target" },
-      { title: "Satellite", key: "satellite" },
-      { title: "Instrument", key: "instrument" },
-      { title: "Start (UTC)", key: "start" },
-      { title: "End (UTC)", key: "end" },
-      { title: "Duration (s)", key: "duration_s", format: number2 },
-      { title: "Max. elevation (°)", key: "platform_alt", format: number2 }
-    ];
-    if (!analysisResult.payload.omit_solar) {
-      columns.push({ title: "Solar elevation (°)", key: "solar_alt", format: number2 });
-    }
-    showResultsTable({
-      title: "Point Accesses",
-      columns: columns,
-      rows: _.map(result.observations.features, function(feature) {
-        const p = feature.properties;
-        const index = _.indexOf(hashes, p.target_hash);
-        return _.assign({}, p, {
-          target: index >= 0 ? "Point " + ids[index] : p.target_hash,
-          duration_s: (new Date(p.end) - new Date(p.start)) / 1000
-        });
-      }),
-      filename: "point-accesses",
-      note: "Click a row to jump the animation to that access.",
-      onRowClick: function(row) {
-        const start = Cesium.JulianDate.fromIso8601(row.start);
-        viewer.clock.currentTime = Cesium.JulianDate.addSeconds(start, -60, new Cesium.JulianDate());
-        viewer.clock.shouldAnimate = true;
-        $("#results-dialog").modal("hide");
-      }
-    });
-  }
+  const type = analysisResult.type;
+  const compare = analysisResult.result.summary && canCompareRuns(type) ? openRunsDialog : null;
+  ANALYSES[type].showData(analysisResult, compare);
 }
 
 // --- Panels ---

@@ -580,43 +580,6 @@ function deleteRun(run) {
   sendJson("DELETE", "/runs/" + run.id).done(loadRuns).fail(showRunsError);
 }
 
-// Sets the inputs of the Analysis tab from the request of a saved run.
-function setAnalysisInputs(type, request) {
-  const start = new Date(request.start);
-  const end = new Date(request.end);
-  $("#analysis-start").val(toDateTimeInput(start));
-  $("#analysis-duration").val(Number(((end - start) / 86400e3).toFixed(6))).trigger("change");
-  if (request.display) {
-    const hours = (new Date(request.display.end) - new Date(request.display.start)) / 3600e3;
-    $("#analysis-animate").val(Number(hours.toFixed(6))).trigger("change");
-  }
-  if (type == "coverage") {
-    setSufficiencyInputs(request.sufficiency);
-    setSampleSizeInputs(request.sample_size);
-  } else if (type == "coincidence") {
-    setCoincidenceInputs(request);
-    setSufficiencyInputs(request.sufficiency);
-    setSampleSizeInputs(request.sample_size);
-  } else if (type == "swaths") {
-    $("#swaths-step").val(request.step);
-    if (request.segment) {
-      $("#swaths-segment").val(request.segment / 60);
-    }
-    $("#swaths-region-enabled").prop("checked", Boolean(request.region)).trigger("change");
-    const coincidence = request.coincidence;
-    $("#swaths-coincidence-enabled").prop("checked", Boolean(coincidence));
-    $("#swaths-coincidence-options").toggle(Boolean(coincidence));
-    if (coincidence) {
-      $("#swaths-coincidence-difference").val(Number(((coincidence.max_time_difference || 0) / 60).toFixed(6)));
-      $("#swaths-coincidence-platforms").val(coincidence.platforms || "members");
-    }
-  } else if (type == "latency" && request.during_contact) {
-    $("#latency-contact").val(request.during_contact);
-  } else if (type == "access") {
-    $("#access-solar").prop("checked", !request.omit_solar);
-  }
-}
-
 // Runs a saved run again: loads its design, and analyzes its request as
 // saved (its region and settings, which may differ from those of the tab).
 // Runs then save under the same saved design.
