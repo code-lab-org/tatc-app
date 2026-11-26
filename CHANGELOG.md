@@ -24,6 +24,14 @@ by `__version__` in `src/tatc_app/__init__.py`.
 - The frontend is part of the package (`src/tatc_app/static`), so the server
   no longer depends on starting from the project root.
 - Listing saved designs and runs no longer reads their data and inputs.
+- Simplify the backend: analyses share their result endpoints, the CZML
+  builders are split into modules, swath summaries are in the swaths
+  package, and the `.env` file is loaded once. The API and the results of
+  analyses are unchanged.
+- The tasks that combine coverage and latency analyses and that collect
+  tracks take new arguments: update workers with the server.
+- Declare the libraries the app imports (geopandas, numpy, pandas, pyproj,
+  and shapely), require authlib < 2, and drop unused aiofiles and tzlocal.
 
 ### Fixed
 
