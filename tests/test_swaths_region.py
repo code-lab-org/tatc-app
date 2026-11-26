@@ -19,7 +19,7 @@ from tatc.schemas import (
 )
 
 from tatc_app.swaths.schemas import SwathAnalysisRequest, SwathAnalysisResult
-from tatc_app.swaths.tasks import area_km2
+from tatc_app.swaths.summary import area_km2
 
 from .base import TatcTestCase
 

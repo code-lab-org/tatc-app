@@ -21,23 +21,14 @@ from typing import Dict, List, Optional, Union
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import shapely
-from pyproj import Transformer
 from shapely.geometry import MultiPolygon, Polygon, mapping, shape
 from tatc.analysis import (
-    aggregate_observations,
     collect_footprints,
     collect_region_observations,
     find_coincident_ground_track,
 )
 
-from ..analysis.summary import (
-    COVERAGE_SAMPLES,
-    CoverageCurve,
-    RegionSummary,
-    SwathCoincidenceSummary,
-    summarize_values,
-)
+from ..analysis.summary import COVERAGE_SAMPLES
 from ..analysis.tasks import (
     combine_animation,
     deserialize_members,
@@ -48,18 +39,10 @@ from ..analysis.tasks import (
 from ..utils.serialization import concat, empty_frame, from_geojson, to_geojson
 from ..worker import app
 from .schemas import RegionObservation, SwathAnalysisResult
+from .summary import curve_seconds, seconds_since, summarize_region
 
 # number of time steps of each window analyzed in parallel
 WINDOW_STEPS = int(os.getenv("TATC_SWATH_WINDOW_STEPS", "1440"))
-
-# an equal-area projection (cylindrical, on the WGS 84 ellipsoid) to measure
-# areas of geometries in longitude and latitude, including whole bands of
-# latitude and the globe
-_TO_EQUAL_AREA = Transformer.from_crs(
-    "EPSG:4326",
-    "+proj=cea +lon_0=0 +lat_ts=0 +datum=WGS84 +units=m",
-    always_xy=True,
-)
 
 SWATH_COLUMNS = ["satellite", "instrument", "segment", "start", "end", "geometry"]
 PAIR_COLUMNS = ["satellite_1", "satellite_2", "segment", "start", "end", "geometry"]
@@ -75,38 +58,6 @@ OBSERVATION_COLUMNS = [
 ]
 
 
-def area_km2(geometry) -> float:
-    """
-    Gets the area (square kilometers) of a geometry in longitude and
-    latitude (zero if empty or `None`).
-    """
-    if geometry is None or geometry.is_empty:
-        return 0.0
-    projected = shapely.transform(
-        geometry,
-        lambda c: np.column_stack(_TO_EQUAL_AREA.transform(c[:, 0], c[:, 1])),
-    )
-    return projected.area / 1e6
-
-
-def curve_seconds(start: datetime, end: datetime) -> np.ndarray:
-    """
-    Gets the times (seconds since the start) of a coverage curve.
-    """
-    return np.linspace(0, (end - start).total_seconds(), COVERAGE_SAMPLES + 1)
-
-
-def _seconds(times: pd.Series, start: datetime) -> np.ndarray:
-    """
-    Converts times to seconds since a start.
-    """
-    return (
-        (pd.to_datetime(times, utc=True) - pd.Timestamp(start).tz_convert("UTC"))
-        .dt.total_seconds()
-        .to_numpy(dtype=float)
-    )
-
-
 def _dissolve_pieces(
     frame: gpd.GeoDataFrame, times: pd.Series, start: datetime, end: datetime
 ) -> gpd.GeoDataFrame:
@@ -116,7 +67,9 @@ def _dissolve_pieces(
     """
     if frame.empty:
         return empty_frame(PIECE_COLUMNS)
-    bins = np.searchsorted(curve_seconds(start, end), _seconds(times, start), "left")
+    bins = np.searchsorted(
+        curve_seconds(start, end), seconds_since(times, start), "left"
+    )
     pieces = gpd.GeoDataFrame(
         {"bin": np.minimum(bins, COVERAGE_SAMPLES)},
         geometry=frame.geometry.to_numpy(),
@@ -433,104 +386,6 @@ def collect_swath_window_task(  # pylint: disable=too-many-arguments
     ]
 
 
-def _cumulative_curve(
-    pieces: gpd.GeoDataFrame,
-    region: Union[Polygon, MultiPolygon],
-    region_area: float,
-    start: datetime,
-    end: datetime,
-) -> tuple:
-    """
-    Accumulates the pieces of area observed by each time of a coverage curve
-    into the share of the region's area observed so far.
-
-    Returns:
-        tuple: the curve, and the share observed by the end
-    """
-    times = curve_seconds(start, end)
-    shares = np.zeros(len(times))
-    by_bin = {}
-    for row in pieces.itertuples():
-        by_bin.setdefault(int(row.bin), []).append(row.geometry)
-    observed = None
-    for k in range(len(times)):
-        if k in by_bin:
-            piece = shapely.union_all(by_bin[k])
-            observed = piece if observed is None else shapely.union(observed, piece)
-        if observed is not None and region_area > 0:
-            shares[k] = min(
-                1.0, area_km2(shapely.intersection(observed, region)) / region_area
-            )
-    curve = CoverageCurve(
-        times=[round(float(t), 3) for t in times],
-        shares=[float(s) for s in shares],
-    )
-    return curve, float(shares[-1])
-
-
-def summarize_region(  # pylint: disable=too-many-arguments,too-many-locals
-    region: Union[Polygon, MultiPolygon],
-    area: gpd.GeoDataFrame,
-    observations: gpd.GeoDataFrame,
-    start: datetime,
-    end: datetime,
-    common: Optional[gpd.GeoDataFrame] = None,
-    differences: Optional[np.ndarray] = None,
-) -> tuple:
-    """
-    Summarizes the swath coverage of a region.
-
-    Returns:
-        tuple: the `RegionSummary`, and the aggregated observations
-    """
-    region_area = area_km2(region)
-    curve, covered = _cumulative_curve(area, region, region_area, start, end)
-    duration = (end - start).total_seconds()
-    aggregated = (
-        aggregate_observations(observations).sort_values("start", ignore_index=True)
-        if not observations.empty
-        else observations
-    )
-    starts = (
-        _seconds(aggregated["start"], start) if not aggregated.empty else np.array([])
-    )
-    ends = _seconds(aggregated["end"], start) if not aggregated.empty else np.array([])
-    gaps = starts[1:] - ends[:-1]
-    edges = np.concatenate(
-        [
-            [starts[0] if len(starts) else duration],
-            gaps,
-            [duration - ends[-1]] if len(ends) else [],
-        ]
-    )
-    access, _ = summarize_values(ends - starts, np.ones(len(starts)))
-    revisit, _ = summarize_values(gaps, np.ones(len(gaps)))
-    coincidence = None
-    if common is not None:
-        common_curve, common_share = _cumulative_curve(
-            common, region, region_area, start, end
-        )
-        values = np.asarray(differences if differences is not None else [], dtype=float)
-        time_difference, _ = summarize_values(values, np.ones(len(values)))
-        coincidence = SwathCoincidenceSummary(
-            pairs=len(values),
-            common=common_share,
-            coverage=common_curve,
-            time_difference=time_difference,
-        )
-    summary = RegionSummary(
-        area=region_area,
-        covered=covered,
-        coverage=curve,
-        observations=len(aggregated),
-        access=access,
-        revisit=revisit,
-        max_gap=float(np.max(edges)) if len(edges) else duration,
-        coincidence=coincidence,
-    )
-    return summary, aggregated
-
-
 def _frames(results: list, kind: str, **kwargs) -> gpd.GeoDataFrame:
     """
     Concatenates the (GeoJSON serialized) frames of a kind of the windows.
@@ -656,11 +511,15 @@ def _region_results(
             for row, s, e in zip(
                 aggregated.itertuples(),
                 (
-                    _seconds(aggregated["start"], start_time)
+                    seconds_since(aggregated["start"], start_time)
                     if not aggregated.empty
                     else []
                 ),
-                _seconds(aggregated["end"], start_time) if not aggregated.empty else [],
+                (
+                    seconds_since(aggregated["end"], start_time)
+                    if not aggregated.empty
+                    else []
+                ),
             )
         ],
         "summary": summary,

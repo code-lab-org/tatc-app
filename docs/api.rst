@@ -110,9 +110,9 @@ animation.
 
 .. autopydantic_model:: tatc_app.swaths.schemas.SwathAnalysisResult
 
-.. autopydantic_model:: tatc_app.analysis.summary.RegionSummary
+.. autopydantic_model:: tatc_app.swaths.summary.RegionSummary
 
-.. autopydantic_model:: tatc_app.analysis.summary.SwathCoincidenceSummary
+.. autopydantic_model:: tatc_app.swaths.summary.SwathCoincidenceSummary
 
 Data Latency
 ^^^^^^^^^^^^

@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import ValidationError
 
 from .. import limits
-from ..analysis.summary import CoverageSummary, LatencySummary, RegionSummary
+from ..analysis.summary import CoverageSummary, LatencySummary
 from ..auth import User, current_user
 from ..celery.utils import get_task_result
 from ..coincidence.schemas import CoincidenceAnalysisRequest
@@ -21,6 +21,7 @@ from ..coverage.schemas import CoverageAnalysisRequest
 from ..latency.schemas import LatencyAnalysisRequest
 from ..overflight.schemas import OverflightAnalysisRequest
 from ..swaths.schemas import SwathAnalysisRequest
+from ..swaths.summary import RegionSummary
 from .database import library
 from .schemas import (
     AnalysisType,
