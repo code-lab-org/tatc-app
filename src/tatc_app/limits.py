@@ -12,10 +12,6 @@ rather than imported by name, so tests can change them.
 import os
 from datetime import timedelta
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
 
 def _env_number(name: str, default: float) -> float:
     """

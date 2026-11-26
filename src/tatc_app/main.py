@@ -7,7 +7,6 @@ TAT-C application configuration.
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv
 from fastapi import Depends, FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -19,7 +18,7 @@ from tatc_app import __version__
 from tatc_app.auth import authenticator, current_user
 from tatc_app.celery.router import router as celery_router
 from tatc_app.celestrak.router import router as celestrak_router
-from tatc_app.cesium.router import get_cesium_router
+from tatc_app.cesium.router import router as cesium_router
 from tatc_app.coincidence.router import router as coincidence_router
 from tatc_app.coverage.router import router as coverage_router
 from tatc_app.generation.router import router as generation_router
@@ -31,9 +30,6 @@ from tatc_app.system_catalog.router import router as system_catalog_router
 from tatc_app.tracking.router import router as tracking_router
 from tatc_app.validation.router import router as validation_router
 
-# Load environment variables from the .env file
-load_dotenv()
-CESIUM_TOKEN = os.getenv("TATC_CESIUM_TOKEN", "")
 SECRET = os.getenv("TATC_SECRET", "change me")
 if authenticator.mode == "oidc" and SECRET == "change me":
     raise ValueError("Set TATC_SECRET to a random secret to sign user sessions.")
@@ -68,7 +64,7 @@ for router, prefix in [
     (celery_router, "/tasks"),
     (celestrak_router, "/celestrak"),
     (system_catalog_router, "/catalog"),
-    (get_cesium_router(CESIUM_TOKEN), "/cesium"),
+    (cesium_router, "/cesium"),
     (generation_router, "/generate"),
     (validation_router, "/validate"),
     (overflight_router, "/analyze"),

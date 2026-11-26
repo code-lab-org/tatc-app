@@ -9,10 +9,6 @@ import ssl
 from typing import Union
 
 from celery import Celery
-from dotenv import load_dotenv
-
-# Load environment variables from the .env file
-load_dotenv()
 
 CERT_REQS = {
     "REQUIRED": ssl.CERT_REQUIRED,
