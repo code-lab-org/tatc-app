@@ -447,13 +447,14 @@
               </div>
             </div>
             <div class="mt-1">
-              <button type="button" class="btn btn-outline-secondary btn-sm" id="run-save" disabled title="Save the inputs and summary of the results to your account">
+              <button type="button" class="btn btn-outline-secondary btn-sm" id="run-save" disabled title="Save the inputs and summary of the results to your account, under the saved design">
                 <i class="fas fa-save"></i> Save run
               </button>
-              <button type="button" class="btn btn-outline-secondary btn-sm" id="runs-open" title="Compare, and run again, the saved runs of this analysis">
-                <i class="fas fa-folder-open"></i> Saved runs
+              <button type="button" class="btn btn-outline-secondary btn-sm" id="runs-open" title="Compare the current results with saved runs of this analysis, and run saved runs again">
+                <i class="fas fa-balance-scale"></i> Compare runs
               </button>
             </div>
+            <div class="small text-muted mt-1 text-truncate" id="run-design"></div>
             <div class="small text-success mt-1" id="run-saved" role="status" style="display:none"></div>
             <div class="alert alert-danger small mt-2" id="analysis-error" style="display:none"></div>
           </div>
@@ -938,7 +939,7 @@
           <div class="alert alert-danger small" id="designs-error" style="display:none"></div>
           <div class="small text-success mb-2" id="designs-status" role="status" style="display:none"></div>
           <table class="table table-sm small mb-0">
-            <thead><tr><th>Name</th><th>Satellites</th><th>Saved</th><th class="text-right">Actions</th></tr></thead>
+            <thead><tr><th>Name</th><th>Satellites</th><th title="Analysis runs saved under the design">Runs</th><th>Saved</th><th class="text-right">Actions</th></tr></thead>
             <tbody id="designs-list"></tbody>
           </table>
           <p class="small text-muted mt-2 mb-0" id="designs-empty" style="display:none">No saved designs yet.</p>
@@ -955,7 +956,7 @@
     <div class="modal-dialog modal-xl modal-dialog-scrollable" role="document">
       <div class="modal-content dark-panel">
         <div class="modal-header">
-          <h5 class="modal-title" id="runs-title">Saved Runs</h5>
+          <h5 class="modal-title" id="runs-title">Compare Runs</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
             <span aria-hidden="true">&times;</span>
           </button>
@@ -967,7 +968,7 @@
             <thead><tr><th>Compare</th><th>Name</th><th>Saved</th><th id="runs-metric"></th><th class="text-right">Actions</th></tr></thead>
             <tbody id="runs-list"></tbody>
           </table>
-          <p class="small text-muted mt-2 mb-0" id="runs-empty" style="display:none">No saved runs of this analysis yet: run it, then choose Save run.</p>
+          <p class="small text-muted mt-2 mb-0" id="runs-empty" style="display:none">No results of this analysis yet: run it to compare its results, or choose Save run to compare them later.</p>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-primary" data-dismiss="modal">Close</button>
@@ -992,6 +993,9 @@
           <table class="table table-sm small w-100" id="results-table"></table>
         </div>
         <div class="modal-footer">
+          <button type="button" id="results-compare" class="btn btn-secondary mr-auto" style="display:none" title="Compare these results with saved runs of this analysis">
+            <span class="fas fa-balance-scale" aria-hidden="true"></span> Compare with saved runs
+          </button>
           <button type="button" id="results-json" class="btn btn-secondary">
             <span class="fa fa-download" aria-hidden="true"></span> JSON
           </button>

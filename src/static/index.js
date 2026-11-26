@@ -211,9 +211,14 @@ function toCsv(columns, rows) {
 //   extras:     optional additional CSV downloads {label, filename, columns, rows}
 //   summary:    optional function(container) that renders a summary above the table
 //   onRowClick: optional function(row) called when a row is clicked
+//   onCompare:  optional function() that compares the results (after the
+//               dialog closes)
 let resultsTable = null;
 function showResultsTable(options) {
   const columns = options.columns;
+  $("#results-compare").toggle(Boolean(options.onCompare)).off("click").on("click", function() {
+    $("#results-dialog").one("hidden.bs.modal", options.onCompare).modal("hide");
+  });
   const rows = options.rows;
   const filename = options.filename;
   const onRowClick = options.onRowClick;

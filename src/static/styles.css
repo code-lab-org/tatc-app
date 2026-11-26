@@ -262,3 +262,11 @@ input:invalid { background-color: #fcc; }
 .runs-metrics td:not(:first-child), .runs-metrics th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
 .library-actions { white-space: nowrap; text-align: right; }
 .library-actions .btn { padding: 0 6px; }
+/* runs grouped under the saved designs they save under, and the current
+   results */
+.runs-group td { padding-top: 10px; font-weight: 600; background: rgba(255, 255, 255, 0.04); }
+.runs-group-toggle { padding: 0; font-size: inherit; font-weight: inherit; color: inherit; text-decoration: none; }
+.runs-group-toggle:hover, .runs-group-toggle:focus { color: inherit; text-decoration: underline; }
+.runs-indent { padding-left: 24px !important; }
+.runs-current td { background: rgba(23, 162, 184, 0.12); }
+.runs-move { width: auto; max-width: 220px; }

@@ -28,7 +28,7 @@ from .schemas import (
     DesignInput,
     RunInfo,
     RunInput,
-    RunRename,
+    RunUpdate,
     SavedDesign,
     SavedRun,
 )
@@ -79,6 +79,23 @@ def not_found(kind: str) -> HTTPException:
     return HTTPException(status_code=404, detail=f"{kind} not found.")
 
 
+def check_design(design_id: Optional[UUID], user: User) -> Optional[str]:
+    """
+    Checks a user has a design to save runs under (if any).
+
+    Returns:
+        str: the identifier of the design (or `None` for none).
+
+    Raises:
+        HTTPException: (404) if the user does not have the design.
+    """
+    if design_id is None:
+        return None
+    if not library.has_design(user.id, str(design_id)):
+        raise not_found("Design")
+    return str(design_id)
+
+
 # --- Designs ---
 
 
@@ -126,7 +143,7 @@ def update_design(
 @designs_router.delete("/{design_id}", status_code=204)
 def delete_design(design_id: UUID, user: User = Depends(current_user)):
     """
-    Endpoint to delete a saved design of the user.
+    Endpoint to delete a saved design of the user, and the runs saved under it.
     """
     if not library.delete_design(user.id, str(design_id)):
         raise not_found("Design")
@@ -173,22 +190,31 @@ def get_run_summary(analysis: AnalysisType, task_id: UUID) -> Optional[dict]:
 
 @runs_router.get("", response_model=List[RunInfo])
 def list_runs(
-    analysis: Optional[AnalysisType] = None, user: User = Depends(current_user)
+    analysis: Optional[AnalysisType] = None,
+    design: Optional[UUID] = None,
+    user: User = Depends(current_user),
 ):
     """
     Endpoint to list the saved runs of the user (with their summaries),
-    latest first, optionally of one type of analysis.
+    latest first, optionally of one type of analysis or saved under one
+    design.
     """
-    return library.list_runs(user.id, None if analysis is None else analysis.value)
+    return library.list_runs(
+        user.id,
+        None if analysis is None else analysis.value,
+        None if design is None else str(design),
+    )
 
 
 @runs_router.post("", response_model=SavedRun)
 def save_run(run: RunInput, user: User = Depends(current_user)):
     """
     Endpoint to save a completed analysis run of the user: its request (to
-    run it again), its design, and the summary of its results.
+    run it again), its design, and the summary of its results, optionally
+    under a saved design.
     """
     check_capacity("runs", user)
+    design_id = check_design(run.design_id, user)
     try:
         REQUEST_MODELS[run.analysis].model_validate(run.request)
     except ValidationError as exc:
@@ -201,7 +227,13 @@ def save_run(run: RunInput, user: User = Depends(current_user)):
         ) from exc
     summary = get_run_summary(run.analysis, run.task_id)
     return library.create_run(
-        user.id, run.name, run.analysis.value, run.request, run.design, summary
+        user.id,
+        run.name,
+        run.analysis.value,
+        run.request,
+        run.design,
+        summary,
+        design_id,
     )
 
 
@@ -217,11 +249,17 @@ def get_run(run_id: UUID, user: User = Depends(current_user)):
 
 
 @runs_router.patch("/{run_id}", response_model=SavedRun)
-def rename_run(run_id: UUID, rename: RunRename, user: User = Depends(current_user)):
+def update_run(run_id: UUID, update: RunUpdate, user: User = Depends(current_user)):
     """
-    Endpoint to rename a saved run of the user.
+    Endpoint to rename a saved run of the user, or save it under another of
+    their designs (or none).
     """
-    run = library.rename_run(user.id, str(run_id), rename.name)
+    changes = {}
+    if "name" in update.model_fields_set:
+        changes["name"] = update.name
+    if "design_id" in update.model_fields_set:
+        changes["design_id"] = check_design(update.design_id, user)
+    run = library.update_run(user.id, str(run_id), **changes)
     if run is None:
         raise not_found("Run")
     return run

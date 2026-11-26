@@ -630,6 +630,8 @@ function showAnalysisData() {
   }
   const result = analysisResult.result;
   const type = analysisResult.type;
+  // results with a summary compare with saved runs (library.js)
+  const compare = result.summary && canCompareRuns(type) ? openRunsDialog : null;
   const number2 = function(v) { return Number(v).toFixed(2); };
   // columns and values shared by the statistics of points
   const pointColumns = [
@@ -709,7 +711,8 @@ function showAnalysisData() {
         ? "Statistics of the coincident observations of each point over the analysis period: periods when enough platforms observe it at once."
         : "Statistics of each point over the analysis period. Overlapping observations by several satellites count once.") +
         (sufficiency ? " " + terms.revisitAxis + " runs from the end of one to the start of the next; times between samples run between their midpoints." : ""),
-      summary: result.summary ? function(container) { renderCoverageSummary(container, result.summary, terms); } : null
+      summary: result.summary ? function(container) { renderCoverageSummary(container, result.summary, terms); } : null,
+      onCompare: compare
     });
   } else if (type == "latency") {
     const contacts = result.contacts;
@@ -721,6 +724,7 @@ function showAnalysisData() {
       filename: "latency-points",
       note: "Statistics of each point over the analysis period.",
       summary: result.summary ? function(container) { renderLatencySummary(container, result.summary); } : null,
+      onCompare: compare,
       extras: [{
         label: "Contacts CSV",
         filename: "latency-contacts.csv",
@@ -787,6 +791,7 @@ function showAnalysisData() {
       note: "Periods over the analysis period when any part of the region is observed (overlapping observations merged). " +
         "Swaths show over the animation: click a row within it to jump to it.",
       summary: function(container) { renderRegionSummary(container, result.summary); },
+      onCompare: compare,
       extras: [segments],
       onRowClick: function(row) {
         const start = Cesium.JulianDate.fromIso8601(row.start_utc);
