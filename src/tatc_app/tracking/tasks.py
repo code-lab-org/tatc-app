@@ -15,40 +15,13 @@ from ..analysis.tasks import parse_times
 from ..utils.serialization import to_geojson
 from ..worker import app
 
-
-@app.task
-def collect_orbit_track_task(
-    satellite: str,
-    instrument_index: Optional[int],
-    times: list,
-    elevation: float,
-    mask: Optional[dict],
-) -> str:
-    """
-    Task to collect orbit track.
-
-    Args:
-        satellite (str): JSON serialized :class:`tatc.schemas.Satellite` object.
-        instrument_index (Optional[int]): Instrument index, or `None` for all.
-        times (list): List of ISO 8601 serialized times.
-        elevation (float): Elevation (meters) above datum in the WGS 84 coordinate system.
-        mask (Optional[dict]): Optional GeoJSON mask to constrain points.
-
-    Returns:
-        str: GeoJSON serialized orbit track.
-    """
-    results = collect_orbit_track(
-        Satellite.model_validate_json(satellite),
-        parse_times(times),
-        instrument_index,
-        elevation,
-        shape(mask) if mask is not None else None,
-    )
-    return to_geojson(results)
+# functions that collect the tracks of a satellite, by kind of track
+TRACKS = {"orbit": collect_orbit_track, "ground": collect_ground_track}
 
 
 @app.task
-def collect_ground_track_task(
+def collect_track_task(  # pylint: disable=too-many-arguments
+    kind: str,
     satellite: str,
     instrument_index: Optional[int],
     times: list,
@@ -56,9 +29,10 @@ def collect_ground_track_task(
     mask: Optional[dict],
 ) -> str:
     """
-    Task to collect ground track.
+    Task to collect an orbit or ground track.
 
     Args:
+        kind (str): The kind of track (`orbit` or `ground`, see `TRACKS`).
         satellite (str): JSON serialized :class:`tatc.schemas.Satellite` object.
         instrument_index (Optional[int]): Instrument index, or `None` for all.
         times (list): List of ISO 8601 serialized times.
@@ -66,9 +40,9 @@ def collect_ground_track_task(
         mask (Optional[dict]): Optional GeoJSON mask to constrain points.
 
     Returns:
-        str: GeoJSON serialized ground track.
+        str: GeoJSON serialized track.
     """
-    results = collect_ground_track(
+    results = TRACKS[kind](
         Satellite.model_validate_json(satellite),
         parse_times(times),
         instrument_index,

@@ -17,11 +17,7 @@ from ..celery.schemas import CeleryTask
 from ..celery.utils import enqueue, get_task_result
 from ..utils.serialization import MSGPACK_RESPONSES
 from .schemas import GroundTrackAnalysisRequest, OrbitTrackAnalysisRequest
-from .tasks import (
-    collect_ground_track_task,
-    collect_orbit_track_task,
-    merge_feature_collections_task,
-)
+from .tasks import collect_track_task, merge_feature_collections_task
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +27,14 @@ router = APIRouter()
 TRACK_CHUNK_SIZE = 100
 
 
-def _enqueue_track(task, request: OrbitTrackAnalysisRequest) -> dict:
+def _enqueue_track(kind: str, request: OrbitTrackAnalysisRequest) -> dict:
     """
     Enqueues tasks to collect the (orbit or ground) tracks of the members of
     a satellite or constellation, in parallel by member and chunk of times,
     followed by a task that merges their feature collections.
 
     Args:
-        task (celery.Task): The task to collect a track.
+        kind (str): The kind of track (see `tasks.TRACKS`).
         request (OrbitTrackAnalysisRequest): The request.
 
     Returns:
@@ -49,7 +45,8 @@ def _enqueue_track(task, request: OrbitTrackAnalysisRequest) -> dict:
     return enqueue(
         chord(
             group(
-                task.s(
+                collect_track_task.s(
+                    kind,
                     member,
                     request.instrument_index,
                     [time.isoformat() for time in times],
@@ -75,7 +72,7 @@ def enqueue_orbit_track_analysis(request: OrbitTrackAnalysisRequest):
     Returns:
         CeleryTask: Queued task.
     """
-    return _enqueue_track(collect_orbit_track_task, request)
+    return _enqueue_track("orbit", request)
 
 
 @router.get(
@@ -108,7 +105,7 @@ def enqueue_ground_track_analysis(request: GroundTrackAnalysisRequest):
     Returns:
         CeleryTask: Queued task.
     """
-    return _enqueue_track(collect_ground_track_task, request)
+    return _enqueue_track("ground", request)
 
 
 @router.get(
