@@ -9,6 +9,8 @@ by `__version__` in `src/tatc_app/__init__.py`.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-25
+
 ### Added
 
 - Save analysis runs under saved designs: runs save under the saved design
@@ -91,7 +93,8 @@ by `__version__` in `src/tatc_app/__init__.py`.
 
 - Web application extracted from TAT-C into its own package.
 
-[Unreleased]: https://github.com/code-lab-org/tatc-app/compare/ae1ad0e...main
+[Unreleased]: https://github.com/code-lab-org/tatc-app/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/code-lab-org/tatc-app/compare/ae1ad0e...v2.1.0
 [2.0.0]: https://github.com/code-lab-org/tatc-app/commit/ae1ad0e
 [1.1.0]: https://github.com/code-lab-org/tatc-app/commit/40868a2
 [1.0]: https://github.com/code-lab-org/tatc-app/commit/e1e4b4e
