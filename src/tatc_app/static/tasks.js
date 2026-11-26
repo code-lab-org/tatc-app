@@ -1,6 +1,18 @@
 // Submits analysis tasks to the server and polls them until complete.
 
+// Polls start every POLL_INTERVAL (ms), growing by POLL_BACKOFF after each
+// poll to at most POLL_MAX_INTERVAL, so long analyses are polled less often.
 const POLL_INTERVAL = 1000;
+const POLL_MAX_INTERVAL = 4000;
+const POLL_BACKOFF = 1.2;
+// polls that fail in a row (network or server errors) before giving up
+const POLL_RETRIES = 5;
+
+// Whether a failed request may succeed if sent again: network errors (no
+// status) and server errors, not refused requests.
+function isTransientError(xhr) {
+  return !xhr.status || xhr.status >= 500;
+}
 
 // Runs of each named analysis; starting a run cancels the previous run of the
 // same name, so late results of a superseded run are dropped.
@@ -79,46 +91,65 @@ function runAnalysis(options) {
   }
   setBusy(true);
 
-  function pollProgress(groupId) {
-    if (run.cancelled || activeRuns[options.name] !== run) {
-      return;
-    }
-    $.get("/tasks/" + groupId + "/progress").done(function(progress) {
-      if (run.cancelled || !options.progress) {
-        return;
-      }
-      const percent = progress.task_count
-        ? Math.round((100 * progress.completed_count) / progress.task_count)
-        : 0;
-      options.progress.find(".progress-bar").css("width", percent + "%");
-      if (progress.completed_count < progress.task_count) {
-        setTimeout(function() { pollProgress(groupId); }, POLL_INTERVAL);
-      }
-    });
+  // Polls the task's status until its results are ready, and the progress of
+  // its group of parallel tasks (if any) until they complete. The status is
+  // polled even while the group runs: a group whose task failed never
+  // completes, but the task is then ready (and failed).
+  let interval = POLL_INTERVAL;
+  let failures = 0;
+  let showsProgress = Boolean(options.progress);
+  function schedulePoll() {
+    setTimeout(poll, interval);
+    interval = Math.min(POLL_MAX_INTERVAL, interval * POLL_BACKOFF);
   }
-
-  function pollStatus(taskId) {
+  function poll() {
     if (run.cancelled) {
       return;
     }
-    $.get("/tasks/" + taskId + "/status")
+    if (showsProgress && run.task.group_id) {
+      // a failed poll of progress only leaves the progress bar as it is
+      $.get("/tasks/" + run.task.group_id + "/progress").done(showProgress);
+    }
+    $.get("/tasks/" + run.task.task_id + "/status")
       .done(function(status) {
         if (run.cancelled) {
           return;
         }
-        if (!status.ready) {
-          setTimeout(function() { pollStatus(taskId); }, POLL_INTERVAL);
+        failures = 0;
+        if (status.ready) {
+          getResult();
+        } else {
+          schedulePoll();
+        }
+      })
+      .fail(function(xhr) {
+        failures += 1;
+        if (isTransientError(xhr) && failures <= POLL_RETRIES) {
+          schedulePoll();
+        } else {
+          fail(formatError(xhr));
+        }
+      });
+  }
+  function showProgress(progress) {
+    if (run.cancelled || !showsProgress) {
+      return;
+    }
+    const percent = progress.task_count
+      ? Math.round((100 * progress.completed_count) / progress.task_count)
+      : 0;
+    options.progress.find(".progress-bar").css("width", percent + "%");
+    // the group completed: only the status remains to poll
+    showsProgress = progress.completed_count < progress.task_count;
+  }
+  function getResult() {
+    $.get(options.url + "/" + run.task.task_id)
+      .done(function(result) {
+        if (run.cancelled) {
           return;
         }
-        $.get(options.url + "/" + taskId)
-          .done(function(result) {
-            if (run.cancelled) {
-              return;
-            }
-            finish();
-            options.onResult(result, taskId);
-          })
-          .fail(function(xhr) { fail(formatError(xhr)); });
+        finish();
+        options.onResult(result, run.task.task_id);
       })
       .fail(function(xhr) { fail(formatError(xhr)); });
   }
@@ -131,10 +162,7 @@ function runAnalysis(options) {
         revoke();
         return;
       }
-      if (task.group_id) {
-        pollProgress(task.group_id);
-      }
-      pollStatus(task.task_id);
+      poll();
     })
     .fail(function(xhr) { fail(formatError(xhr)); });
 }
