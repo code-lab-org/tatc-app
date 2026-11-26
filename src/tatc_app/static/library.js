@@ -4,19 +4,7 @@
 // comparison (with the current results), and running again of analysis runs
 // of the Analysis tab.
 
-// --- Requests ---
-
-// Sends a request with an optional JSON body, expecting a JSON response (or
-// none, for deletions).
-function sendJson(method, url, data) {
-  return $.ajax({
-    url: url,
-    type: method,
-    contentType: data === undefined ? undefined : "application/json",
-    data: data === undefined ? undefined : JSON.stringify(data),
-    dataType: method == "DELETE" ? "text" : "json"
-  });
-}
+// --- Helpers ---
 
 function formatSavedTime(iso) {
   return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
