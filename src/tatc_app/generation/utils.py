@@ -7,6 +7,7 @@ Utility functions to resolve the points and cells of analysis requests.
 from typing import Callable, List, Union
 
 import geopandas as gpd
+from celery.exceptions import TimeoutError as CeleryTimeoutError
 from fastapi import HTTPException
 from shapely.geometry import Point as GeoPoint
 from shapely.geometry import shape
@@ -28,15 +29,25 @@ def _generate(enqueue: Callable) -> str:
         enqueue (Callable): Function that enqueues the generation task.
 
     Raises:
-        HTTPException: (422) if the specification is not valid.
+        HTTPException: (422) if the specification is not valid, or (503) if
+            no worker generated them within `limits.GENERATION_TIMEOUT`.
 
     Returns:
         str: The GeoJSON serialized points or cells.
     """
+    result = enqueue()
     try:
-        return enqueue().get()
+        return result.get(timeout=limits.GENERATION_TIMEOUT or None)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except CeleryTimeoutError as exc:
+        # nothing will read the result, so do not spend a worker on it
+        result.revoke()
+        raise HTTPException(
+            status_code=503,
+            detail="Timed out waiting for a worker to generate points or "
+            "cells. Try again later.",
+        ) from exc
 
 
 def generate_points_geojson(generator: PointGenerator) -> str:
