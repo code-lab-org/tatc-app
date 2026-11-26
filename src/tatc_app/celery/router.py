@@ -16,9 +16,13 @@ from .schemas import CeleryResultProgress, CeleryResultStatus
 
 router = APIRouter()
 
+# The endpoints below call the broker and result backend, which block, so
+# they are plain (not `async`) functions: FastAPI runs them in a threadpool
+# rather than on the event loop shared by all requests.
+
 
 @router.get("/{task_id}/status", response_model=CeleryResultStatus)
-async def get_task_status(task_id: UUID):
+def get_task_status(task_id: UUID):
     """
     Endpoint to retrieve enqueued task status. (The result backend does not
     distinguish unknown tasks from pending ones: both are not ready.)
@@ -34,7 +38,7 @@ async def get_task_status(task_id: UUID):
 
 
 @router.get("/{group_id}/progress", response_model=CeleryResultProgress)
-async def get_group_progress(group_id: UUID):
+def get_group_progress(group_id: UUID):
     """
     Endpoint to retrieve enqueued group task progress.
 
@@ -51,7 +55,7 @@ async def get_group_progress(group_id: UUID):
 
 
 @router.post("/{task_id}/revoke", status_code=204)
-async def revoke_task(task_id: UUID, group_id: Optional[UUID] = None):
+def revoke_task(task_id: UUID, group_id: Optional[UUID] = None):
     """
     Endpoint to cancel an enqueued task workflow, for example when a client
     no longer needs its results.
