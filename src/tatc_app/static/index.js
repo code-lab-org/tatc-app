@@ -301,6 +301,23 @@ function postJson(url, data) {
   return sendJson("POST", url, data);
 }
 
+// Tracks the latest of a kind of request, so the responses of requests it
+// superseded (or that were cancelled) are ignored: `start()` returns a
+// function that tests whether that request is still the latest, and
+// `cancel()` supersedes the request in progress.
+function latestRequests() {
+  let latest = 0;
+  return {
+    start: function() {
+      const id = ++latest;
+      return function() { return id === latest; };
+    },
+    cancel: function() {
+      latest++;
+    }
+  };
+}
+
 // Formats an error response (including FastAPI validation errors).
 function formatError(xhr) {
   if (xhr && xhr.responseJSON && xhr.responseJSON.detail) {

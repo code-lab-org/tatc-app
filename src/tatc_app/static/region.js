@@ -16,7 +16,7 @@ const gridCellOutlines = viewer.scene.primitives.add(new Cesium.PolylineCollecti
 const regionOutline = new Cesium.CustomDataSource("region-outline");
 viewer.dataSources.add(regionOutline);
 let outlineDrawn = false;
-let outlineRequest = 0;
+const outlineRequests = latestRequests();
 
 // Gets the type of the edges of cells in the region: geodesic for global
 // regions (rhumb lines cannot reach the poles), and rhumb lines otherwise.
@@ -150,7 +150,7 @@ function refreshRegion() {
 }
 
 function clearRegionOutline() {
-  outlineRequest++;
+  outlineRequests.cancel();
   outlineDrawn = false;
   regionOutline.entities.removeAll();
 }
@@ -186,7 +186,7 @@ function outlineRuns(geometry) {
 // polygon, or for the globe).
 function drawRegionOutline() {
   clearRegionOutline();
-  const request = outlineRequest;
+  const isLatest = outlineRequests.start();
   outlineDrawn = true;
   $("#grid-error").hide().text("");
   const type = $("#region-type").val();
@@ -195,7 +195,7 @@ function drawRegionOutline() {
   }
   postJson("/generate/region", { mask: getRegionMask() })
     .done(function(collection) {
-      if (request != outlineRequest) {
+      if (!isLatest()) {
         return;
       }
       _.forEach(collection.features, function(feature) {
@@ -212,7 +212,7 @@ function drawRegionOutline() {
       });
     })
     .fail(function(xhr) {
-      if (request == outlineRequest) {
+      if (isLatest()) {
         outlineDrawn = false;
         $("#grid-error").text(formatError(xhr)).show();
       }
@@ -258,14 +258,14 @@ function addCellPrimitives(features, collection, outlines, arcType, colorFunctio
 // Cancels generating the grid, and clears it (to generate when it next
 // shows).
 function cancelRegionGrid() {
-  gridRequest++;
+  gridRequests.cancel();
   $("#region-generate").prop("disabled", false).find(".spinner-border").hide();
   clearRegionGrid();
 }
 
-let gridRequest = 0;
+const gridRequests = latestRequests();
 function generateRegionGrid() {
-  const request = ++gridRequest;
+  const isLatest = gridRequests.start();
   $("#grid-error").hide().text("");
   $("#region-generate").prop("disabled", true).find(".spinner-border").show();
   clearRegionGrid();
@@ -273,7 +273,7 @@ function generateRegionGrid() {
   const arcType = getArcType();
   $.when(postJson("/generate/points", getPointsSpec()), postJson("/generate/cells", getCellsSpec()))
     .done(function(pointsResponse, cellsResponse) {
-      if (request != gridRequest) {
+      if (!isLatest()) {
         return;
       }
       _.forEach(pointsResponse[0].features, function(feature) {
@@ -289,12 +289,12 @@ function generateRegionGrid() {
     })
     .fail(function(xhr) {
       // ignore failures of superseded requests
-      if (request == gridRequest) {
+      if (isLatest()) {
         $("#grid-error").text(formatError(xhr)).show();
       }
     })
     .always(function() {
-      if (request == gridRequest) {
+      if (isLatest()) {
         $("#region-generate").prop("disabled", false).find(".spinner-border").hide();
       }
     });
