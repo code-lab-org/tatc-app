@@ -34,6 +34,7 @@ let savedDesignRef = null;
 function setSavedDesignRef(ref) {
   savedDesignRef = ref;
   renderRunDesign();
+  renderDesignUpdate();
   try {
     if (ref) {
       window.localStorage.setItem(SAVED_DESIGN_KEY, JSON.stringify(ref));
@@ -115,7 +116,6 @@ function deleteDesign(saved) {
   sendJson("DELETE", "/designs/" + saved.id).done(function() {
     if (savedDesignRef && savedDesignRef.id == saved.id) {
       setSavedDesignRef(null);
-      renderDesignUpdate();
     }
     loadDesigns();
   }).fail(showDesignsError);
@@ -134,14 +134,12 @@ function saveCurrentDesign(update) {
     : sendJson("POST", "/designs", body);
   request.done(function(saved) {
     setSavedDesignRef({ id: saved.id, name: saved.name });
-    renderDesignUpdate();
     flashStatus($("#designs-status"), "Saved “" + saved.name + "”.");
     loadDesigns();
   }).fail(function(xhr) {
     // the saved design may have been deleted (for example, in another tab)
     if (update && xhr.status == 404) {
       setSavedDesignRef(null);
-      renderDesignUpdate();
     }
     showDesignsError(xhr);
   });
@@ -161,16 +159,15 @@ const CURRENT_RUN = "current";
 let savedDesigns = [];
 let collapsedGroups = {};
 
-// The headline metric of runs of each analysis with a summary, and the rows
-// of their comparison: {label, value(summary), kind} (a share, duration,
-// number, length in meters, or count), and whether a row is `optional` (shown only if a run
-// has a value).
+// The rows of the comparison of runs of each analysis with a summary (the
+// first is the headline metric, shown in the list of runs): {label,
+// value(summary), kind} (a share, duration, number, length in meters, or
+// count), and whether a row is `optional` (shown only if a run has a value).
 // The metrics of runs of coverage-like analyses (see `COVERAGE_TERMS`).
 function coverageRunMetrics(terms) {
   const twice = terms.twice.charAt(0).toUpperCase() + terms.twice.slice(1);
   const revisit = terms.revisit.replace(/^Mean /, "");
   return {
-    headline: { label: terms.observed, value: function(s) { return s.observed; }, kind: "share" },
     rows: [
       { label: terms.observed, value: function(s) { return s.observed; }, kind: "share" },
       { label: twice, value: function(s) { return s.revisited; }, kind: "share" },
@@ -199,7 +196,6 @@ const RUN_METRICS = {
   // (swaths over a region)
   swaths: {
     curveTerms: COVERAGE_TERMS.region,
-    headline: { label: "Area observed", value: function(s) { return s.covered; }, kind: "share" },
     rows: [
       { label: "Area observed", value: function(s) { return s.covered; }, kind: "share" },
       { label: "Observations of the region", value: function(s) { return s.observations; }, kind: "count" },
@@ -213,7 +209,6 @@ const RUN_METRICS = {
     ]
   },
   latency: {
-    headline: { label: "Region downlinked", value: function(s) { return s.downlinked; }, kind: "share" },
     rows: [
       { label: "Region downlinked", value: function(s) { return s.downlinked; }, kind: "share" },
       { label: "Mean latency", value: function(s) { return s.latency && s.latency.mean; }, kind: "duration" },
@@ -413,14 +408,14 @@ function runNameCell(run) {
 
 function runMetricCell(run, metrics) {
   return $("<td>").text(metrics && run.summary
-    ? formatMetric(metrics.headline.value(run.summary), metrics.headline.kind)
+    ? formatMetric(metrics.rows[0].value(run.summary), metrics.rows[0].kind)
     : "");
 }
 
 function renderRuns() {
   const type = getAnalysisType();
   const metrics = RUN_METRICS[type];
-  $("#runs-metric").text(metrics ? metrics.headline.label : "");
+  $("#runs-metric").text(metrics ? metrics.rows[0].label : "");
   const current = currentRun();
   $("#runs-empty").toggle(savedRuns.length == 0 && !current);
   const list = $("#runs-list").empty();
