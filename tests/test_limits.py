@@ -182,6 +182,24 @@ class ActiveAnalysesTestCase(CoverageTestCase):
             third = self.post_coverage(request)
             self.assertEqual(third.status_code, 200, third.text)
 
+    def test_tracks_count_as_analyses(self):
+        satellite = coverage_request().satellites[0].model_dump(mode="json")
+        track = {
+            "satellite": satellite,
+            "times": [(START + timedelta(minutes=i)).isoformat() for i in range(3)],
+        }
+        with (
+            mock.patch.object(limits, "MAX_ACTIVE_ANALYSES", 1),
+            mock.patch.object(analysis_quota, "_is_ready", lambda task_id: False),
+        ):
+            first = self.client.post("/analyze/orbit-track", json=track)
+            self.assertEqual(first.status_code, 200, first.text)
+            for response in (
+                self.client.post("/analyze/ground-track", json=track),
+                self.post_coverage(coverage_request()),
+            ):
+                self.assertEqual(response.status_code, 429, response.text)
+
     def test_failed_request_releases_slot(self):
         request = coverage_request()
         with mock.patch.object(limits, "MAX_ACTIVE_ANALYSES", 1):
