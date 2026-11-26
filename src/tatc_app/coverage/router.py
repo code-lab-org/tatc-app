@@ -5,8 +5,7 @@ Router specifications for coverage analysis endpoints.
 """
 
 import logging
-from typing import List, Optional
-from uuid import UUID
+from typing import Optional
 
 import geopandas as gpd
 from celery.canvas import Signature
@@ -14,17 +13,16 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from ..analysis.endpoints import (
+    add_result_routes,
     chunk,
     enqueue_analysis,
-    get_analysis_result,
     serialize_members,
 )
 from ..analysis.summary import get_weighting
 from ..celery.quota import TaskSlot, analysis_slot
 from ..celery.schemas import CeleryTask
-from ..cesium.czml import animation_packets
 from ..generation.utils import resolve_cells, resolve_points
-from ..utils.serialization import MSGPACK_RESPONSES, to_geojson
+from ..utils.serialization import to_geojson
 from .schemas import CoverageAnalysisRequest, CoverageAnalysisResult
 from .tasks import collect_coverage_task, combine_coverage_task
 
@@ -108,42 +106,12 @@ def enqueue_coverage_analysis(
     )
 
 
-def _get_coverage_result(task_id: UUID) -> CoverageAnalysisResult:
-    return get_analysis_result(
-        CoverageAnalysisResult, task_id, "Coverage analysis", logger
-    )
-
-
-@router.get(
-    "/coverage/{task_id}",
-    response_model=CoverageAnalysisResult,
-    response_model_exclude_none=True,
-    responses=MSGPACK_RESPONSES,
+add_result_routes(
+    router,
+    "coverage",
+    CoverageAnalysisResult,
+    "Coverage analysis",
+    logger,
+    czml_description="its member satellites (clients animate its points and "
+    "cells from the observation timeline)",
 )
-def retrieve_coverage_analysis(task_id: UUID):
-    """
-    Endpoint to retrieve results of a completed coverage analysis task.
-
-    Args:
-        task_id (UUID): Task unique identifier.
-
-    Returns:
-        CoverageAnalysisResult: Coverage analysis results.
-    """
-    return _get_coverage_result(task_id)
-
-
-@router.get("/coverage/{task_id}/czml", response_model=List[dict])
-def retrieve_coverage_analysis_czml(task_id: UUID):
-    """
-    Endpoint to retrieve the satellites of a completed coverage analysis task
-    as a CZML document (points and cells are animated by clients from the
-    observation timeline).
-
-    Args:
-        task_id (UUID): Task unique identifier.
-
-    Returns:
-        List[dict]: CZML packets.
-    """
-    return animation_packets("Coverage analysis", _get_coverage_result(task_id))

@@ -5,23 +5,20 @@ Router specifications for coincident observation analysis endpoints.
 """
 
 import logging
-from typing import List
-from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
 from ..analysis.endpoints import (
+    add_result_routes,
     chunk,
     enqueue_analysis,
-    get_analysis_result,
     serialize_members,
 )
 from ..celery.quota import TaskSlot, analysis_slot
 from ..celery.schemas import CeleryTask
-from ..cesium.czml import animation_packets
 from ..coverage.router import combine_coverage_signature
 from ..generation.utils import resolve_cells, resolve_points
-from ..utils.serialization import MSGPACK_RESPONSES, to_geojson
+from ..utils.serialization import to_geojson
 from .schemas import CoincidenceAnalysisRequest, CoincidenceAnalysisResult
 from .tasks import collect_coincidence_task
 
@@ -77,42 +74,12 @@ def enqueue_coincidence_analysis(
     )
 
 
-def _get_coincidence_result(task_id: UUID) -> CoincidenceAnalysisResult:
-    return get_analysis_result(
-        CoincidenceAnalysisResult, task_id, "Coincidence analysis", logger
-    )
-
-
-@router.get(
-    "/coincidence/{task_id}",
-    response_model=CoincidenceAnalysisResult,
-    response_model_exclude_none=True,
-    responses=MSGPACK_RESPONSES,
+add_result_routes(
+    router,
+    "coincidence",
+    CoincidenceAnalysisResult,
+    "Coincidence analysis",
+    logger,
+    czml_description="its member satellites (clients animate its points and "
+    "cells from the timeline of coincident observations)",
 )
-def retrieve_coincidence_analysis(task_id: UUID):
-    """
-    Endpoint to retrieve results of a completed coincidence analysis task.
-
-    Args:
-        task_id (UUID): Task unique identifier.
-
-    Returns:
-        CoincidenceAnalysisResult: Coincidence analysis results.
-    """
-    return _get_coincidence_result(task_id)
-
-
-@router.get("/coincidence/{task_id}/czml", response_model=List[dict])
-def retrieve_coincidence_analysis_czml(task_id: UUID):
-    """
-    Endpoint to retrieve the satellites of a completed coincidence analysis
-    task as a CZML document (points and cells are animated by clients from
-    the timeline of coincident observations).
-
-    Args:
-        task_id (UUID): Task unique identifier.
-
-    Returns:
-        List[dict]: CZML packets.
-    """
-    return animation_packets("Coincidence analysis", _get_coincidence_result(task_id))

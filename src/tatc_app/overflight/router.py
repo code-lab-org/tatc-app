@@ -6,20 +6,19 @@ Router specifications for overflight (point access) analysis endpoints.
 
 import logging
 from typing import List
-from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
 from ..analysis.endpoints import (
+    add_result_routes,
     enqueue_analysis,
-    get_analysis_result,
     serialize_members,
 )
 from ..celery.quota import TaskSlot, analysis_slot
 from ..celery.schemas import CeleryTask
-from ..cesium.czml import animation_packets, link_packets, site_packets
+from ..cesium.czml import link_packets, site_packets
 from ..generation.utils import resolve_points
-from ..utils.serialization import MSGPACK_RESPONSES, to_geojson
+from ..utils.serialization import to_geojson
 from .schemas import OverflightAnalysisRequest, OverflightAnalysisResult
 from .tasks import collect_observations_task, combine_overflights_task
 
@@ -68,44 +67,11 @@ def enqueue_overflight_analysis(
     )
 
 
-def _get_overflight_result(task_id: UUID) -> OverflightAnalysisResult:
-    return get_analysis_result(
-        OverflightAnalysisResult, task_id, "Overflight analysis", logger
-    )
-
-
-@router.get(
-    "/overflight/{task_id}",
-    response_model=OverflightAnalysisResult,
-    response_model_exclude_none=True,
-    responses=MSGPACK_RESPONSES,
-)
-def retrieve_overflight_analysis(task_id: UUID):
+def _overflight_packets(result: OverflightAnalysisResult) -> List[dict]:
     """
-    Endpoint to retrieve results of a completed overflight analysis task.
-
-    Args:
-        task_id (UUID): Task unique identifier.
-
-    Returns:
-        OverflightAnalysisResult: Overflight analysis results.
+    Builds the CZML packets of the points of an overflight analysis and of
+    the lines of sight to them during each access.
     """
-    return _get_overflight_result(task_id)
-
-
-@router.get("/overflight/{task_id}/czml", response_model=List[dict])
-def retrieve_overflight_analysis_czml(task_id: UUID):
-    """
-    Endpoint to retrieve a completed overflight analysis as a CZML document,
-    animating satellites, points, and lines of sight during each access.
-
-    Args:
-        task_id (UUID): Task unique identifier.
-
-    Returns:
-        List[dict]: CZML packets.
-    """
-    result = _get_overflight_result(task_id)
     sites = [
         (
             feature.properties["point_id"],
@@ -115,8 +81,18 @@ def retrieve_overflight_analysis_czml(task_id: UUID):
         )
         for i, feature in enumerate(result.points.features)
     ]
-    return (
-        animation_packets("Overflight analysis", result)
-        + site_packets("tgt", sites, color="#ffffff", pixel_size=8, label=True)
-        + link_packets(result.timeline, "tgt", result.colors)
-    )
+    return site_packets(
+        "tgt", sites, color="#ffffff", pixel_size=8, label=True
+    ) + link_packets(result.timeline, "tgt", result.colors)
+
+
+add_result_routes(
+    router,
+    "overflight",
+    OverflightAnalysisResult,
+    "Overflight analysis",
+    logger,
+    czml_description="its member satellites, points, and lines of sight "
+    "during each access",
+    czml_packets=_overflight_packets,
+)

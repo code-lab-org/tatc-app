@@ -9,21 +9,20 @@ import json
 import logging
 from datetime import timedelta
 from typing import List, Optional, Tuple
-from uuid import UUID
 
 import pandas as pd
 from fastapi import APIRouter, Depends
 from shapely.geometry import mapping
 
 from ..analysis.endpoints import (
+    add_result_routes,
     enqueue_analysis,
-    get_analysis_result,
     serialize_members,
 )
 from ..celery.quota import TaskSlot, analysis_slot
 from ..celery.schemas import CeleryTask
-from ..cesium.czml import animation_packets, coincident_packets, swath_packets
-from ..utils.serialization import MSGPACK_RESPONSES, from_geojson
+from ..cesium.czml import coincident_packets, swath_packets
+from ..utils.serialization import from_geojson
 from .schemas import SwathAnalysisRequest, SwathAnalysisResult
 from .tasks import WINDOW_STEPS, collect_swath_window_task, combine_swaths_task
 
@@ -123,52 +122,18 @@ def enqueue_swath_analysis(
     )
 
 
-def _get_swath_result(task_id: UUID) -> SwathAnalysisResult:
-    return get_analysis_result(SwathAnalysisResult, task_id, "Swath analysis", logger)
-
-
-@router.get(
-    "/swaths/{task_id}",
-    response_model=SwathAnalysisResult,
-    response_model_exclude_none=True,
-    responses=MSGPACK_RESPONSES,
-)
-def retrieve_swath_analysis(task_id: UUID):
+def _swath_packets(result: SwathAnalysisResult) -> List[dict]:
     """
-    Endpoint to retrieve results of a completed swath analysis task.
-
-    Args:
-        task_id (UUID): Task unique identifier.
-
-    Returns:
-        SwathAnalysisResult: Swath analysis results.
+    Builds the CZML packets of the footprints and swath segments of a swath
+    analysis, and of the areas of its region observed in common (if found).
     """
-    return _get_swath_result(task_id)
-
-
-@router.get("/swaths/{task_id}/czml", response_model=List[dict])
-def retrieve_swath_analysis_czml(task_id: UUID):
-    """
-    Endpoint to retrieve results of a completed swath analysis task as a
-    CZML document, animating satellites, their footprints, their swath
-    segments, and the areas of a region observed in common (if found).
-
-    Args:
-        task_id (UUID): Task unique identifier.
-
-    Returns:
-        List[dict]: CZML packets.
-    """
-    result = _get_swath_result(task_id)
     end = result.tracks.get_end()
     swaths = from_geojson(
         result.swaths.model_dump_json(),
         datetimes=["start", "end"],
         columns=["satellite", "instrument", "start", "end", "geometry"],
     )
-    packets = animation_packets("Swath analysis", result) + swath_packets(
-        swaths, end, result.colors, tracks=result.tracks
-    )
+    packets = swath_packets(swaths, end, result.colors, tracks=result.tracks)
     if result.coincident is not None:
         pairs = from_geojson(
             result.coincident.model_dump_json(),
@@ -177,3 +142,15 @@ def retrieve_swath_analysis_czml(task_id: UUID):
         )
         packets += coincident_packets(pairs, end)
     return packets
+
+
+add_result_routes(
+    router,
+    "swaths",
+    SwathAnalysisResult,
+    "Swath analysis",
+    logger,
+    czml_description="its member satellites, their footprints and swath "
+    "segments, and the areas of its region observed in common (if found)",
+    czml_packets=_swath_packets,
+)
