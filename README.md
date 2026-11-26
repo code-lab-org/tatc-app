@@ -304,8 +304,9 @@ pip install -e .
 
 For local development without sign in, set `TATC_AUTH=none` in the `.env`
 file (see [Configuration](#configuration)). To start the TAT-C server
-application, run the command from the project root (the server serves the GUI
-from `src/static`):
+application, run the command from the project root (to reload the server when
+a file of `src` changes; the server serves the GUI from
+`src/tatc_app/static`, part of the package):
 ```shell
 uvicorn tatc_app.main:app --reload --reload-dir src
 ```
