@@ -83,27 +83,14 @@ def compute_sufficiency(  # pylint: disable=too-many-arguments,too-many-locals
         geometry=points.geometry.values,
         crs=points.crs or "EPSG:4326",
     )
-    if observations is None:
-        # as `estimate_sampling_error` gives observations without any rows
-        # (which need its columns): no error, and no effective samples
-        error = pd.DataFrame(
-            {
-                "target_hash": targets["target_hash"],
-                "relative_error": np.nan,
-                "sampling_error": np.nan,
-                "effective_samples": 0.0,
-            }
-        )
-        observations = pd.DataFrame()
-    else:
-        error = estimate_sampling_error(
-            observations,
-            start,
-            end,
-            decorrelation_time,
-            standard_deviation or 1.0,
-            targets=targets,
-        )
+    error = estimate_sampling_error(
+        observations,
+        start,
+        end,
+        decorrelation_time,
+        standard_deviation or 1.0,
+        targets=targets,
+    )
     revisits = compute_revisit_statistics(
         observations, start, end, quantiles=(0.5, 0.9), targets=targets
     )

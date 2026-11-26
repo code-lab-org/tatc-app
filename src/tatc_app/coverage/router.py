@@ -5,10 +5,13 @@ Router specifications for coverage analysis endpoints.
 """
 
 import logging
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
+import geopandas as gpd
+from celery.canvas import Signature
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
 from ..analysis.endpoints import (
     chunk,
@@ -30,6 +33,44 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _dump(options: Optional[BaseModel]) -> Optional[dict]:
+    return None if options is None else options.model_dump(mode="json")
+
+
+def combine_coverage_signature(
+    request: CoverageAnalysisRequest,
+    points: gpd.GeoDataFrame,
+    cells: gpd.GeoDataFrame,
+    sized: bool,
+) -> Signature:
+    """
+    Builds the signature of the task that combines the observations of
+    chunks of points into coverage statistics (see
+    `tasks.combine_coverage_task`), of a coverage analysis or of analyses
+    combined as one (such as coincidence analyses).
+
+    Args:
+        request (CoverageAnalysisRequest): The analysis request.
+        points (geopandas.GeoDataFrame): The points.
+        cells (geopandas.GeoDataFrame): The cells.
+        sized (bool): Whether the chunk tasks give the sample sizes of
+            points (as requested by `request.sample_size`).
+
+    Returns:
+        celery.canvas.Signature: The task signature.
+    """
+    return combine_coverage_task.s(
+        to_geojson(points),
+        to_geojson(cells),
+        request.start.isoformat(),
+        request.end.isoformat(),
+        request.get_member_colors(),
+        get_weighting(request.points).value,
+        sufficiency=_dump(request.sufficiency),
+        sample_size=_dump(request.sample_size) if sized else None,
+    )
+
+
 @router.post("/coverage", response_model=CeleryTask)
 def enqueue_coverage_analysis(
     request: CoverageAnalysisRequest, slot: TaskSlot = Depends(analysis_slot)
@@ -49,11 +90,6 @@ def enqueue_coverage_analysis(
     serialized = serialize_members(members)
     points = resolve_points(request.points)
     cells = resolve_cells(request.cells)
-    sample_size = (
-        None
-        if request.sample_size is None
-        else request.sample_size.model_dump(mode="json")
-    )
     return enqueue_analysis(
         request,
         members,
@@ -63,24 +99,11 @@ def enqueue_coverage_analysis(
                 serialized,
                 request.start.isoformat(),
                 request.end.isoformat(),
-                sample_size=sample_size,
+                sample_size=_dump(request.sample_size),
             )
             for points_chunk in chunk(points)
         ],
-        combine_coverage_task.s(
-            to_geojson(points),
-            to_geojson(cells),
-            request.start.isoformat(),
-            request.get_member_colors(),
-            request.end.isoformat(),
-            get_weighting(request.points).value,
-            sufficiency=(
-                None
-                if request.sufficiency is None
-                else request.sufficiency.model_dump(mode="json")
-            ),
-            sample_size=sample_size,
-        ),
+        combine_coverage_signature(request, points, cells, sized=True),
         slot,
     )
 

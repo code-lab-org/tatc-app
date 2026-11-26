@@ -91,6 +91,14 @@ def meets_requirement(
     return np.nan_to_num(sizes, nan=np.inf) <= max_sample_size
 
 
+def drop_coarse(sized: pd.DataFrame, max_sample_size: Optional[float]) -> pd.DataFrame:
+    """
+    Drops the sized observations that do not meet a maximum sample size (see
+    `meets_requirement`), and their sizes.
+    """
+    return sized[meets_requirement(sized, max_sample_size)].drop(columns="sample_size")
+
+
 def summarize_point_sizes(
     sized: pd.DataFrame, max_sample_size: Optional[float] = None
 ) -> pd.DataFrame:

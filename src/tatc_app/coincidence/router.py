@@ -16,11 +16,10 @@ from ..analysis.endpoints import (
     get_analysis_result,
     serialize_members,
 )
-from ..analysis.summary import get_weighting
 from ..celery.quota import TaskSlot, analysis_slot
 from ..celery.schemas import CeleryTask
 from ..cesium.czml import animation_packets
-from ..coverage.tasks import combine_coverage_task
+from ..coverage.router import combine_coverage_signature
 from ..generation.utils import resolve_cells, resolve_points
 from ..utils.serialization import MSGPACK_RESPONSES, to_geojson
 from .schemas import CoincidenceAnalysisRequest, CoincidenceAnalysisResult
@@ -72,19 +71,8 @@ def enqueue_coincidence_analysis(
             )
             for points_chunk in chunk(points)
         ],
-        combine_coverage_task.s(
-            to_geojson(points),
-            to_geojson(cells),
-            request.start.isoformat(),
-            request.get_member_colors(),
-            request.end.isoformat(),
-            get_weighting(request.points).value,
-            sufficiency=(
-                None
-                if request.sufficiency is None
-                else request.sufficiency.model_dump(mode="json")
-            ),
-        ),
+        # coincident observations give no sample sizes of points
+        combine_coverage_signature(request, points, cells, sized=False),
         slot,
     )
 
