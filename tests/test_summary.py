@@ -27,12 +27,8 @@ from tatc_app.coverage.schemas import CoverageAnalysisRequest, CoverageAnalysisR
 from tatc_app.generation.schemas import CellGenerator, PointGenerator
 from tatc_app.latency.schemas import LatencyAnalysisRequest, LatencyAnalysisResult
 
-from .base import TatcTestCase
+from .base import TLE, TatcTestCase
 
-TLE = [
-    "1 25544U 98067A   22171.11255782  .00008307  00000+0  15444-3 0  9992",
-    "2 25544  51.6448 322.0970 0003980 282.3738 231.6559 15.49798078345636",
-]
 START = datetime(2022, 6, 1, tzinfo=timezone.utc)
 END = datetime(2022, 6, 2, tzinfo=timezone.utc)
 
@@ -186,7 +182,7 @@ class SummaryEndpointsTestCase(TatcTestCase):
         )
 
     def test_coverage_summary(self):
-        task = self.run_analysis(
+        result = self.analysis_result(
             "/analyze/coverage",
             CoverageAnalysisRequest(
                 satellites=[self.satellite],
@@ -195,9 +191,7 @@ class SummaryEndpointsTestCase(TatcTestCase):
                 points=PointGenerator(method="equally_spaced", distance=2000e3),
                 cells=CellGenerator(method="equally_spaced", distance=5000e3),
             ),
-        )
-        result = CoverageAnalysisResult.model_validate(
-            self.get_json(f"/analyze/coverage/{task['task_id']}")
+            CoverageAnalysisResult,
         )
         summary = result.summary
         samples = [
@@ -213,7 +207,7 @@ class SummaryEndpointsTestCase(TatcTestCase):
         self.assertAlmostEqual(summary.coverage.shares[-1], summary.observed)
 
     def test_latency_summary(self):
-        task = self.run_analysis(
+        result = self.analysis_result(
             "/analyze/latency",
             LatencyAnalysisRequest(
                 satellites=[self.satellite],
@@ -225,9 +219,7 @@ class SummaryEndpointsTestCase(TatcTestCase):
                 points=PointGenerator(method="fibonacci_lattice", distance=3000e3),
                 cells=CellGenerator(method="equally_spaced", distance=5000e3),
             ),
-        )
-        result = LatencyAnalysisResult.model_validate(
-            self.get_json(f"/analyze/latency/{task['task_id']}")
+            LatencyAnalysisResult,
         )
         summary = result.summary
         self.assertEqual(summary.weighting, Weighting.uniform)

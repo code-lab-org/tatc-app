@@ -58,8 +58,8 @@ POINTED = PointedInstrument(
 )
 
 
-def satellite(name="A", instruments=None) -> Satellite:
-    return Satellite(name=name, orbit=ORBIT, instruments=instruments or [POINTED])
+def satellite(name="A", instruments=None, orbit=ORBIT) -> Satellite:
+    return Satellite(name=name, orbit=orbit, instruments=instruments or [POINTED])
 
 
 class SampleSizeFunctionsTestCase(TatcTestCase):
@@ -70,14 +70,10 @@ class SampleSizeFunctionsTestCase(TatcTestCase):
     def test_is_sized(self):
         self.assertTrue(is_sized(POINTED))
         self.assertFalse(is_sized(Instrument(name="S")))
-        conical = ConicalInstrument(
-            name="C", cone_angle=45, along_track_field_of_view=1
-        )
-        self.assertFalse(is_sized(conical))
+        conical = {"name": "C", "cone_angle": 45, "along_track_field_of_view": 1}
+        self.assertFalse(is_sized(ConicalInstrument(**conical)))
         self.assertTrue(
-            is_sized(
-                conical.model_copy(update={"beam_width": 1, "scan_sample_spacing": 1})
-            )
+            is_sized(ConicalInstrument(**conical, beam_width=1, scan_sample_spacing=1))
         )
 
     def test_size_observations(self):
@@ -183,9 +179,8 @@ class SampleSizeEndpointsTestCase(TatcTestCase):
         )
 
     def analyze(self, request) -> CoverageAnalysisResult:
-        task = self.run_analysis("/analyze/coverage", request)
-        return CoverageAnalysisResult.model_validate(
-            self.get_json(f"/analyze/coverage/{task['task_id']}")
+        return self.analysis_result(
+            "/analyze/coverage", request, CoverageAnalysisResult
         )
 
     def test_coverage_sample_sizes(self):
@@ -230,10 +225,13 @@ class SampleSizeEndpointsTestCase(TatcTestCase):
     def test_coincidence_max_sample_size(self):
         satellites = [
             satellite("A"),
-            satellite("B").model_copy(
-                update={
-                    "orbit": ORBIT.model_copy(update={"equator_crossing_time": "13:40"})
-                }
+            satellite(
+                "B",
+                orbit=SunSynchronousOrbit(
+                    altitude=705e3,
+                    equator_crossing_time="13:40",
+                    equator_crossing_ascending=True,
+                ),
             ),
         ]
         base = {
@@ -247,9 +245,8 @@ class SampleSizeEndpointsTestCase(TatcTestCase):
         counts = []
         for sample_size in (None, SampleSizeOptions(max_sample_size=1500)):
             request = CoincidenceAnalysisRequest(**base, sample_size=sample_size)
-            task = self.run_analysis("/analyze/coincidence", request)
-            result = CoincidenceAnalysisResult.model_validate(
-                self.get_json(f"/analyze/coincidence/{task['task_id']}")
+            result = self.analysis_result(
+                "/analyze/coincidence", request, CoincidenceAnalysisResult
             )
             counts.append(sum(f.properties["samples"] for f in result.points.features))
             # coincidences have no sample size statistics

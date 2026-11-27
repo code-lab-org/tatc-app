@@ -3,7 +3,7 @@ Browser tests of dialogs, scripts from CDNs, and the lists of saved designs
 and runs.
 """
 
-from .helpers import close_dialog, open_analysis_tab, run_analysis
+from .helpers import close_dialog, open_analysis_tab, run_analysis, wait_for_dialog
 
 
 def test_datatables_loaded_with_integrity_hash(page):
@@ -13,9 +13,7 @@ def test_datatables_loaded_with_integrity_hash(page):
 def test_dialog_closes_with_escape_and_is_labelled(page):
     open_analysis_tab(page, "access")
     page.click("#target-add")
-    page.wait_for_selector("#target-dialog.show")
-    # Bootstrap ignores keys until the dialog's transition ends
-    page.wait_for_timeout(600)
+    wait_for_dialog(page, "#target-dialog")
     page.keyboard.press("Escape")
     page.wait_for_selector("#target-dialog", state="hidden", timeout=5000)
     label = page.evaluate("""() => document.getElementById(

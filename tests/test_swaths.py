@@ -33,7 +33,7 @@ class AnalyzeSwathsTestCase(TatcTestCase):
         self.end = self.start + timedelta(hours=3)
 
     def test_analyze_swaths(self):
-        task = self.run_analysis(
+        result = self.analysis_result(
             "/analyze/swaths",
             SwathAnalysisRequest(
                 satellites=[self.constellation],
@@ -42,9 +42,7 @@ class AnalyzeSwathsTestCase(TatcTestCase):
                 step=timedelta(seconds=60),
                 segment=timedelta(minutes=30),
             ),
-        )
-        result = SwathAnalysisResult.model_validate(
-            self.get_json(f"/analyze/swaths/{task['task_id']}")
+            SwathAnalysisResult,
         )
         members = [m.name for m in self.constellation.generate_members()]
         self.assertEqual([t.name for t in result.tracks.tracks], members)
@@ -74,7 +72,7 @@ class AnalyzeSwathsTestCase(TatcTestCase):
         for feature in result.swaths.features:
             self.assertEqual(feature.properties["instrument"], "Imager")
             self.assertLess(feature.properties["start"], feature.properties["end"])
-        czml = self.get_json(f"/analyze/swaths/{task['task_id']}/czml")
+        czml = self.get_json(f"/analyze/swaths/{self.task_id}/czml")
         self.assertEqual(czml[0]["id"], "document")
         ids = [packet["id"] for packet in czml]
         self.assertIn(f"sat/{members[0]}", ids)
@@ -126,16 +124,13 @@ class AnalyzeSwathsTestCase(TatcTestCase):
             )
         # tracks carry the chosen colors of instruments
         request.instrument_colors = [[None, "#00ff00"]]
-        task = self.run_analysis("/analyze/swaths", request)
-        result = SwathAnalysisResult.model_validate(
-            self.get_json(f"/analyze/swaths/{task['task_id']}")
-        )
+        result = self.analysis_result("/analyze/swaths", request, SwathAnalysisResult)
         for track in result.tracks.tracks:
             self.assertEqual(
                 [instrument.color for instrument in track.instruments],
                 [None, "#00ff00"],
             )
-        czml = self.get_json(f"/analyze/swaths/{task['task_id']}/czml")
+        czml = self.get_json(f"/analyze/swaths/{self.task_id}/czml")
         circle = next(p for p in czml if p["id"] == f"fp/{members[0]}/1")
         self.assertEqual(
             circle["ellipse"]["material"]["solidColor"]["color"]["rgba"][:3],
@@ -143,7 +138,7 @@ class AnalyzeSwathsTestCase(TatcTestCase):
         )
 
     def test_analyze_tracks_only(self):
-        task = self.run_analysis(
+        result = self.analysis_result(
             "/analyze/swaths",
             SwathAnalysisRequest(
                 satellites=[self.constellation],
@@ -151,9 +146,7 @@ class AnalyzeSwathsTestCase(TatcTestCase):
                 end=self.end,
                 segment=None,
             ),
-        )
-        result = SwathAnalysisResult.model_validate(
-            self.get_json(f"/analyze/swaths/{task['task_id']}")
+            SwathAnalysisResult,
         )
         self.assertEqual(len(result.tracks.tracks), 2)
         self.assertEqual(len(result.swaths.features), 0)
@@ -170,10 +163,7 @@ class AnalyzeSwathsTestCase(TatcTestCase):
             }
         )
         self.assertEqual([m.name for m in request.get_members()], members[1:])
-        task = self.run_analysis("/analyze/swaths", request)
-        result = SwathAnalysisResult.model_validate(
-            self.get_json(f"/analyze/swaths/{task['task_id']}")
-        )
+        result = self.analysis_result("/analyze/swaths", request, SwathAnalysisResult)
         self.assertEqual([t.name for t in result.tracks.tracks], members[1:])
         # all members excluded
         response = self.client.post(
@@ -225,10 +215,7 @@ class AnalyzeSwathsTestCase(TatcTestCase):
         self.assertEqual(request.get_display_end(), display_end)
         # without a region, footprints are sampled only over the animation
         self.assertEqual(request.get_sample_times()[-1], display_end)
-        task = self.run_analysis("/analyze/swaths", request)
-        result = SwathAnalysisResult.model_validate(
-            self.get_json(f"/analyze/swaths/{task['task_id']}")
-        )
+        result = self.analysis_result("/analyze/swaths", request, SwathAnalysisResult)
         for track in result.tracks.tracks:
             # 1 hour at 120 second steps (inclusive)
             self.assertEqual(len(track.positions), 4 * 31)

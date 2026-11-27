@@ -60,7 +60,9 @@ dev = [
     "isort",
     "pylint",
     "pylint-pydantic",
-    "pytest"
+    "pytest",
+    "pytest-cov >= 6.1",
+    "pytest-xdist"
 ]
 # browser tests (tests/browser, run with TATC_BROWSER_TESTS=1), after
 # `playwright install chromium`
@@ -79,3 +81,8 @@ version = {attr = "tatc_app.__version__"}
 
 [tool.isort]
 profile = "black"
+
+# coverage of tests (`pytest --cov=tatc_app`): modules not fully covered
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

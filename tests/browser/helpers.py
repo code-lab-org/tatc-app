@@ -1,9 +1,67 @@
 """
-Helpers of browser tests: actions on the app's Design and Analysis tabs.
+Helpers of browser tests: actions on the app's Design and Analysis tabs, and
+waiting for the app's requests.
 """
+
+import time
 
 # time (milliseconds) to wait for an analysis to run
 ANALYSIS_TIMEOUT = 240000
+
+
+class _Requests:  # pylint: disable=too-few-public-methods
+    """
+    The requests of a page to the app that have not finished, and the time
+    (`time.monotonic`) that one last started or finished.
+    """
+
+    def __init__(self):
+        self.pending = set()
+        self.changed = time.monotonic()
+
+
+# requests of each page (see `track_requests`)
+_REQUESTS = {}
+
+
+def track_requests(page, url: str) -> None:
+    """
+    Tracks the requests of a page to the app at a URL (but not to CDNs), to
+    wait for them (see `wait_for_requests`).
+    """
+    requests = _REQUESTS[page] = _Requests()
+
+    def started(request):
+        if request.url.startswith(url):
+            requests.pending.add(request)
+            requests.changed = time.monotonic()
+
+    def ended(request):
+        if request in requests.pending:
+            requests.pending.discard(request)
+            requests.changed = time.monotonic()
+
+    page.on("request", started)
+    page.on("requestfinished", ended)
+    page.on("requestfailed", ended)
+    page.on("close", lambda _: _REQUESTS.pop(page, None))
+
+
+def wait_for_requests(page, quiet: float = 250, timeout: float = 60000) -> None:
+    """
+    Waits until the requests of a page to the app have finished, and it sends
+    no more for a time (`quiet`, milliseconds, from now or the last request
+    to finish): the app has handled what the test just did.
+    """
+    requests = _REQUESTS[page]
+    now = time.monotonic()
+    end = now + timeout / 1000
+    while (
+        requests.pending or time.monotonic() - max(now, requests.changed) < quiet / 1000
+    ):
+        if time.monotonic() > end:
+            raise TimeoutError(f"{len(requests.pending)} requests did not finish")
+        page.wait_for_timeout(50)
 
 
 def set_value(page, selector: str, value) -> None:
@@ -36,7 +94,7 @@ def add_sites_and_satellite(page) -> None:
                                 {name: "ISS 2"})]);
     }""")
     # the new satellite is validated by the server
-    page.wait_for_timeout(2000)
+    wait_for_requests(page)
 
 
 def open_analysis_tab(page, analysis: str, days: float = 0.25) -> None:
@@ -86,8 +144,7 @@ def show_results(page) -> dict:
         dict: The number of `rows` of its table, and its `summary` text.
     """
     page.click("#analysis-data")
-    page.wait_for_selector("#results-dialog.show")
-    page.wait_for_timeout(500)
+    wait_for_dialog(page, "#results-dialog")
     shown = {
         "rows": page.locator("#results-table tbody tr").count(),
         "summary": page.inner_text("#results-summary").strip(),
@@ -97,9 +154,21 @@ def show_results(page) -> dict:
     return shown
 
 
+def wait_for_dialog(page, dialog: str) -> None:
+    """
+    Waits until a dialog shows, and its transition ends: until then,
+    Bootstrap ignores clicks and keys (such as Escape) that would close it.
+    """
+    page.wait_for_selector(dialog + ".show")
+    page.wait_for_function(
+        "(dialog) => !$(dialog).data('bs.modal')._isTransitioning", arg=dialog
+    )
+
+
 def close_dialog(page, dialog: str) -> None:
     """
     Closes a dialog with the close button of its footer.
     """
+    wait_for_dialog(page, dialog)
     page.click(dialog + " .modal-footer button[data-dismiss=modal]")
     page.wait_for_selector(dialog, state="hidden")

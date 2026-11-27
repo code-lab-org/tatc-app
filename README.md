@@ -362,6 +362,16 @@ result backend, so they do not require a broker, backend, or worker (see
 and worker (configured by `TATC_BROKER` and `TATC_BACKEND`), set
 `TATC_TEST_LIVE=1`.
 
+To run the tests in a process per CPU, and report the code they cover
+(modules not fully covered, with the lines missed):
+```shell
+pytest -n auto --cov=tatc_app
+```
+
+Shared test fixtures are in `tests/base.py` (`TatcTestCase`, whose
+`analysis_result` runs an analysis and gets its result, and the elements of
+the ISS used by most tests) and `tests/fakes.py` (fake CelesTrak downloads).
+
 Browser tests (`tests/browser`) drive the web app in a browser with
 Playwright: they run each type of analysis, save and run again designs and
 runs, and check the summary charts. They are skipped unless
@@ -371,17 +381,19 @@ dependencies and a browser, then run them:
 ```shell
 pip install -e ".[dev,browser]"
 playwright install chromium
-TATC_BROWSER_TESTS=1 pytest tests/browser
+TATC_BROWSER_TESTS=1 pytest tests/browser -n 4
 ```
 To use an installed browser instead of Playwright's, set
-`TATC_BROWSER_CHANNEL` (for example, `chrome` or `msedge`). Each test module
-runs its own server, without sign in and with tasks run eagerly (see
-`tests/browser/serve.py`).
+`TATC_BROWSER_CHANNEL` (for example, `chrome` or `msedge`). Each test process
+(`-n`) runs its own server, without sign in and with tasks run eagerly (see
+`tests/browser/serve.py`), and its own browser: 4 processes take about half
+the time of one with CPUs to spare, but time out on 4 CPUs or fewer (as in
+CI), where one process is as fast.
 
 The [Tests](https://github.com/code-lab-org/tatc-app/blob/main/.github/workflows/test.yml)
-workflow checks the code style and runs the tests on every pull request, and
-before the images are built and pushed on every push to `main`, so code that
-fails its tests is not deployed.
+workflow checks the code style and runs the tests (with their coverage in the
+job summary) on every pull request, and before the images are built and
+pushed on every push to `main`, so code that fails its tests is not deployed.
 
 ### Code Style
 

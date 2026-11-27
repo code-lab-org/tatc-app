@@ -36,9 +36,12 @@ jobs:
           isort --check-only .
 
       # tasks run eagerly, without a broker, backend, or worker (see
-      # tests/conftest.py)
+      # tests/conftest.py), in a process per CPU, with the coverage of the
+      # code in the log and the job summary
       - name: Run the tests
-        run: pytest
+        run: >-
+          pytest -n auto --cov=tatc_app --cov-report=term
+          --cov-report="markdown-append:$GITHUB_STEP_SUMMARY"
 
   # drives the web app in a browser (see tests/browser/conftest.py)
   browser:
@@ -63,4 +66,7 @@ jobs:
       - name: Run the browser tests
         env:
           TATC_BROWSER_TESTS: "1"
+        # in one process: each process runs a server and a browser that draws
+        # the globe in software, so the runner's few CPUs are busy with one,
+        # and more processes time out without finishing sooner
         run: pytest tests/browser

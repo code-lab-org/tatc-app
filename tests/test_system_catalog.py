@@ -6,7 +6,7 @@ from tatc_app.satellites import SpaceSystemInput
 from tatc_app.system_catalog.systems import list_satellite_systems
 
 from .base import TatcTestCase
-from .test_celestrak import FakeDownload, FakeObjectDownload, omm_record
+from .fakes import FakeDownload, FakeObjectDownload, omm_record
 
 adapter = TypeAdapter(SpaceSystemInput)
 

@@ -72,13 +72,22 @@ class RegionTestCase(TatcTestCase):
             }
         )
 
+    # results of analyses run by the tests of this class, by request and
+    # window size (tests that run the same analysis share its result)
+    results = {}
+
     def analyze(self, request, window_steps=None) -> SwathAnalysisResult:
-        with mock.patch("tatc_app.swaths.router.WINDOW_STEPS", window_steps or 100000):
-            task = self.run_analysis("/analyze/swaths", request)
-        self.task_id = task["task_id"]
-        return SwathAnalysisResult.model_validate(
-            self.get_json(f"/analyze/swaths/{task['task_id']}")
-        )
+        key = (request.model_dump_json(), window_steps)
+        if key not in self.results:
+            with mock.patch(
+                "tatc_app.swaths.router.WINDOW_STEPS", window_steps or 100000
+            ):
+                result = self.analysis_result(
+                    "/analyze/swaths", request, SwathAnalysisResult
+                )
+            self.results[key] = (self.task_id, result)
+        self.task_id, result = self.results[key]
+        return result
 
     def test_area(self):
         self.assertAlmostEqual(area_km2(box(-180, -90, 180, 90)) / 510065622, 1, 5)
@@ -87,7 +96,7 @@ class RegionTestCase(TatcTestCase):
     def test_region_analysis(self):
         request = self.request()
         members = request.get_members()
-        result = self.analyze(request, window_steps=97)
+        result = self.analyze(request, window_steps=50)
         summary = result.summary
         self.assertAlmostEqual(summary.area, area_km2(REGION))
         # the share observed grows to the share covered
@@ -137,7 +146,7 @@ class RegionTestCase(TatcTestCase):
         # the animation limits the swaths and coincident swaths given, but
         # not the summary of the whole analysis period
         display_end = START + timedelta(hours=4)
-        full = self.analyze(self.request(), window_steps=200)
+        full = self.analyze(self.request())
         shown = self.analyze(
             self.request(display={"start": START, "end": display_end, "delta": 60}),
             window_steps=200,
@@ -174,7 +183,7 @@ class RegionTestCase(TatcTestCase):
         # every common area is between the satellite and the constellation
         for pair in names:
             self.assertIn("S", pair)
-        members = self.analyze(self.request(), window_steps=200)
+        members = self.analyze(self.request())
         self.assertLess(
             result.summary.coincidence.pairs, members.summary.coincidence.pairs
         )

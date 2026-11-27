@@ -4,14 +4,18 @@ module's handlers run at least once (the `page` fixture fails a test on any
 script error, such as a missing import).
 """
 
-from .helpers import close_dialog, open_analysis_tab, set_checked
+from .helpers import (
+    close_dialog,
+    open_analysis_tab,
+    set_checked,
+    wait_for_dialog,
+    wait_for_requests,
+)
 
 
 def open_dialog(page, opener: str, dialog: str) -> None:
     page.click(opener)
-    page.wait_for_selector(dialog + ".show")
-    # Bootstrap ignores clicks and keys until the dialog's transition ends
-    page.wait_for_timeout(600)
+    wait_for_dialog(page, dialog)
 
 
 def test_satellite_editor_and_catalogs(page):
@@ -23,7 +27,7 @@ def test_satellite_editor_and_catalogs(page):
         page.wait_for_selector(f"#satellite-{tab}.show")
     page.click("#instrument-add")
     page.click("#satellite-validate")
-    page.wait_for_timeout(1000)
+    wait_for_requests(page)
     open_dialog(page, "#instrument-catalog-open", "#instrument-catalog-dialog")
     page.wait_for_selector("#instrument-catalog-dialog :is(li, option, tr)")
     close_dialog(page, "#instrument-catalog-dialog")
@@ -79,8 +83,6 @@ def test_display_options(page):
 def test_station_and_region_dialogs(page):
     open_analysis_tab(page, "latency")
     page.click("#station-add")
-    page.wait_for_selector("#station-dialog.show")
-    page.wait_for_timeout(600)
     close_dialog(page, "#station-dialog")
     page.locator("#stations .list-group-item").first.click()
     page.click("#station-delete")

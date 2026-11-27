@@ -19,12 +19,7 @@ from tatc_app.generation.schemas import CellGenerator, PointGenerator
 from tatc_app.latency.schemas import LatencyAnalysisRequest, LatencyAnalysisResult
 from tatc_app.utils.serialization import from_geojson
 
-from .base import TatcTestCase
-
-TLE = [
-    "1 25544U 98067A   22171.11255782  .00008307  00000+0  15444-3 0  9992",
-    "2 25544  51.6448 322.0970 0003980 282.3738 231.6559 15.49798078345636",
-]
+from .base import TLE, TatcTestCase
 
 
 class LatencyAnalysisTestCase(TatcTestCase):
@@ -45,7 +40,7 @@ class LatencyAnalysisTestCase(TatcTestCase):
         self.end = datetime(2022, 6, 2, tzinfo=timezone.utc)
 
     def test_analyze_latency(self):
-        task = self.run_analysis(
+        result = self.analysis_result(
             "/analyze/latency",
             LatencyAnalysisRequest(
                 satellites=[self.satellite],
@@ -55,9 +50,7 @@ class LatencyAnalysisTestCase(TatcTestCase):
                 points=PointGenerator(method="equally_spaced", distance=5000e3),
                 cells=CellGenerator(method="equally_spaced", distance=5000e3),
             ),
-        )
-        result = LatencyAnalysisResult.model_validate(
-            self.get_json(f"/analyze/latency/{task['task_id']}")
+            LatencyAnalysisResult,
         )
         points = generate_points_uniform_spacing(5000e3)
         members = self.satellite.generate_members()
@@ -91,7 +84,7 @@ class LatencyAnalysisTestCase(TatcTestCase):
             all(e > s for s, e in zip(result.contacts.start, result.contacts.end))
         )
         # czml document with stations and contact links
-        czml = self.get_json(f"/analyze/latency/{task['task_id']}/czml")
+        czml = self.get_json(f"/analyze/latency/{self.task_id}/czml")
         ids = [packet["id"] for packet in czml]
         self.assertIn("gs/Svalbard", ids)
         self.assertTrue(any(i.startswith("link/gs/") for i in ids))
