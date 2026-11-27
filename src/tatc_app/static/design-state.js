@@ -3,10 +3,15 @@
 // and persistence, import, and export of designs. The satellite dialog
 // (satellite-dialog.js) edits satellites.
 
+import { downloadFile, formatError, postJson, removeSelected, renderSelectableList, uniqueName } from "./index.js";
+import { setSavedDesignRef } from "./library.js";
+import { openSatelliteDialog } from "./satellite-dialog.js";
+import { createInstrument, createSatellite, createStation, ORBIT_SPECS, PLATFORM_SPECS } from "./schemas.js";
+
 const DESIGN_STORAGE_KEY = "tatc-design-v2";
 const COLORS = ["#e15759", "#4e79a7", "#f28e2b", "#59a14f", "#b07aa1", "#76b7b2", "#edc948", "#ff9da7"];
 
-const design = {
+export const design = {
   // {system, color, instrumentColors, validation: {status, members, message}},
   // with the chosen color of each instrument (in order; null for the default)
   satellites: [],
@@ -15,7 +20,7 @@ const design = {
   // {latitude, longitude}
   targets: []
 };
-let selectedSatellite = -1;
+export let selectedSatellite = -1;
 
 // --- Listeners ---
 
@@ -25,42 +30,42 @@ const designListeners = [];
 // Called after the validation of a satellite or constellation completes.
 const validationListeners = [];
 
-function onDesignChange(listener) {
+export function onDesignChange(listener) {
   designListeners.push(listener);
 }
 
-function notifyDesignChange() {
+export function notifyDesignChange() {
   saveDesign();
   _.forEach(designListeners, function(listener) { listener(); });
 }
 
-function onValidationChange(listener) {
+export function onValidationChange(listener) {
   validationListeners.push(listener);
 }
 
 // --- Accessors ---
 
-function getSatellites() {
+export function getSatellites() {
   return _.map(design.satellites, "system");
 }
 
-function getSatelliteColors() {
+export function getSatelliteColors() {
   return _.map(design.satellites, "color");
 }
 
 // Gets the chosen colors of a number of instruments (null for the default).
-function chosenInstrumentColors(colors, count) {
+export function chosenInstrumentColors(colors, count) {
   return _.map(_.take(colors || [], count), function(color) { return color || null; });
 }
 
 // Gets the chosen instrument colors of a satellite or constellation, as
 // analysis requests expect: null if all are default colors.
-function requestInstrumentColors(item) {
+export function requestInstrumentColors(item) {
   const colors = chosenInstrumentColors(item.instrumentColors, (item.system.instruments || []).length);
   return _.some(colors) ? colors : null;
 }
 
-function getInstrumentColors() {
+export function getInstrumentColors() {
   return _.map(design.satellites, requestInstrumentColors);
 }
 
@@ -68,7 +73,7 @@ function getInstrumentColors() {
 // the server does (`instrument_color` of the server's CZML colors): the first
 // instrument keeps the satellite color, and others rotate its hue evenly
 // (with a minimum saturation, so variants of gray colors stay distinct).
-function defaultInstrumentColor(color, index, count) {
+export function defaultInstrumentColor(color, index, count) {
   if (index <= 0 || count <= 1) {
     return color;
   }
@@ -101,7 +106,7 @@ function defaultInstrumentColor(color, index, count) {
 
 // Gets the color of an instrument of a satellite or constellation: its
 // chosen color, or the default derived from the satellite color.
-function instrumentColor(item, index) {
+export function instrumentColor(item, index) {
   const chosen = (item.instrumentColors || [])[index];
   return chosen || defaultInstrumentColor(item.color, index, (item.system.instruments || []).length);
 }
@@ -115,7 +120,7 @@ function importInstrumentColors(colors) {
 
 // --- Persistence ---
 
-function exportDesign() {
+export function exportDesign() {
   return {
     version: 2,
     satellites: _.map(design.satellites, function(item) {
@@ -130,7 +135,7 @@ function exportDesign() {
   };
 }
 
-function saveDesign() {
+export function saveDesign() {
   try {
     window.localStorage.setItem(DESIGN_STORAGE_KEY, JSON.stringify(exportDesign()));
   } catch (e) {
@@ -139,7 +144,7 @@ function saveDesign() {
 }
 
 // Loads a design (or a list of satellites, or a single satellite).
-function importDesign(data) {
+export function importDesign(data) {
   let satellites;
   if (_.isArray(data)) {
     satellites = _.map(data, function(system) { return { system: system }; });
@@ -193,7 +198,7 @@ function defaultDesign() {
 
 // Loads the stored design (or the default design), once every module
 // listens to design changes (see main.js).
-function loadInitialDesign() {
+export function loadInitialDesign() {
   let stored = null;
   try {
     stored = JSON.parse(window.localStorage.getItem(DESIGN_STORAGE_KEY));
@@ -210,11 +215,11 @@ function loadInitialDesign() {
 // --- Validation ---
 
 // Validates a satellite or constellation with the server.
-function validateSystem(system) {
+export function validateSystem(system) {
   return postJson("/validate/space-system", system);
 }
 
-function validateItem(item) {
+export function validateItem(item) {
   // results of a superseded validation (of an earlier edit) are dropped
   const pending = item.validation = { status: "pending" };
   renderSatelliteList();
@@ -236,7 +241,7 @@ function validateItem(item) {
 }
 
 // Validates the satellites not yet validated (validation requires a session).
-function validateUnknownItems() {
+export function validateUnknownItems() {
   _.forEach(design.satellites, function(item) {
     if (item.validation.status == "unknown") {
       validateItem(item);
@@ -265,7 +270,7 @@ function validationBadge(validation) {
   return badge;
 }
 
-function renderSatelliteList() {
+export function renderSatelliteList() {
   renderSelectableList($("#satellites"), design.satellites, selectedSatellite, {
     buttons: "#satellite-edit, #satellite-copy, #satellite-delete",
     renderItem: function(item) {
@@ -290,7 +295,7 @@ function renderSatelliteList() {
 // Adds satellites or constellations to the design (in one color: by default,
 // the next of the palette) with unique names, selects the first, and
 // validates them. Returns the added items.
-function addSatellites(systems, color) {
+export function addSatellites(systems, color) {
   color = color || COLORS[design.satellites.length % COLORS.length];
   const names = _.map(design.satellites, "system.name");
   const items = _.map(systems, function(system) {
@@ -306,7 +311,8 @@ function addSatellites(systems, color) {
   return items;
 }
 
-$(document).ready(function() {
+// Sets up this module once the page has loaded (see main.js).
+export function setupDesignState() {
   $("#satellite-add").click(function() {
     addSatellites([createSatellite("New Satellite")]);
     openSatelliteDialog();
@@ -355,4 +361,4 @@ $(document).ready(function() {
       setSavedDesignRef(null);
     }
   });
-});
+}

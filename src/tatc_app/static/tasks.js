@@ -1,5 +1,7 @@
 // Submits analysis tasks to the server and polls them until complete.
 
+import { formatError, postJson } from "./index.js";
+
 // Polls start every POLL_INTERVAL (ms), growing by POLL_BACKOFF after each
 // poll to at most POLL_MAX_INTERVAL, so long analyses are polled less often.
 const POLL_INTERVAL = 1000;
@@ -29,7 +31,7 @@ const activeRuns = {};
 //   progress:   jQuery progress element to show group progress
 //   error:      jQuery element to show errors
 //   onResult:   function(result, taskId) called with the results
-function runAnalysis(options) {
+export function runAnalysis(options) {
   if (activeRuns[options.name]) {
     activeRuns[options.name].cancel();
   }
@@ -169,7 +171,7 @@ function runAnalysis(options) {
 
 // Cancels the active run of a named analysis, if any: its results are dropped
 // and its server task is revoked.
-function cancelAnalysis(name) {
+export function cancelAnalysis(name) {
   if (activeRuns[name]) {
     activeRuns[name].cancel();
   }

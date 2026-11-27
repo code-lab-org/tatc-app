@@ -319,7 +319,10 @@ a file of `src` changes; the server serves the GUI from
 ```shell
 uvicorn tatc_app.main:app --reload --reload-dir src
 ```
-The client-side GUI is available at <http://localhost:8000/>.
+The client-side GUI is available at <http://localhost:8000/>. It is plain
+JavaScript, without a build step: ES modules (`src/tatc_app/static/*.js`)
+loaded from `main.js`, which sets them up in order once the page loads, with
+libraries (such as Cesium, jQuery, and lodash) from CDNs as globals.
 
 To start the TAT-C worker application, run the command:
 ```shell

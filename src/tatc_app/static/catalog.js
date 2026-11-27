@@ -6,6 +6,12 @@
 // cached CelesTrak group or narrow queries for each other satellite, each
 // cached for two hours (per CelesTrak's usage policy).
 
+import { getAnalysisPeriod } from "./analysis.js";
+import { addSatellites } from "./design-state.js";
+import { formatError, postJson } from "./index.js";
+import { currentEdit, getEditedSystem, isCurrentEdit, replaceEditedSystem } from "./satellite-dialog.js";
+import { createInstrument } from "./schemas.js";
+
 const SYSTEM_CLASS_LABELS = {
   sun_synchronous: "Sun-Synchronous",
   inclined: "Inclined",
@@ -346,7 +352,8 @@ function addCatalogInstrument() {
   });
 }
 
-$(document).ready(function() {
+// Sets up this module once the page has loaded (see main.js).
+export function setupCatalog() {
   $("#catalog-dialog").on("show.bs.modal", loadCatalogSystems);
   $("#instrument-catalog-dialog").on("show.bs.modal", function() {
     $("#instrument-catalog-status").empty();
@@ -369,4 +376,4 @@ $(document).ready(function() {
     catalogUnchecked[$(this).val()] = !$(this).is(":checked");
   });
   $("#catalog-load").click(loadCatalogSystem);
-});
+}

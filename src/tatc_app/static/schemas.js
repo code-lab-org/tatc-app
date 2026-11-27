@@ -19,6 +19,9 @@
 // Specs with `jsonOnly` have no form: their objects are edited in the JSON
 // tab of the satellite dialog.
 
+import { fromDateTimeInput, toDateTimeInput } from "./index.js";
+import { elementsToOmm, ommToElements } from "./omm.js";
+
 // placeholder elements (of the ISS in 2021) for a new TLE orbit, to replace
 // with current elements (for example, from CelesTrak)
 const DEFAULT_TLE = [
@@ -54,7 +57,7 @@ const RAAN_FIELD = _.assign({ key: "right_ascension_ascending_node", label: "RAA
 const TA_FIELD = _.assign({ key: "true_anomaly", label: "True anomaly", type: "number", min: 0, max: 360, default: 0 }, ANGLE);
 const INCLINATION_FIELD = _.assign({ key: "inclination", label: "Inclination", type: "number", min: 0, max: 180, default: 0 }, ANGLE);
 
-const ORBIT_SPECS = {
+export const ORBIT_SPECS = {
   tle: {
     label: "Two Line Elements (TLE)",
     fields: [{ key: "tle", label: "Two line elements", type: "tle", default: function() { return DEFAULT_TLE.slice(); } }]
@@ -148,7 +151,7 @@ const ORBIT_SPECS = {
 };
 const ALL_ORBITS = _.keys(ORBIT_SPECS);
 
-const PLATFORM_SPECS = {
+export const PLATFORM_SPECS = {
   satellite: { label: "Satellite", orbits: ALL_ORBITS, fields: [] },
   walker: {
     label: "Walker Constellation",
@@ -200,7 +203,7 @@ const COMMON_INSTRUMENT_FIELDS = [
   _.assign({ key: "max_target_solar_elevation", label: "Max. solar elev.", type: "number", min: -90, max: 90, optional: true, group: "lighting" }, ANGLE)
 ];
 
-const INSTRUMENT_SPECS = {
+export const INSTRUMENT_SPECS = {
   instrument: {
     label: "Simple (field of regard)",
     fields: [
@@ -253,7 +256,7 @@ const IN_SITU_KEYS = ["radius"];
 
 // Gets the type of an instrument: its `type` or, if omitted, the type its
 // fields imply (as the library does).
-function instrumentType(instrument) {
+export function instrumentType(instrument) {
   if (_.isString(instrument.type)) {
     return instrument.type;
   }
@@ -265,7 +268,7 @@ function instrumentType(instrument) {
 
 // Gets the spec of a type, or for a type without a form (such as an in-situ
 // instrument, which only surface platforms carry), a spec to edit it in JSON.
-function specOf(specs, type) {
+export function specOf(specs, type) {
   return specs[type] || {
     label: String(type) + " (JSON only)",
     jsonOnly: true,
@@ -274,7 +277,7 @@ function specOf(specs, type) {
   };
 }
 
-const STATION_FIELDS = [
+export const STATION_FIELDS = [
   { key: "name", label: "Name", type: "text", default: "Station" },
   _.assign({ key: "latitude", label: "Latitude", type: "number", min: -90, max: 90, default: 0 }, ANGLE),
   _.assign({ key: "longitude", label: "Longitude", type: "number", min: -180, max: 180, default: 0 }, ANGLE),
@@ -306,7 +309,7 @@ function resolveDefault(field) {
 }
 
 // Creates an object of a type with default values.
-function createDefault(spec, type) {
+export function createDefault(spec, type) {
   const object = type === undefined ? {} : { type: type };
   _.forEach(spec.fields, function(field) {
     if (field.key && field.default !== undefined) {
@@ -375,7 +378,7 @@ function fromFormValue(field, value) {
 // columns). Consecutive fields of a `group` (such as a minimum and maximum)
 // share a row: a group that does not fit in the rest of a row starts the next.
 // Calls `onChange(key)` after each change is written to the object.
-function renderFields(container, fields, object, onChange, columns) {
+export function renderFields(container, fields, object, onChange, columns) {
   columns = columns || 2;
   function spanOf(field) {
     const wide = field.type == "tle" || field.type == "omm" || field.type == "text";
@@ -496,7 +499,7 @@ function renderFields(container, fields, object, onChange, columns) {
 }
 
 // Keys of an object type (to remove when the type changes).
-function specKeys(spec) {
+export function specKeys(spec) {
   return _.uniq(_.compact(_.map(spec.fields, function(field) {
     return field.key ? field.key.split(".")[0] : null;
   })));
@@ -505,7 +508,7 @@ function specKeys(spec) {
 // Changes the type of an object in place, removing the properties of the
 // former type and adding defaults of the new type, while keeping shared
 // properties (such as `name`) and properties edited in JSON.
-function changeType(object, specs, type) {
+export function changeType(object, specs, type) {
   const former = specs[object.type || "satellite"];
   const next = specs[type];
   const keep = specKeys(next);
@@ -526,7 +529,7 @@ function changeType(object, specs, type) {
 }
 
 // Creates an instrument of a type, keeping the name and shared settings.
-function changeInstrumentType(instrument, type) {
+export function changeInstrumentType(instrument, type) {
   const spec = specOf(INSTRUMENT_SPECS, type);
   const next = createDefault(spec, type);
   next.name = instrument.name || "Default";
@@ -538,11 +541,11 @@ function changeInstrumentType(instrument, type) {
   return next;
 }
 
-function createInstrument(name) {
+export function createInstrument(name) {
   return _.assign({ name: name || "Default" }, createDefault(INSTRUMENT_SPECS.instrument, "instrument"));
 }
 
-function createSatellite(name) {
+export function createSatellite(name) {
   return {
     type: "satellite",
     name: name || "New Satellite",
@@ -551,6 +554,6 @@ function createSatellite(name) {
   };
 }
 
-function createStation(name) {
+export function createStation(name) {
   return _.assign(createDefault({ fields: STATION_FIELDS }), { name: name || "Station" });
 }

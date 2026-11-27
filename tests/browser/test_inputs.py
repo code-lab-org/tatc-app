@@ -42,7 +42,9 @@ def test_invalid_inputs_show_their_errors_without_requests(page):
     set_value(page, "#swaths-step", 0)
     assert analysis_error(page) == "The step and segment must be positive."
 
-    page.evaluate("() => { design.stations.splice(0); design.targets.splice(0); }")
+    page.evaluate(
+        "() => { tatc.design.stations.splice(0); tatc.design.targets.splice(0); }"
+    )
     page.select_option("#analysis-type", "latency")
     assert analysis_error(page) == "Add at least one ground station."
     page.select_option("#analysis-type", "access")

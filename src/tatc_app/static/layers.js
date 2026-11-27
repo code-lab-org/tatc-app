@@ -2,6 +2,8 @@
 // satellites, links, and swaths), and the color scales and colorbars of
 // legends.
 
+import { viewer } from "./viewer.js";
+
 const czmlSources = {};
 // the latest load of each named layer: a later load, or a clear, while a
 // document loads makes that load stale, so its source is never added
@@ -13,7 +15,7 @@ const czmlShown = {};
 // Loads a CZML document as the named layer, replacing any previous one.
 // Returns a promise resolving to the data source, or to null if the load
 // became stale (see `czmlLoads`).
-function loadCzmlLayer(name, url, options) {
+export function loadCzmlLayer(name, url, options) {
   options = options || {};
   clearCzmlLayer(name);
   const load = {};
@@ -34,11 +36,11 @@ function loadCzmlLayer(name, url, options) {
   });
 }
 
-function getCzmlLayer(name) {
+export function getCzmlLayer(name) {
   return czmlSources[name];
 }
 
-function clearCzmlLayer(name) {
+export function clearCzmlLayer(name) {
   delete czmlLoads[name];
   if (czmlSources[name]) {
     viewer.dataSources.remove(czmlSources[name], true);
@@ -46,7 +48,7 @@ function clearCzmlLayer(name) {
   }
 }
 
-function showCzmlLayer(name, show) {
+export function showCzmlLayer(name, show) {
   czmlShown[name] = show;
   if (czmlSources[name]) {
     czmlSources[name].show = show;
@@ -55,7 +57,7 @@ function showCzmlLayer(name, show) {
 
 // Sets the clock and timeline to an interval (JulianDate or ISO 8601 strings),
 // animating at a multiplier (default: the interval in about one minute).
-function setClock(start, stop, multiplier) {
+export function setClock(start, stop, multiplier) {
   start = start instanceof Cesium.JulianDate ? start : Cesium.JulianDate.fromIso8601(start);
   stop = stop instanceof Cesium.JulianDate ? stop : Cesium.JulianDate.fromIso8601(stop);
   const duration = Cesium.JulianDate.secondsDifference(stop, start);
@@ -99,7 +101,7 @@ const VIRIDIS = interpolateColors(VIRIDIS_STOPS, 64);
 
 // A linear color scale over [min, max]; `reverse` maps small values to the
 // bright end (for example, short revisit times).
-function createColorScale(min, max, reverse) {
+export function createColorScale(min, max, reverse) {
   const colors = reverse ? VIRIDIS.slice().reverse() : VIRIDIS;
   const cesiumColors = _.map(colors, function(c) { return Cesium.Color.fromCssColorString(c); });
   return {
@@ -118,7 +120,7 @@ function createColorScale(min, max, reverse) {
   };
 }
 
-function renderColorbar(container, scale) {
+export function renderColorbar(container, scale) {
   container.empty();
   _.forEach(scale.colors, function(color) {
     container.append($("<span>").css("background-color", color));

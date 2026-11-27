@@ -6,6 +6,9 @@
 // efficiently: point colors are set directly and cell colors through
 // per-instance attributes of one ground primitive.
 
+import { addCellPrimitives } from "./region.js";
+import { viewer } from "./viewer.js";
+
 const MISSING_COLOR = Cesium.Color.GRAY.withAlpha(0.5);
 
 // Index of the first element of a sorted array greater than a value.
@@ -23,7 +26,7 @@ function upperBound(array, value) {
   return low;
 }
 
-class TargetLayer {
+export class TargetLayer {
   // options:
   //   points:      GeoJSON feature collection of targets (timeline order)
   //   cells:       GeoJSON feature collection of cells

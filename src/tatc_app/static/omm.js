@@ -238,7 +238,7 @@ function ommRecordToElement(record, index) {
 
 // Converts OMM text (JSON, CSV, XML, or KVN) to TAT-C GP elements, throwing
 // an error if it is not valid.
-function ommToElements(text) {
+export function ommToElements(text) {
   const records = parseOmmRecords(text);
   if (records.length == 0) {
     throw new Error("No OMM element sets found.");
@@ -289,7 +289,7 @@ function elementToOmmRecord(element) {
 }
 
 // Converts TAT-C GP elements to OMM text (JSON, as CelesTrak provides).
-function elementsToOmm(elements) {
+export function elementsToOmm(elements) {
   if (!Array.isArray(elements)) {
     return "";
   }

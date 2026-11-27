@@ -49,6 +49,9 @@ by `__version__` in `src/tatc_app/__init__.py`.
   charts share their helpers.
 - The DataTables stylesheet and scripts are checked against integrity
   hashes, as every other CDN asset is.
+- The frontend is ES modules, loaded from `main.js`, rather than scripts
+  sharing global names in the order of `index.html`: each module imports
+  what it uses, and `main.js` sets the modules up in order.
 
 ### Fixed
 

@@ -6,14 +6,20 @@
 // (saveDesign) without notifying design listeners, which react to changes of
 // the satellites (see design-state.js).
 
+import { analysisResult, getAnalysisType } from "./analysis.js";
+import { design, onDesignChange, saveDesign } from "./design-state.js";
+import { isMapPicking, removeSelected, renderSelectableList, startMapPick, stopMapPick, uniqueName } from "./index.js";
+import { createStation, renderFields, STATION_FIELDS } from "./schemas.js";
+import { viewer } from "./viewer.js";
+
 // data source of the sites shown on the map
-let siteSource = null;
+export let siteSource = null;
 
 // --- Ground stations ---
 
 let selectedStation = -1;
 
-function renderStations() {
+export function renderStations() {
   renderSelectableList($("#stations"), design.stations, selectedStation, {
     buttons: "#station-edit, #station-delete",
     renderItem: function(station) {
@@ -70,7 +76,7 @@ function renderTargets() {
   renderSiteEntities();
 }
 
-function addTarget(latitude, longitude) {
+export function addTarget(latitude, longitude) {
   design.targets.push({ latitude: latitude, longitude: longitude });
   selectedTarget = design.targets.length - 1;
   renderTargets();
@@ -86,7 +92,7 @@ function addPickedTarget(cartesian) {
 }
 
 // Shows the stations (latency) or targets (access) being edited on the map.
-function renderSiteEntities() {
+export function renderSiteEntities() {
   if (!siteSource) {
     return;
   }
@@ -113,7 +119,8 @@ function renderSiteEntities() {
   }
 }
 
-$(document).ready(function() {
+// Sets up this module once the page has loaded (see main.js).
+export function setupSites() {
   siteSource = new Cesium.CustomDataSource("sites");
   viewer.dataSources.add(siteSource);
 
@@ -162,4 +169,4 @@ $(document).ready(function() {
     renderStations();
     renderTargets();
   });
-});
+}

@@ -5,6 +5,8 @@
 // colors, so it also serves as their legend, and does not depend on a
 // preview.
 
+import { design, instrumentColor, onDesignChange, onValidationChange, requestInstrumentColors } from "./design-state.js";
+
 // filtered (unchecked) items by key (see `filterKey`), kept across changes
 // to the design
 const filterUnchecked = {};
@@ -15,15 +17,15 @@ let filterNoFootprint = {};
 const filterListeners = [];
 let filterToggleCount = 0;
 
-function filterKey(kind, system, detail) {
+export function filterKey(kind, system, detail) {
   return kind + ":" + system + (detail === undefined ? "" : "/" + detail);
 }
 
-function isFilterChecked(key) {
+export function isFilterChecked(key) {
   return !filterUnchecked[key];
 }
 
-function onLayerFilterChange(listener) {
+export function onLayerFilterChange(listener) {
   filterListeners.push(listener);
 }
 
@@ -32,7 +34,7 @@ function notifyLayerFilterChange() {
 }
 
 // Marks the instruments (by key) without a footprint.
-function setFilterWithoutFootprint(keys) {
+export function setFilterWithoutFootprint(keys) {
   filterNoFootprint = _.zipObject(keys, _.map(keys, _.constant(true)));
   renderLayerFilter();
 }
@@ -132,7 +134,7 @@ function renderLayerFilter() {
 // out if unchecked, or if all of its instruments or members are unchecked.
 // Instruments keep their colors (default colors derive from their index
 // among all instruments).
-function getFilteredInputs() {
+export function getFilteredInputs() {
   const inputs = { satellites: [], colors: [], instrumentColors: [], excludeMembers: [] };
   _.forEach(design.satellites, function(item) {
     const system = item.system;
@@ -167,7 +169,8 @@ function getFilteredInputs() {
   return inputs;
 }
 
-$(document).ready(function() {
+// Sets up this module once the page has loaded (see main.js).
+export function setupFilter() {
   $("#layer-filter-all").click(function() {
     _.forEach(_.keys(filterUnchecked), function(key) { delete filterUnchecked[key]; });
     renderLayerFilter();
@@ -177,4 +180,4 @@ $(document).ready(function() {
   // the filter lists the members of validated constellations
   onValidationChange(renderLayerFilter);
   renderLayerFilter();
-});
+}

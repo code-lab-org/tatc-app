@@ -2,25 +2,30 @@
 // one (coverage, coincidence, and latency), or else its outline (swaths over
 // a region).
 
+import { ANALYSES } from "./analysis-types.js";
+import { getAnalysisType } from "./analysis.js";
+import { formatError, isMapPicking, latestRequests, postJson, startMapPick, stopMapPick } from "./index.js";
+import { viewer } from "./viewer.js";
+
 // vertices (Cartesian3) of a custom region, and its polygon on the map
 let regionPoints = [];
 let regionEntity = null;
 
 // primitive collections of the generated grid of points and cells
-const gridPoints = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+export const gridPoints = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
 const gridCells = viewer.scene.primitives.add(new Cesium.PrimitiveCollection());
 const gridCellOutlines = viewer.scene.primitives.add(new Cesium.PolylineCollection());
 
 // the outline of the region (other than a custom one, drawn as its polygon)
 // for analyses without a grid
-const regionOutline = new Cesium.CustomDataSource("region-outline");
+export const regionOutline = new Cesium.CustomDataSource("region-outline");
 viewer.dataSources.add(regionOutline);
 let outlineDrawn = false;
 const outlineRequests = latestRequests();
 
 // Gets the type of the edges of cells in the region: geodesic for global
 // regions (rhumb lines cannot reach the poles), and rhumb lines otherwise.
-function getArcType() {
+export function getArcType() {
   const type = $("#region-type").val();
   const latMin = Number($("#region-latitude-min").val());
   const latMax = Number($("#region-latitude-max").val());
@@ -43,7 +48,7 @@ function getRegionCoordinates() {
   return coordinates.length ? coordinates.concat([coordinates[0]]) : coordinates;
 }
 
-function boxPolygon(lonMin, latMin, lonMax, latMax) {
+export function boxPolygon(lonMin, latMin, lonMax, latMax) {
   return {
     type: "Polygon",
     coordinates: [[
@@ -54,7 +59,7 @@ function boxPolygon(lonMin, latMin, lonMax, latMax) {
 
 // Gets the mask of the region (a GeoJSON polygon, known shape, country code,
 // or null for global).
-function getRegionMask() {
+export function getRegionMask() {
   const type = $("#region-type").val();
   const latMin = Number($("#region-latitude-min").val());
   const latMax = Number($("#region-latitude-max").val());
@@ -73,7 +78,7 @@ function getRegionMask() {
   return type;
 }
 
-function getPointsSpec() {
+export function getPointsSpec() {
   return {
     method: $("#point-method").val(),
     distance: Number($("#point-distance").val()) * 1000,
@@ -81,7 +86,7 @@ function getPointsSpec() {
   };
 }
 
-function getCellsSpec() {
+export function getCellsSpec() {
   const strips = $("#cell-strips").val();
   return {
     method: "equally_spaced",
@@ -111,7 +116,7 @@ function regionUsesGrid() {
 
 // Shows (generating them if needed) or hides the region and its grid, or its
 // outline for analyses without a grid.
-function showRegion(show) {
+export function showRegion(show) {
   const grid = regionUsesGrid();
   regionEntity.show = show && $("#region-type").val() == "custom";
   regionOutline.show = show && !grid;
@@ -127,7 +132,7 @@ function showRegion(show) {
 
 // Shows the controls of the grid only for analyses that sample one, and
 // enables editing the region only if it has settings to edit.
-function updateRegionControls() {
+export function updateRegionControls() {
   const grid = regionUsesGrid();
   const type = $("#region-type").val();
   $("#region-generate-group, #region-grid-settings").toggle(grid);
@@ -221,7 +226,7 @@ function drawRegionOutline() {
 
 // Adds cell polygons (GeoJSON features) as ground primitives (with edges of
 // an arc type) and outlines (if a collection is given).
-function addCellPrimitives(features, collection, outlines, arcType, colorFunction) {
+export function addCellPrimitives(features, collection, outlines, arcType, colorFunction) {
   const instances = _.map(features, function(feature, i) {
     const vertices = Cesium.Cartesian3.fromDegreesArray(_.flatten(
       _.map(feature.geometry.coordinates[0], function(c) { return [c[0], c[1]]; })
@@ -257,14 +262,14 @@ function addCellPrimitives(features, collection, outlines, arcType, colorFunctio
 
 // Cancels generating the grid, and clears it (to generate when it next
 // shows).
-function cancelRegionGrid() {
+export function cancelRegionGrid() {
   gridRequests.cancel();
   $("#region-generate").prop("disabled", false).find(".spinner-border").hide();
   clearRegionGrid();
 }
 
 const gridRequests = latestRequests();
-function generateRegionGrid() {
+export function generateRegionGrid() {
   const isLatest = gridRequests.start();
   $("#grid-error").hide().text("");
   $("#region-generate").prop("disabled", true).find(".spinner-border").show();
@@ -338,7 +343,8 @@ function regionPanelVisible() {
   return $("#nav-analysis-tab").hasClass("active") && $(".region-panel").is(":visible");
 }
 
-$(document).ready(function() {
+// Sets up this module once the page has loaded (see main.js).
+export function setupRegion() {
   regionEntity = viewer.entities.add({
     polygon: {
       hierarchy: new Cesium.PolygonHierarchy([]),
@@ -418,4 +424,4 @@ $(document).ready(function() {
   $("#region-generate").click(generateRegionGrid);
   $("#region-dialog").on("hidden.bs.modal", refreshRegion);
   changeRegionType();
-});
+}
