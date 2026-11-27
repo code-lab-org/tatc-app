@@ -76,12 +76,12 @@ def member_track_signatures(
     Returns:
         List[celery.canvas.Signature]: The task signatures.
     """
-    times = [time.isoformat() for time in request.get_display_times()]
+    display = request.get_display().model_dump(mode="json")
     colors = request.get_member_instrument_colors()
     return [
         collect_member_track_task.s(
             member.model_dump_json(),
-            times,
+            display,
             request.start.isoformat(),
             colors.get(member.name),
         )

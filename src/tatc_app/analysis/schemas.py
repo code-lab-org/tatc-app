@@ -42,6 +42,22 @@ def _item(values: Optional[Sequence[T]], index: int) -> Optional[T]:
     return values[index] if values and index < len(values) else None
 
 
+def get_display_times(display: TimeGenerator) -> pd.DatetimeIndex:
+    """
+    Gets the times of a display (up to `MAX_DISPLAY_STEPS`).
+
+    Args:
+        display (TimeGenerator): The display.
+
+    Raises:
+        ValueError: if the display has more than `MAX_DISPLAY_STEPS` times.
+
+    Returns:
+        pandas.DatetimeIndex: The times.
+    """
+    return display.to_index(MAX_DISPLAY_STEPS)
+
+
 class AnalysisRequest(CamelModel):
     """
     Base class for requests to analyze satellites and constellations over a
@@ -126,6 +142,20 @@ class AnalysisRequest(CamelModel):
         self._members = members
         return self
 
+    def get_display(self) -> TimeGenerator:
+        """
+        Gets the times at which to sample orbit tracks to animate results:
+        those requested, or the default display.
+
+        Returns:
+            TimeGenerator: The display times.
+        """
+        return self.display or TimeGenerator(
+            start=self.start,
+            end=min(self.end, self.start + DEFAULT_DISPLAY_DURATION),
+            delta=DEFAULT_DISPLAY_STEP,
+        )
+
     def get_display_times(self) -> pd.DatetimeIndex:
         """
         Gets the times at which to sample orbit tracks to animate results.
@@ -133,12 +163,7 @@ class AnalysisRequest(CamelModel):
         Returns:
             pandas.DatetimeIndex: The times.
         """
-        display = self.display or TimeGenerator(
-            start=self.start,
-            end=min(self.end, self.start + DEFAULT_DISPLAY_DURATION),
-            delta=DEFAULT_DISPLAY_STEP,
-        )
-        return display.to_index(MAX_DISPLAY_STEPS)
+        return get_display_times(self.get_display())
 
     def _get_system_members(self) -> List[Tuple[int, Satellite]]:
         """
