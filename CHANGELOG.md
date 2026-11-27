@@ -17,6 +17,8 @@ by `__version__` in `src/tatc_app/__init__.py`.
 - `TATC_MAX_TRACK_POSITIONS`: maximum number of positions (member satellites
   times sample times) of an orbit or ground track request, 200,000 by
   default (HTTP 422 beyond it).
+- Prompt to sign in again when a session expires, rather than show each
+  request's error.
 
 ### Changed
 
@@ -39,6 +41,14 @@ by `__version__` in `src/tatc_app/__init__.py`.
   tracks take new arguments: update workers with the server.
 - Declare the libraries the app imports (geopandas, numpy, pandas, pyproj,
   and shapely), require authlib < 2, and drop unused aiofiles and tzlocal.
+- Analyses are polled less often as they run (every second at first, up to
+  every 4 seconds), and polls that fail with network or server errors are
+  retried rather than ending the analysis.
+- Simplify the frontend: each analysis type's inputs and data are in one
+  place (`analysis-types.js`), and requests, number formatting, and summary
+  charts share their helpers.
+- The DataTables stylesheet and scripts are checked against integrity
+  hashes, as every other CDN asset is.
 
 ### Fixed
 
@@ -46,6 +56,8 @@ by `__version__` in `src/tatc_app/__init__.py`.
   server.
 - Result layers that finish loading after being replaced or cleared no longer
   stay on the globe, and layers hidden while loading stay hidden.
+- Dialogs are labelled by their titles for screen readers, and close with
+  Escape as soon as they show.
 
 ## [2.1.0] - 2026-11-25
 

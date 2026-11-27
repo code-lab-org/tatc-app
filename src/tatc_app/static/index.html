@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.145.0/Widgets/widgets.css" integrity="sha512-fsYfjqOKt+KyVW0YZa1aHucMVyjVuLVkCP/187bJFe+AO9vSyJnjHd3Qkt4sioYq1qrnHu81rPY3KDK8fRRykA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/css/bootstrap.min.css" integrity="sha512-P5MgMn1jBN01asBgU0z60Qk4QxiXo86+wlFahKrsQf37c9cro517WzVSPPV1tDKzhku2iJ2FVgL67wG03SGnNA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" integrity="sha512-iBBXm8fW90+nuLcSKlbmrPcLa0OT92xO1BIsZ+ywDWZCvqsWgccV3gFoRBv0z+8dLJgyAHIhR35VZc2oM/gI1w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-  <link rel="stylesheet" href="https://cdn.datatables.net/1.10.25/css/dataTables.bootstrap4.min.css" />
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.10.25/css/dataTables.bootstrap4.min.css" integrity="sha384-4UtTYhajtMBIT/C40lUDvV9Ek5nelhWx2Sf9If9D6yhxMRwM5MLDdbRIH1vWfnV5" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 
@@ -548,7 +548,7 @@
           </button>
         </div>
         <div class="modal-body">
-          <p class="mb-0">Sign in to design satellites and run analyses.</p>
+          <p class="mb-0" id="login-dialog-message">Sign in to design satellites and run analyses.</p>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-dismiss="modal">Not now</button>
@@ -559,11 +559,11 @@
   </div>
 
   <!-- Satellite / constellation editor -->
-  <div class="modal fade" id="satellite-dialog" role="dialog" data-backdrop="static">
+  <div class="modal fade" id="satellite-dialog" role="dialog" aria-labelledby="satellite-dialog-title" data-backdrop="static">
     <div class="modal-dialog modal-lg" role="document">
       <div class="modal-content dark-panel">
         <div class="modal-header">
-          <h5 class="modal-title">Edit Satellite or Constellation</h5>
+          <h5 class="modal-title" id="satellite-dialog-title">Edit Satellite or Constellation</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
             <span aria-hidden="true">&times;</span>
           </button>
@@ -655,11 +655,11 @@
   </div>
 
   <!-- CelesTrak -->
-  <div class="modal fade" id="celestrak-dialog" role="dialog">
+  <div class="modal fade" id="celestrak-dialog" tabindex="-1" role="dialog" aria-labelledby="celestrak-dialog-title">
     <div class="modal-dialog modal-lg" role="document">
       <div class="modal-content dark-panel">
         <div class="modal-header">
-          <h5 class="modal-title">Query CelesTrak</h5>
+          <h5 class="modal-title" id="celestrak-dialog-title">Query CelesTrak</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
             <span aria-hidden="true">&times;</span>
           </button>
@@ -688,11 +688,11 @@
   </div>
 
   <!-- System catalog -->
-  <div class="modal fade" id="catalog-dialog" role="dialog">
+  <div class="modal fade" id="catalog-dialog" tabindex="-1" role="dialog" aria-labelledby="catalog-dialog-title">
     <div class="modal-dialog modal-lg" role="document">
       <div class="modal-content dark-panel">
         <div class="modal-header">
-          <h5 class="modal-title">Load from System Catalog</h5>
+          <h5 class="modal-title" id="catalog-dialog-title">Load from System Catalog</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
             <span aria-hidden="true">&times;</span>
           </button>
@@ -739,11 +739,11 @@
   </div>
 
   <!-- Instrument catalog -->
-  <div class="modal fade" id="instrument-catalog-dialog" role="dialog">
+  <div class="modal fade" id="instrument-catalog-dialog" tabindex="-1" role="dialog" aria-labelledby="instrument-catalog-dialog-title">
     <div class="modal-dialog modal-lg" role="document">
       <div class="modal-content dark-panel">
         <div class="modal-header">
-          <h5 class="modal-title">Add Instrument from Catalog</h5>
+          <h5 class="modal-title" id="instrument-catalog-dialog-title">Add Instrument from Catalog</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
             <span aria-hidden="true">&times;</span>
           </button>
@@ -788,7 +788,7 @@
   </div>
 
   <!-- Region and grid -->
-  <div class="modal fade" id="region-dialog" role="dialog">
+  <div class="modal fade" id="region-dialog" tabindex="-1" role="dialog" aria-labelledby="region-dialog-title">
     <div class="modal-dialog" role="document">
       <div class="modal-content dark-panel">
         <div class="modal-header">
@@ -864,11 +864,11 @@
   </div>
 
   <!-- Ground station -->
-  <div class="modal fade" id="station-dialog" role="dialog">
+  <div class="modal fade" id="station-dialog" tabindex="-1" role="dialog" aria-labelledby="station-dialog-title">
     <div class="modal-dialog" role="document">
       <div class="modal-content dark-panel">
         <div class="modal-header">
-          <h5 class="modal-title">Edit Ground Station</h5>
+          <h5 class="modal-title" id="station-dialog-title">Edit Ground Station</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
             <span aria-hidden="true">&times;</span>
           </button>
@@ -882,11 +882,11 @@
   </div>
 
   <!-- Target point -->
-  <div class="modal fade" id="target-dialog" role="dialog">
+  <div class="modal fade" id="target-dialog" tabindex="-1" role="dialog" aria-labelledby="target-dialog-title">
     <div class="modal-dialog" role="document">
       <div class="modal-content dark-panel">
         <div class="modal-header">
-          <h5 class="modal-title">Add Target Point</h5>
+          <h5 class="modal-title" id="target-dialog-title">Add Target Point</h5>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
             <span aria-hidden="true">&times;</span>
           </button>
@@ -978,7 +978,7 @@
   </div>
 
   <!-- Results table -->
-  <div class="modal fade" id="results-dialog" tabindex="-1" role="dialog">
+  <div class="modal fade" id="results-dialog" tabindex="-1" role="dialog" aria-labelledby="results-title">
     <div class="modal-dialog modal-xl" role="document">
       <div class="modal-content dark-panel">
         <div class="modal-header">
@@ -1012,8 +1012,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.0/js/bootstrap.bundle.min.js" integrity="sha512-wV7Yj1alIZDqZFCUQJy85VN+qvEIly93fIQAN7iqDFCPEucLCeNFz4r35FCo9s6WrpdDQPi80xbljXB8Bjtvcg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.145.0/Cesium.js" integrity="sha512-sRomm/RzBx9jpW4QRpWKA8aA0FCxhEEy5NOF8wLlqhMJmywhKldjsZR7CRdjs1V4ZKO2PAPbRaCWtkOA25JBQQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js" integrity="sha512-WFN04846sdKMIP5LKNphMaWzU7YpMyCU245etK3g/2ARYbPK9Ub18eG+ljU96qKRCWh+quCY7yefSmlkQw1ANQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <script src="https://cdn.datatables.net/1.10.25/js/jquery.dataTables.min.js"></script>
-  <script src="https://cdn.datatables.net/1.10.25/js/dataTables.bootstrap4.min.js"></script>
+  <script src="https://cdn.datatables.net/1.10.25/js/jquery.dataTables.min.js" integrity="sha384-rfvKADMCRZpVdF4/h4VOowFi3EyKPCoFj7EisSOtOTwJzIA44wSTfQzSLbNPKW6F" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdn.datatables.net/1.10.25/js/dataTables.bootstrap4.min.js" integrity="sha384-bX64nQ/u/Jovgh0rdhdtHy2BMWv9TOOds6b4reiVcJ0KcA76JdIxmwar1pN2NsUj" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="index.js"></script>
   <script src="tasks.js"></script>
   <script src="layers.js"></script>
@@ -1029,6 +1029,7 @@
   <script src="target-layer.js"></script>
   <script src="summary.js"></script>
   <script src="sites.js"></script>
+  <script src="analysis-types.js"></script>
   <script src="analysis.js"></script>
   <script src="library.js"></script>
   <script src="main.js"></script>

@@ -284,15 +284,38 @@ function showResultsTable(options) {
   $("#results-dialog").modal("show");
 }
 
-// Posts JSON data, expecting a JSON response.
-function postJson(url, data) {
+// Sends a request with an optional JSON body, expecting a JSON response (or
+// none, for deletions).
+function sendJson(method, url, data) {
   return $.ajax({
     url: url,
-    type: "POST",
-    contentType: "application/json",
-    dataType: "json",
-    data: JSON.stringify(data)
+    type: method,
+    contentType: data === undefined ? undefined : "application/json",
+    data: data === undefined ? undefined : JSON.stringify(data),
+    dataType: method == "DELETE" ? "text" : "json"
   });
+}
+
+// Posts JSON data, expecting a JSON response.
+function postJson(url, data) {
+  return sendJson("POST", url, data);
+}
+
+// Tracks the latest of a kind of request, so the responses of requests it
+// superseded (or that were cancelled) are ignored: `start()` returns a
+// function that tests whether that request is still the latest, and
+// `cancel()` supersedes the request in progress.
+function latestRequests() {
+  let latest = 0;
+  return {
+    start: function() {
+      const id = ++latest;
+      return function() { return id === latest; };
+    },
+    cancel: function() {
+      latest++;
+    }
+  };
 }
 
 // Formats an error response (including FastAPI validation errors).
@@ -313,9 +336,60 @@ function formatError(xhr) {
   return String(xhr || "Request failed.");
 }
 
+// --- Formatting ---
+
+// Formats a number with at most a number of decimals (default: 1), with
+// thousands separators.
+function formatNumber(value, digits) {
+  return Number(value).toLocaleString(undefined, { maximumFractionDigits: digits === undefined ? 1 : digits });
+}
+
+// Formats a number with up to 3 significant digits (and thousands separators).
+function formatValue(value) {
+  if (value === null || value === undefined || !isFinite(value)) {
+    return "–";
+  }
+  const digits = Math.abs(value) >= 100 ? 0 : Math.abs(value) >= 10 ? 1 : 2;
+  return Number(value).toLocaleString(undefined, { maximumFractionDigits: digits });
+}
+
+// Gets the unit to show durations up to a maximum (seconds) in.
+function durationUnit(maxSeconds) {
+  if (maxSeconds < 120) { return { label: "s", seconds: 1 }; }
+  if (maxSeconds < 2 * 3600) { return { label: "min", seconds: 60 }; }
+  if (maxSeconds < 72 * 3600) { return { label: "h", seconds: 3600 }; }
+  return { label: "d", seconds: 86400 };
+}
+
+// Formats a duration (seconds) in a unit (default: one that suits it).
+function formatDuration(seconds, unit) {
+  unit = unit || durationUnit(seconds);
+  return formatValue(seconds / unit.seconds) + " " + unit.label;
+}
+
+// Formats a share (from 0 to 1) as a percentage.
+function formatShare(share) {
+  return formatValue(100 * share) + "%";
+}
+
+// Formats a length (meters) in kilometers.
+function formatKilometers(meters) {
+  return formatValue(meters / 1000) + " km";
+}
+
 // --- Authentication ---
 
 const signedInListeners = [];
+
+// Whether the user is signed in (or authentication is disabled), as last
+// known: a request then refused as unauthorized means the session expired.
+let isSignedIn = false;
+
+// Shows the dialog to sign in, with a message.
+function promptSignIn(message) {
+  $("#login-dialog-message").text(message);
+  $("#login-dialog").modal("show");
+}
 
 // Adds a listener called each time the user information shows the user is
 // signed in (or authentication is disabled).
@@ -324,6 +398,7 @@ function onSignedIn(listener) {
 }
 
 function signedIn(info) {
+  isSignedIn = true;
   $("#login-link").hide();
   $("#nav-info-tab").off("hide.bs.tab");
   if (info.mode == "oidc") {
@@ -338,6 +413,7 @@ function signedIn(info) {
 }
 
 function signedOut() {
+  isSignedIn = false;
   $("#user-menu").hide();
   $("#user-email").text("");
   $("#login-link").show();
@@ -353,7 +429,19 @@ function getUserInformation(onArrival) {
     signedOut();
     // prompt to sign in on arrival (not after signing out or on other errors)
     if (onArrival && xhr.status == 401) {
-      $("#login-dialog").modal("show");
+      promptSignIn("Sign in to design satellites and run analyses.");
+    }
+  });
+}
+
+// Prompts to sign in again when a request is refused as unauthorized after
+// signing in (the session expired), rather than show the error of each
+// request.
+function watchSession() {
+  $(document).ajaxError(function(event, xhr) {
+    if (xhr.status == 401 && isSignedIn) {
+      signedOut();
+      promptSignIn("Your session expired. Sign in again to continue.");
     }
   });
 }
@@ -399,6 +487,8 @@ $(document).ready(function() {
   });
   $("#logout-link").click(function(e) {
     e.preventDefault();
+    // signing out is not a session that expired
+    isSignedIn = false;
     $.post("/auth/logout").always(function() {
       $("#nav-info-tab").tab("show");
       getUserInformation();
@@ -418,5 +508,6 @@ $(document).ready(function() {
   $("#login-dialog").on("shown.bs.modal", function() {
     $("#login-dialog-link").trigger("focus");
   });
+  watchSession();
   getUserInformation(true);
 });

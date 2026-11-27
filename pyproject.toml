@@ -62,6 +62,11 @@ dev = [
     "pylint-pydantic",
     "pytest"
 ]
+# browser tests (tests/browser, run with TATC_BROWSER_TESTS=1), after
+# `playwright install chromium`
+browser = [
+    "playwright"
+]
 docs = [
     "autodoc_pydantic >= 2",
     "myst-parser",

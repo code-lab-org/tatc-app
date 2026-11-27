@@ -359,6 +359,22 @@ result backend, so they do not require a broker, backend, or worker (see
 and worker (configured by `TATC_BROKER` and `TATC_BACKEND`), set
 `TATC_TEST_LIVE=1`.
 
+Browser tests (`tests/browser`) drive the web app in a browser with
+Playwright: they run each type of analysis, save and run again designs and
+runs, and check the summary charts. They are skipped unless
+`TATC_BROWSER_TESTS=1`, as they need a browser and internet access (the app
+loads Cesium and other libraries from CDNs). Install the `browser` optional
+dependencies and a browser, then run them:
+```shell
+pip install -e ".[dev,browser]"
+playwright install chromium
+TATC_BROWSER_TESTS=1 pytest tests/browser
+```
+To use an installed browser instead of Playwright's, set
+`TATC_BROWSER_CHANNEL` (for example, `chrome` or `msedge`). Each test module
+runs its own server, without sign in and with tasks run eagerly (see
+`tests/browser/serve.py`).
+
 The [Tests](https://github.com/code-lab-org/tatc-app/blob/main/.github/workflows/test.yml)
 workflow checks the code style and runs the tests on every pull request, and
 before the images are built and pushed on every push to `main`, so code that

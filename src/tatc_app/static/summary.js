@@ -8,6 +8,11 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 
 // chart geometry (SVG user units; charts scale to their container's width)
 const CHART = { width: 520, height: 220, top: 14, right: 40, bottom: 36, left: 46 };
+// the size of the plot area, within the margins
+const PLOT = {
+  width: CHART.width - CHART.left - CHART.right,
+  height: CHART.height - CHART.top - CHART.bottom
+};
 
 // The terms of the results of coverage-like analyses, by type: of the
 // observations of points (coverage), or of their coincident observations
@@ -54,33 +59,7 @@ const COVERAGE_TERMS = {
   }
 };
 
-// --- Formatting ---
-
-// Picks a unit to show durations up to a maximum (seconds).
-function durationUnit(maxSeconds) {
-  if (maxSeconds < 120) { return { label: "s", seconds: 1 }; }
-  if (maxSeconds < 2 * 3600) { return { label: "min", seconds: 60 }; }
-  if (maxSeconds < 72 * 3600) { return { label: "h", seconds: 3600 }; }
-  return { label: "d", seconds: 86400 };
-}
-
-// Formats a number with up to 3 significant digits (and thousands separators).
-function formatValue(value) {
-  if (value === null || value === undefined || !isFinite(value)) {
-    return "–";
-  }
-  const digits = Math.abs(value) >= 100 ? 0 : Math.abs(value) >= 10 ? 1 : 2;
-  return Number(value).toLocaleString(undefined, { maximumFractionDigits: digits });
-}
-
-function formatDuration(seconds, unit) {
-  unit = unit || durationUnit(seconds);
-  return formatValue(seconds / unit.seconds) + " " + unit.label;
-}
-
-function formatShare(share) {
-  return formatValue(100 * share) + "%";
-}
+// --- Axes ---
 
 // Gets about `count` round tick values from 0 to (at least) a maximum.
 function niceTicks(max, count) {
@@ -147,16 +126,23 @@ function showTooltip(chart, x, y, value, label) {
   chart.tooltip.css({ left: Math.max(0, left) + "px", top: Math.max(0, y * scale - 48) + "px" });
 }
 
+// Gets the x-axis ticks (values with positions, by `x`) of round values of a
+// quantity in a unit ({label, seconds}, the size of one unit), from 0 to a
+// maximum.
+function axisTicks(max, unit, x) {
+  return _.map(_.filter(niceTicks(max / unit.seconds, 5), function(v) {
+    return v * unit.seconds <= max * 1.0001;
+  }), function(v) { return { x: x(v * unit.seconds), label: formatValue(v) }; });
+}
+
 // Draws the gridlines and y-axis labels (shares, 0 to `max`), and the x-axis
 // labels at `xTicks` (values with positions).
 function drawAxes(svg, yMax, yTicks, xTicks, xTitle) {
-  const plotWidth = CHART.width - CHART.left - CHART.right;
-  const plotHeight = CHART.height - CHART.top - CHART.bottom;
   const axes = svgElement("g", { class: "summary-axes" });
   _.forEach(yTicks, function(tick) {
-    const y = CHART.top + plotHeight * (1 - tick / yMax);
+    const y = CHART.top + PLOT.height * (1 - tick / yMax);
     axes.appendChild(svgElement("line", {
-      x1: CHART.left, x2: CHART.left + plotWidth, y1: y, y2: y, class: "summary-grid"
+      x1: CHART.left, x2: CHART.left + PLOT.width, y1: y, y2: y, class: "summary-grid"
     }));
     axes.appendChild(svgText(formatValue(100 * tick) + "%", {
       x: CHART.left - 6, y: y + 4, "text-anchor": "end", class: "summary-tick"
@@ -164,13 +150,44 @@ function drawAxes(svg, yMax, yTicks, xTicks, xTitle) {
   });
   _.forEach(xTicks, function(tick) {
     axes.appendChild(svgText(tick.label, {
-      x: tick.x, y: CHART.top + plotHeight + 16, "text-anchor": "middle", class: "summary-tick"
+      x: tick.x, y: CHART.top + PLOT.height + 16, "text-anchor": "middle", class: "summary-tick"
     }));
   });
   axes.appendChild(svgText(xTitle, {
-    x: CHART.left + plotWidth / 2, y: CHART.height - 4, "text-anchor": "middle", class: "summary-axis-title"
+    x: CHART.left + PLOT.width / 2, y: CHART.height - 4, "text-anchor": "middle", class: "summary-axis-title"
   }));
   svg.appendChild(axes);
+}
+
+// Adds the overlay over the plot of a line chart that tracks the pointer and
+// moves along the plot with the arrow keys (by `step`, a fraction of its
+// width, or 10 times that with shift): calls `show(fraction)`, from 0 at the
+// left of the plot to 1 at the right, as it moves (from the right when first
+// focused), and `hide()` as it leaves.
+function addPlotOverlay(chart, label, step, show, hide) {
+  const overlay = svgElement("rect", {
+    x: CHART.left, y: CHART.top, width: PLOT.width, height: PLOT.height,
+    fill: "transparent", tabindex: 0, "aria-label": label
+  });
+  chart.svg.appendChild(overlay);
+  let current = 1;
+  function move(fraction) {
+    current = Math.max(0, Math.min(1, fraction));
+    show(current);
+  }
+  overlay.addEventListener("pointermove", function(event) {
+    const box = chart.svg.getBoundingClientRect();
+    const svgX = (event.clientX - box.left) * CHART.width / box.width;
+    move((svgX - CHART.left) / PLOT.width);
+  });
+  overlay.addEventListener("pointerleave", hide);
+  overlay.addEventListener("focus", function() { move(current); });
+  overlay.addEventListener("blur", hide);
+  overlay.addEventListener("keydown", function(event) {
+    const delta = (event.shiftKey ? 10 : 1) * step;
+    if (event.key == "ArrowRight") { move(current + delta); event.preventDefault(); }
+    if (event.key == "ArrowLeft") { move(current - delta); event.preventDefault(); }
+  });
 }
 
 // --- Charts ---
@@ -189,14 +206,10 @@ function coverageChart(curve, terms) {
     terms.curveSubtitle + ", since the start of the analysis",
     { columns: ["Time (" + unit.label + ")", terms.curveColumn], rows: rows }
   );
-  const plotWidth = CHART.width - CHART.left - CHART.right;
-  const plotHeight = CHART.height - CHART.top - CHART.bottom;
-  const x = function(t) { return CHART.left + plotWidth * t / duration; };
-  const y = function(share) { return CHART.top + plotHeight * (1 - share); };
+  const x = function(t) { return CHART.left + PLOT.width * t / duration; };
+  const y = function(share) { return CHART.top + PLOT.height * (1 - share); };
   const yTicks = [0, 0.25, 0.5, 0.75, 1];
-  const xTicks = _.map(_.filter(niceTicks(duration / unit.seconds, 5), function(v) {
-    return v * unit.seconds <= duration * 1.0001;
-  }), function(v) { return { x: x(v * unit.seconds), label: formatValue(v) }; });
+  const xTicks = axisTicks(duration, unit, x);
   drawAxes(chart.svg, 1, yTicks, xTicks, "Time since start (" + unit.label + ")");
 
   const points = _.map(curve.times, function(t, i) { return [x(t), y(curve.shares[i])]; });
@@ -211,46 +224,28 @@ function coverageChart(curve, terms) {
     x: end[0] + 6, y: end[1] + 4, class: "summary-end-label"
   }));
 
-  // crosshair, marker, and the overlay that tracks the pointer
-  const crosshair = svgElement("line", { y1: CHART.top, y2: CHART.top + plotHeight, class: "summary-crosshair", visibility: "hidden" });
+  // crosshair and marker at the sample nearest the pointer (keys step by
+  // samples)
+  const crosshair = svgElement("line", { y1: CHART.top, y2: CHART.top + PLOT.height, class: "summary-crosshair", visibility: "hidden" });
   const marker = svgElement("circle", { r: 4, class: "summary-marker", visibility: "hidden" });
   chart.svg.appendChild(crosshair);
   chart.svg.appendChild(marker);
-  const overlay = svgElement("rect", {
-    x: CHART.left, y: CHART.top, width: plotWidth, height: plotHeight,
-    fill: "transparent", tabindex: 0, "aria-label": "Share observed over time (use the arrow keys)"
-  });
-  chart.svg.appendChild(overlay);
-  let current = points.length - 1;
-  function show(i) {
-    current = Math.max(0, Math.min(points.length - 1, i));
-    const p = points[current];
+  const samples = Math.max(1, points.length - 1);
+  addPlotOverlay(chart, "Share observed over time (use the arrow keys)", 1 / samples, function(fraction) {
+    const i = Math.min(Math.round(fraction * samples), points.length - 1);
+    const p = points[i];
     crosshair.setAttribute("x1", p[0]);
     crosshair.setAttribute("x2", p[0]);
     crosshair.setAttribute("visibility", "visible");
     marker.setAttribute("cx", p[0]);
     marker.setAttribute("cy", p[1]);
     marker.setAttribute("visibility", "visible");
-    showTooltip(chart, p[0], p[1], formatShare(curve.shares[current]),
-      "observed by " + formatDuration(curve.times[current], unit));
-  }
-  function hide() {
+    showTooltip(chart, p[0], p[1], formatShare(curve.shares[i]),
+      "observed by " + formatDuration(curve.times[i], unit));
+  }, function() {
     crosshair.setAttribute("visibility", "hidden");
     marker.setAttribute("visibility", "hidden");
     chart.tooltip.hide();
-  }
-  overlay.addEventListener("pointermove", function(event) {
-    const box = chart.svg.getBoundingClientRect();
-    const svgX = (event.clientX - box.left) * CHART.width / box.width;
-    show(Math.round((svgX - CHART.left) / plotWidth * (points.length - 1)));
-  });
-  overlay.addEventListener("pointerleave", hide);
-  overlay.addEventListener("focus", function() { show(current); });
-  overlay.addEventListener("blur", hide);
-  overlay.addEventListener("keydown", function(event) {
-    const step = event.shiftKey ? 10 : 1;
-    if (event.key == "ArrowRight") { show(current + step); event.preventDefault(); }
-    if (event.key == "ArrowLeft") { show(current - step); event.preventDefault(); }
   });
   return chart.card;
 }
@@ -275,24 +270,20 @@ function histogramChart(histogram, title, subtitle, axis, options) {
     columns: [axis + " (" + unit.label + ")", "Share of " + of],
     rows: _.map(bins, function(bin) { return [binLabel(bin), formatShare(bin.share)]; })
   });
-  const plotWidth = CHART.width - CHART.left - CHART.right;
-  const plotHeight = CHART.height - CHART.top - CHART.bottom;
   const yTicks = niceTicks(_.max(histogram.shares) || 1, 4);
   const yMax = _.last(yTicks);
-  const x = function(seconds) { return CHART.left + plotWidth * seconds / maxEdge; };
-  const y = function(share) { return CHART.top + plotHeight * (1 - share / yMax); };
-  const xTicks = _.map(_.filter(niceTicks(maxEdge / unit.seconds, 5), function(v) {
-    return v * unit.seconds <= maxEdge * 1.0001;
-  }), function(v) { return { x: x(v * unit.seconds), label: formatValue(v) }; });
+  const x = function(seconds) { return CHART.left + PLOT.width * seconds / maxEdge; };
+  const y = function(share) { return CHART.top + PLOT.height * (1 - share / yMax); };
+  const xTicks = axisTicks(maxEdge, unit, x);
   drawAxes(chart.svg, yMax, yTicks, xTicks, axis + " (" + unit.label + ")");
 
-  const slot = plotWidth / bins.length;
+  const slot = PLOT.width / bins.length;
   // columns at most 24 units wide, with a 2-unit gap between neighbors
   const width = Math.min(24, slot - 2);
   _.forEach(bins, function(bin, i) {
     const left = CHART.left + i * slot + (slot - width) / 2;
     const top = y(bin.share);
-    const height = CHART.top + plotHeight - top;
+    const height = CHART.top + PLOT.height - top;
     if (height > 0) {
       // rounded at the data end (top), square at the baseline
       const r = Math.min(4, height, width / 2);
@@ -308,7 +299,7 @@ function histogramChart(histogram, title, subtitle, axis, options) {
     }
     // the hit target is the whole slot, taller and wider than the column
     const hit = svgElement("rect", {
-      x: CHART.left + i * slot, y: CHART.top, width: slot, height: plotHeight,
+      x: CHART.left + i * slot, y: CHART.top, width: slot, height: PLOT.height,
       fill: "transparent", tabindex: 0,
       "aria-label": binLabel(bin) + ": " + formatShare(bin.share) + " of " + of
     });
@@ -370,13 +361,9 @@ function comparisonChart(series, terms) {
     });
     chart.plot.before(legend);
   }
-  const plotWidth = CHART.width - CHART.left - CHART.right;
-  const plotHeight = CHART.height - CHART.top - CHART.bottom;
-  const x = function(t) { return CHART.left + plotWidth * t / duration; };
-  const y = function(share) { return CHART.top + plotHeight * (1 - share); };
-  const xTicks = _.map(_.filter(niceTicks(duration / unit.seconds, 5), function(v) {
-    return v * unit.seconds <= duration * 1.0001;
-  }), function(v) { return { x: x(v * unit.seconds), label: formatValue(v) }; });
+  const x = function(t) { return CHART.left + PLOT.width * t / duration; };
+  const y = function(share) { return CHART.top + PLOT.height * (1 - share); };
+  const xTicks = axisTicks(duration, unit, x);
   drawAxes(chart.svg, 1, [0, 0.25, 0.5, 0.75, 1], xTicks, "Time since start (" + unit.label + ")");
 
   const ends = [];
@@ -410,22 +397,15 @@ function comparisonChart(series, terms) {
     chart.svg.appendChild(svgText(end.label, { x: end.x + 6, y: end.y + 4, class: "summary-end-label" }));
   });
 
-  const crosshair = svgElement("line", { y1: CHART.top, y2: CHART.top + plotHeight, class: "summary-crosshair", visibility: "hidden" });
+  const crosshair = svgElement("line", { y1: CHART.top, y2: CHART.top + PLOT.height, class: "summary-crosshair", visibility: "hidden" });
   chart.svg.appendChild(crosshair);
   const markers = _.map(series, function(s) {
     const marker = svgElement("circle", { r: 4, class: "summary-marker", style: "fill:" + s.color, visibility: "hidden" });
     chart.svg.appendChild(marker);
     return marker;
   });
-  const overlay = svgElement("rect", {
-    x: CHART.left, y: CHART.top, width: plotWidth, height: plotHeight,
-    fill: "transparent", tabindex: 0, "aria-label": "Shares observed over time (use the arrow keys)"
-  });
-  chart.svg.appendChild(overlay);
-  let current = 1;
-  function show(fraction) {
-    current = Math.max(0, Math.min(1, fraction));
-    const t = current * duration;
+  addPlotOverlay(chart, "Shares observed over time (use the arrow keys)", 0.01, function(fraction) {
+    const t = fraction * duration;
     crosshair.setAttribute("x1", x(t));
     crosshair.setAttribute("x2", x(t));
     crosshair.setAttribute("visibility", "visible");
@@ -447,24 +427,10 @@ function comparisonChart(series, terms) {
     const scale = chart.plot.width() / CHART.width || 1;
     const left = Math.min(x(t) * scale + 12, chart.plot.width() - chart.tooltip.outerWidth());
     chart.tooltip.css({ left: Math.max(0, left) + "px", top: "0px" });
-  }
-  function hide() {
+  }, function() {
     crosshair.setAttribute("visibility", "hidden");
     _.forEach(markers, function(m) { m.setAttribute("visibility", "hidden"); });
     chart.tooltip.hide();
-  }
-  overlay.addEventListener("pointermove", function(event) {
-    const box = chart.svg.getBoundingClientRect();
-    const svgX = (event.clientX - box.left) * CHART.width / box.width;
-    show((svgX - CHART.left) / plotWidth);
-  });
-  overlay.addEventListener("pointerleave", hide);
-  overlay.addEventListener("focus", function() { show(current); });
-  overlay.addEventListener("blur", hide);
-  overlay.addEventListener("keydown", function(event) {
-    const step = event.shiftKey ? 0.1 : 0.01;
-    if (event.key == "ArrowRight") { show(current + step); event.preventDefault(); }
-    if (event.key == "ArrowLeft") { show(current - step); event.preventDefault(); }
   });
   return chart.card;
 }
@@ -563,10 +529,6 @@ function renderRegionSummary(container, summary) {
     "Areas are of the swaths' footprints sampled every step, measured on the WGS 84 ellipsoid."));
 }
 
-// Formats a length (meters) in kilometers.
-function formatKilometers(meters) {
-  return formatValue(meters / 1000) + " km";
-}
 
 // Renders the summary of ground sample sizes (`sample_size` of a coverage
 // summary) in a container.

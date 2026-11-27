@@ -290,7 +290,7 @@ function commitSatelliteDialog() {
 // forwarded to CelesTrak. Objects have general perturbations orbits (from
 // orbit mean-elements messages) and, if their catalog numbers are within the
 // range of two line elements (Alpha-5, up to 339999), also TLE.
-let celestrakQuery = 0;
+const celestrakQueries = latestRequests();
 
 // Gets the orbit of a CelesTrak object in the format of the edited orbit:
 // OMM (a general perturbations orbit), or TLE if the object has them.
@@ -308,7 +308,7 @@ function celestrakElementsText(orbit) {
 
 function queryCelestrak() {
   const query = _.trim($("#celestrak-name").val());
-  const queryId = ++celestrakQuery;
+  const isLatest = celestrakQueries.start();
   $("#celestrak-objects").empty();
   $("#celestrak-tle").val("").attr("rows", 2);
   $("#celestrak-tle-ok").prop("disabled", true);
@@ -318,7 +318,7 @@ function queryCelestrak() {
   }
   $("#celestrak-status").text("Searching...");
   $.get("/celestrak/search", { query: query }).done(function(response) {
-    if (queryId != celestrakQuery) {
+    if (!isLatest()) {
       return;
     }
     _.forEach(response.objects, function(object) {
@@ -334,7 +334,7 @@ function queryCelestrak() {
     }
     $("#celestrak-status").text(status + ".");
   }).fail(function(xhr) {
-    if (queryId == celestrakQuery) {
+    if (isLatest()) {
       $("#celestrak-status").text(formatError(xhr));
     }
   });
