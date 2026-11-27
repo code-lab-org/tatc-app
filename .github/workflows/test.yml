@@ -66,4 +66,4 @@ jobs:
       - name: Run the browser tests
         env:
           TATC_BROWSER_TESTS: "1"
-        run: pytest tests/browser
+        run: pytest tests/browser -n auto

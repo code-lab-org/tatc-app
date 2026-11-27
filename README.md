@@ -381,12 +381,13 @@ dependencies and a browser, then run them:
 ```shell
 pip install -e ".[dev,browser]"
 playwright install chromium
-TATC_BROWSER_TESTS=1 pytest tests/browser
+TATC_BROWSER_TESTS=1 pytest tests/browser -n 4
 ```
 To use an installed browser instead of Playwright's, set
-`TATC_BROWSER_CHANNEL` (for example, `chrome` or `msedge`). Each test module
-runs its own server, without sign in and with tasks run eagerly (see
-`tests/browser/serve.py`).
+`TATC_BROWSER_CHANNEL` (for example, `chrome` or `msedge`). Each test process
+(`-n`) runs its own server, without sign in and with tasks run eagerly (see
+`tests/browser/serve.py`), and its own browser: 4 processes take about half
+the time of one.
 
 The [Tests](https://github.com/code-lab-org/tatc-app/blob/main/.github/workflows/test.yml)
 workflow checks the code style and runs the tests (with their coverage in the

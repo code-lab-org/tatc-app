@@ -8,9 +8,9 @@ and internet access (the app loads Cesium and other libraries from CDNs).
 Set `TATC_BROWSER_CHANNEL` to use an installed browser instead (for example,
 `chrome` or `msedge`).
 
-Each test module runs its own server (`serve.py`), with an empty database,
-and each test opens the app in a new browser context. A test fails if the
-page logs a script error.
+Each test process runs its own server (`serve.py`), with an empty database,
+so the tests may run in parallel (`pytest -n 4`), and each test opens the app
+in a new browser context. A test fails if the page logs a script error.
 """
 
 import os
@@ -20,6 +20,8 @@ import sys
 import time
 
 import pytest
+
+from .helpers import track_requests, wait_for_requests
 
 ENABLED = os.getenv("TATC_BROWSER_TESTS", "0") == "1"
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -56,10 +58,10 @@ def _wait_for(port: int, server: subprocess.Popen, timeout: float = 120) -> None
     raise RuntimeError(f"The app server did not start on port {port}.")
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def app_url():
     """
-    Runs the app (with an empty database) for the tests of a module.
+    Runs the app (with an empty database) for the tests of a process.
     """
     port = _free_port()
     with subprocess.Popen(
@@ -107,8 +109,11 @@ def page(browser, app_url):  # pylint: disable=redefined-outer-name
     opened.on("pageerror", lambda error: errors.append(str(error)))
     # accept confirmations, and prompts with their default
     opened.on("dialog", lambda dialog: dialog.accept(dialog.default_value))
-    opened.goto(app_url, wait_until="networkidle", timeout=90000)
-    opened.wait_for_timeout(1500)
+    track_requests(opened, app_url)
+    opened.goto(app_url, wait_until="load", timeout=90000)
+    # the app has loaded its design and validated its satellites (rather than
+    # wait for the network to be idle, as the globe loads imagery from CDNs)
+    wait_for_requests(opened)
     yield opened
     context.close()
     # failed requests (such as those refused on purpose) are logged too
