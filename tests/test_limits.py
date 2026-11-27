@@ -196,6 +196,33 @@ class ActiveAnalysesTestCase(CoverageTestCase):
             ):
                 self.assertEqual(response.status_code, 429, response.text)
 
+    def test_every_analysis_counts(self):
+        body = coverage_request(end=START + timedelta(hours=1)).model_dump(mode="json")
+        satellites = [
+            body["satellites"][0],
+            dict(body["satellites"][0], name="Other"),
+        ]
+        point = {"id": 0, "latitude": 0, "longitude": 0}
+        station = {"name": "GS", "latitude": 40, "longitude": -105}
+        requests = {
+            "coverage": body,
+            "coincidence": body | {"satellites": satellites},
+            "latency": body | {"stations": [station]},
+            "overflight": body | {"points": [point]},
+            "swaths": {k: body[k] for k in ("satellites", "start", "end")},
+        }
+        with (
+            mock.patch.object(limits, "MAX_ACTIVE_ANALYSES", 1),
+            mock.patch.object(analysis_quota, "_is_ready", lambda task_id: False),
+        ):
+            for analysis, request in requests.items():
+                with self.subTest(analysis):
+                    first = self.client.post(f"/analyze/{analysis}", json=request)
+                    self.assertEqual(first.status_code, 200, first.text)
+                    second = self.client.post(f"/analyze/{analysis}", json=request)
+                    self.assertEqual(second.status_code, 429, second.text)
+                analysis_quota._running.clear()  # pylint: disable=protected-access
+
     def test_failed_request_releases_slot(self):
         request = coverage_request()
         with mock.patch.object(limits, "MAX_ACTIVE_ANALYSES", 1):

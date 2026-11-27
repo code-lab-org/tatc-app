@@ -1,3 +1,4 @@
+import re
 import time
 import unittest
 from urllib.parse import parse_qs, urlparse
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 from starlette.middleware.sessions import SessionMiddleware
 
 from tatc_app.auth import User
+from tatc_app.main import app
 
 from .base import OIDC_METADATA, TatcTestCase, create_oidc_authenticator
 
@@ -149,4 +151,17 @@ class NoAuthenticationTestCase(TatcTestCase):
 
     def test_protected_routes_require_authentication(self):
         self.require_authentication()
-        self.assertEqual(self.client.get("/tasks/0/status").status_code, 401)
+        # every endpoint (of the API documentation) other than authentication's
+        routes = [
+            (method, path)
+            for path, operations in app.openapi()["paths"].items()
+            if not path.startswith("/auth/")
+            for method in operations
+        ]
+        self.assertGreater(len(routes), 40)
+        for method, path in routes:
+            with self.subTest(f"{method} {path}"):
+                response = self.client.request(
+                    method, re.sub(r"\{[^}]+\}", "1", path), json={}
+                )
+                self.assertEqual(response.status_code, 401, response.text)

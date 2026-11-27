@@ -80,3 +80,38 @@ class TaskRevokeTestCase(TatcTestCase):
     def test_revoke_invalid_id(self):
         response = self.client.post("/tasks/0/revoke")
         self.assertEqual(response.status_code, 422, response.text)
+
+
+class TaskStatusTestCase(TatcTestCase):
+    def test_progress(self):
+        # (eager tasks do not link a workflow to its group: save one)
+        children = [AsyncResult(str(uuid4()), app=celery_app) for _ in range(3)]
+        for child in children[:2]:
+            celery_app.backend.mark_as_done(child.id, {})
+        group = GroupResult(str(uuid4()), children, app=celery_app)
+        group.save()
+        response = self.client.get(f"/tasks/{group.id}/progress")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"task_count": 3, "completed_count": 2})
+
+    def test_progress_unknown_group(self):
+        response = self.client.get(f"/tasks/{uuid4()}/progress")
+        self.assertEqual(response.status_code, 404, response.text)
+
+    def test_pending_task(self):
+        # the result backend does not distinguish unknown tasks from pending
+        task_id = str(uuid4())
+        status = self.get_json(f"/tasks/{task_id}/status")
+        self.assertEqual(status, {"ready": False, "successful": False})
+        response = self.client.get(f"/analyze/coverage/{task_id}")
+        self.assertEqual(response.status_code, 409, response.text)
+
+    def test_failed_task(self):
+        task_id = str(uuid4())
+        celery_app.backend.mark_as_failure(task_id, RuntimeError("Out of memory"))
+        status = self.get_json(f"/tasks/{task_id}/status")
+        self.assertEqual(status, {"ready": True, "successful": False})
+        with self.assertLogs("tatc_app", level="ERROR"):
+            response = self.client.get(f"/analyze/coverage/{task_id}")
+        self.assertEqual(response.status_code, 500, response.text)
+        self.assertIn("Task failed: Out of memory", response.json()["detail"])
