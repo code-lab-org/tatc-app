@@ -52,6 +52,11 @@ by `__version__` in `src/tatc_app/__init__.py`.
 - The frontend is ES modules, loaded from `main.js`, rather than scripts
   sharing global names in the order of `index.html`: each module imports
   what it uses, and `main.js` sets the modules up in order.
+- CI runs the tests in a process per CPU and reports the code they cover
+  (`pytest -n auto --cov=tatc_app`, with `pytest-xdist` and `pytest-cov` in
+  the `dev` dependencies). Tests check that every endpoint requires a signed-in
+  user, that every analysis counts toward `TATC_MAX_ACTIVE_ANALYSES`, and the
+  progress and failure of tasks.
 
 ### Fixed
 
