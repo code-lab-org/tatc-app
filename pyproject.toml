@@ -32,7 +32,7 @@ dependencies = [
     "httpx",
     # used, but not required, by Starlette's SessionMiddleware
     "itsdangerous",
-    "msgpack-asgi",
+    "msgpack-asgi >= 2",
     # also installed by tatc, but imported directly
     "numpy",
     "pandas",
