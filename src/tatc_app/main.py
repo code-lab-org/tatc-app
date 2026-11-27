@@ -5,6 +5,7 @@ TAT-C application configuration.
 """
 
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI
@@ -36,6 +37,10 @@ CESIUM_TOKEN = os.getenv("TATC_CESIUM_TOKEN", "")
 SECRET = os.getenv("TATC_SECRET", "change me")
 if authenticator.mode == "oidc" and SECRET == "change me":
     raise ValueError("Set TATC_SECRET to a random secret to sign user sessions.")
+
+# the files of the frontend, part of the package (so they do not depend on
+# the working directory)
+STATIC_DIR = Path(__file__).parent / "static"
 
 # Create the FastAPI app
 app = FastAPI(
@@ -92,5 +97,6 @@ class FrontendFiles(StaticFiles):
         return response
 
 
-# Mount a static directory to the root (/) route for any other requests
-app.mount("/", FrontendFiles(directory="src/static", html=True), name="frontend")
+# Mount the frontend (installed with the package) to the root (/) route for
+# any other requests
+app.mount("/", FrontendFiles(directory=STATIC_DIR, html=True), name="frontend")

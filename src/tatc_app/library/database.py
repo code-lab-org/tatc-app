@@ -59,11 +59,18 @@ INDEXES = """
 CREATE INDEX IF NOT EXISTS runs_by_design ON runs (user_id, design_id);
 """
 
-# selects designs (`d`) with their numbers of runs
-SELECT_DESIGNS = (
-    "SELECT d.*, (SELECT COUNT(*) FROM runs r WHERE r.user_id = d.user_id "
-    "AND r.design_id = d.id) AS runs FROM designs d"
+# columns of designs (`d`) without their data, with their numbers of
+# satellites (counted by SQLite, so listing designs does not read and parse
+# the data of each) and runs
+DESIGN_COLUMNS = (
+    "d.id, d.name, d.created, d.updated, "
+    "COALESCE(json_array_length(d.data, '$.satellites'), 0) AS satellites, "
+    "(SELECT COUNT(*) FROM runs r WHERE r.user_id = d.user_id "
+    "AND r.design_id = d.id) AS runs"
 )
+
+# columns of runs without their inputs (`request` and `design`)
+RUN_COLUMNS = "id, name, analysis, design_id, created, summary"
 
 # a field of an update left unchanged
 UNCHANGED = object()
@@ -71,11 +78,6 @@ UNCHANGED = object()
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def _count_satellites(data: str) -> int:
-    satellites = json.loads(data).get("satellites")
-    return len(satellites) if isinstance(satellites, list) else 0
 
 
 def migrate(connection: sqlite3.Connection) -> None:
@@ -158,7 +160,7 @@ class Library:
             "name": row["name"],
             "created": row["created"],
             "updated": row["updated"],
-            "satellites": _count_satellites(row["data"]),
+            "satellites": row["satellites"],
             "runs": row["runs"],
         }
         if include_data:
@@ -171,7 +173,8 @@ class Library:
         of runs), latest first.
         """
         rows = self._query(
-            f"{SELECT_DESIGNS} WHERE d.user_id = ? ORDER BY d.updated DESC",
+            f"SELECT {DESIGN_COLUMNS} FROM designs d WHERE d.user_id = ? "
+            "ORDER BY d.updated DESC",
             (user_id,),
         )
         return [self._design(row, False) for row in rows]
@@ -181,7 +184,8 @@ class Library:
         Gets a design of a user (with its data), or `None` if not found.
         """
         rows = self._query(
-            f"{SELECT_DESIGNS} WHERE d.user_id = ? AND d.id = ?",
+            f"SELECT {DESIGN_COLUMNS}, d.data FROM designs d "
+            "WHERE d.user_id = ? AND d.id = ?",
             (user_id, design_id),
         )
         return self._design(rows[0], True) if rows else None
@@ -267,7 +271,7 @@ class Library:
         inputs), latest first, optionally of one analysis or saved under one
         design.
         """
-        sql = "SELECT * FROM runs WHERE user_id = ?"
+        sql = f"SELECT {RUN_COLUMNS} FROM runs WHERE user_id = ?"
         parameters = [user_id]
         if analysis is not None:
             sql += " AND analysis = ?"
@@ -283,7 +287,9 @@ class Library:
         Gets a run of a user (with its inputs), or `None` if not found.
         """
         rows = self._query(
-            "SELECT * FROM runs WHERE user_id = ? AND id = ?", (user_id, run_id)
+            f"SELECT {RUN_COLUMNS}, request, design FROM runs "
+            "WHERE user_id = ? AND id = ?",
+            (user_id, run_id),
         )
         return self._run(rows[0], True) if rows else None
 

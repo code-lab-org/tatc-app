@@ -611,6 +611,9 @@ function startAnalysis(type, payload, designSnapshot) {
         applyDisplayMode();
       }
       loadCzmlLayer("analysis", endpoint + "/" + taskId + "/czml", { clock: false }).then(function(source) {
+        if (!source) {
+          return;
+        }
         applySatelliteDisplayOptions(source);
         // the analysis type may change while the CZML loads: then keep the
         // clock paused

@@ -57,6 +57,10 @@ MAX_ACTIVE_ANALYSES = int(_env_number("TATC_MAX_ACTIVE_ANALYSES", 3))
 # for no limit)
 TASK_TIME_LIMIT = int(_env_number("TATC_TASK_TIME_LIMIT", 3600))
 
+# time (seconds) that a request waits for a worker to generate its points or
+# cells before giving up (0 for no limit)
+GENERATION_TIMEOUT = _env_number("TATC_GENERATION_TIMEOUT", 300)
+
 # time (seconds) for which the backend keeps task results
 RESULT_EXPIRES = int(_env_number("TATC_RESULT_EXPIRES", 86400))
 

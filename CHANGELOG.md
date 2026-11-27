@@ -9,6 +9,29 @@ by `__version__` in `src/tatc_app/__init__.py`.
 
 ## [Unreleased]
 
+### Added
+
+- `TATC_GENERATION_TIMEOUT`: time that a request waits for a worker to
+  generate its points or cells before failing (HTTP 503), 300 seconds by
+  default.
+
+### Changed
+
+- Workers generate points and cells from their own queue (`generation`), so
+  a request waits for the next free worker process rather than behind queued
+  analyses. Workers started without `-Q` consume both queues; update workers
+  with (or before) the server.
+- The frontend is part of the package (`src/tatc_app/static`), so the server
+  no longer depends on starting from the project root.
+- Listing saved designs and runs no longer reads their data and inputs.
+
+### Fixed
+
+- Polling task status and progress no longer blocks other requests to the
+  server.
+- Result layers that finish loading after being replaced or cleared no longer
+  stay on the globe, and layers hidden while loading stay hidden.
+
 ## [2.1.0] - 2026-11-25
 
 ### Added

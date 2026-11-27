@@ -197,6 +197,11 @@ deployment stays responsive. Set these limits for the server:
    running at once (default: `3`; `0` for no limit). Further analyses are
    refused (HTTP 429) until one finishes or is canceled. The server tracks
    running analyses in memory, so the limit applies per server process.
+ * `TATC_GENERATION_TIMEOUT`: time (seconds) that a request waits for a
+   worker to generate its points or cells before failing (HTTP 503)
+   (default: `300`; `0` for no limit). Workers generate points and cells
+   from their own queue (`generation`), so a request waits for the next free
+   worker process rather than behind queued analyses.
  * `TATC_MAX_SAVED_ITEMS`: maximum number of saved designs, and of saved runs,
    of each user (default: `500` each)
  * `TATC_MAX_SAVED_BYTES`: maximum size of a saved design or run, as JSON
@@ -304,8 +309,9 @@ pip install -e .
 
 For local development without sign in, set `TATC_AUTH=none` in the `.env`
 file (see [Configuration](#configuration)). To start the TAT-C server
-application, run the command from the project root (the server serves the GUI
-from `src/static`):
+application, run the command from the project root (to reload the server when
+a file of `src` changes; the server serves the GUI from
+`src/tatc_app/static`, part of the package):
 ```shell
 uvicorn tatc_app.main:app --reload --reload-dir src
 ```

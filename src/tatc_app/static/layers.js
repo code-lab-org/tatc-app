@@ -3,13 +3,27 @@
 // legends.
 
 const czmlSources = {};
+// the latest load of each named layer: a later load, or a clear, while a
+// document loads makes that load stale, so its source is never added
+const czmlLoads = {};
+// whether each named layer is shown (default: shown), kept while no source
+// is loaded so that a source finishing its load is shown (or not) as asked
+const czmlShown = {};
 
 // Loads a CZML document as the named layer, replacing any previous one.
-// Returns a promise resolving to the data source.
+// Returns a promise resolving to the data source, or to null if the load
+// became stale (see `czmlLoads`).
 function loadCzmlLayer(name, url, options) {
   options = options || {};
   clearCzmlLayer(name);
+  const load = {};
+  czmlLoads[name] = load;
   return Cesium.CzmlDataSource.load(url).then(function(source) {
+    if (czmlLoads[name] !== load) {
+      return null;
+    }
+    delete czmlLoads[name];
+    source.show = czmlShown[name] !== false;
     czmlSources[name] = source;
     return viewer.dataSources.add(source).then(function() {
       if (options.clock !== false && source.clock) {
@@ -25,6 +39,7 @@ function getCzmlLayer(name) {
 }
 
 function clearCzmlLayer(name) {
+  delete czmlLoads[name];
   if (czmlSources[name]) {
     viewer.dataSources.remove(czmlSources[name], true);
     delete czmlSources[name];
@@ -32,6 +47,7 @@ function clearCzmlLayer(name) {
 }
 
 function showCzmlLayer(name, show) {
+  czmlShown[name] = show;
   if (czmlSources[name]) {
     czmlSources[name].show = show;
   }

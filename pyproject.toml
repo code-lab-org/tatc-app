@@ -44,7 +44,7 @@ Issues = "https://github.com/code-lab-org/tatc-app/issues"
 where = ["src"]
 
 [tool.setuptools.package-data]
-tatc_app = ["resources/*.zip"]
+tatc_app = ["resources/*.zip", "static/*"]
 
 [project.optional-dependencies]
 dev = [

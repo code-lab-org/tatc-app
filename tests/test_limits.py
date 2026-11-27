@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 import numpy as np
+from celery.exceptions import TimeoutError as CeleryTimeoutError
 from fastapi import HTTPException
 from shapely.geometry import box
 from tatc.constants import EARTH_MEAN_RADIUS
@@ -13,7 +14,7 @@ from tatc_app import limits
 from tatc_app.celery.quota import TaskQuota, analysis_quota
 from tatc_app.coverage.schemas import CoverageAnalysisRequest
 from tatc_app.generation.schemas import CellGenerator, PointGenerator
-from tatc_app.generation.tasks import count_uniform_candidates
+from tatc_app.generation.tasks import count_uniform_candidates, generate_points_task
 from tatc_app.worker import app as celery_app
 
 from .base import TatcTestCase
@@ -95,6 +96,19 @@ class GenerationLimitsTestCase(TatcTestCase):
             response = self.client.post("/generate/cells", json={"distance": 2000e3})
         self.assertEqual(response.status_code, 422, response.text)
         self.assertIn("Too many cells", response.json()["detail"])
+
+    def test_generation_timeout(self):
+        # no worker generates the points in time
+        result = mock.Mock()
+        result.get.side_effect = CeleryTimeoutError()
+        with (
+            mock.patch.object(limits, "GENERATION_TIMEOUT", 5),
+            mock.patch.object(generate_points_task, "delay", return_value=result),
+        ):
+            response = self.client.post("/generate/points", json={"distance": 2000e3})
+        self.assertEqual(response.status_code, 503, response.text)
+        result.get.assert_called_once_with(timeout=5)
+        result.revoke.assert_called_once()
 
     def test_count_uniform_candidates(self):
         # the count must agree with the grid TAT-C generates

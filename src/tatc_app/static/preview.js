@@ -100,6 +100,9 @@ function previewOrbits() {
       previewResult = result;
       $("#orbit-data").prop("disabled", false);
       loadCzmlLayer("design", "/analyze/swaths/" + taskId + "/czml").then(function(source) {
+        if (!source) {
+          return;
+        }
         source.show = $("#nav-design-tab").hasClass("active");
         previewLayers = buildPreviewLayers(result, systems, source);
         applyPreviewDisplayOptions();
