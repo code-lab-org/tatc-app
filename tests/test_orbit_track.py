@@ -16,12 +16,7 @@ from tatc_app.tracking.schemas import OrbitTrackAnalysisRequest
 from tatc_app.tracking.tasks import collect_track_task
 from tatc_app.utils.serialization import from_geojson
 
-from .base import TatcTestCase
-
-TLE = [
-    "1 25544U 98067A   22171.11255782  .00008307  00000+0  15444-3 0  9992",
-    "2 25544  51.6448 322.0970 0003980 282.3738 231.6559 15.49798078345636",
-]
+from .base import TLE, TatcTestCase
 
 
 class AnalyzeTrackTestCase(TatcTestCase):
@@ -55,7 +50,7 @@ class AnalyzeTrackTestCase(TatcTestCase):
         )
 
     def test_analyze_orbit_track_time_generator(self):
-        task = self.run_analysis(
+        result = self.analysis_result(
             "/analyze/orbit-track",
             OrbitTrackAnalysisRequest(
                 satellite=self.satellite,
@@ -66,7 +61,6 @@ class AnalyzeTrackTestCase(TatcTestCase):
                 ),
             ),
         )
-        result = self.get_json(f"/analyze/orbit-track/{task['task_id']}")
         self.assertEqual(len(result["features"]), len(self.times))
 
     def test_instrument_index_out_of_bounds(self):

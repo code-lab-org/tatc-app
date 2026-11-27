@@ -19,12 +19,7 @@ from tatc_app.overflight.schemas import (
     OverflightAnalysisResult,
 )
 
-from .base import TatcTestCase
-
-TLE = [
-    "1 25544U 98067A   22171.11255782  .00008307  00000+0  15444-3 0  9992",
-    "2 25544  51.6448 322.0970 0003980 282.3738 231.6559 15.49798078345636",
-]
+from .base import TLE, TatcTestCase
 
 
 class OverflightAnalysisTestCase(TatcTestCase):
@@ -52,7 +47,7 @@ class OverflightAnalysisTestCase(TatcTestCase):
         self.end = datetime(2022, 6, 3, tzinfo=timezone.utc)
 
     def test_analyze_overflight(self):
-        task = self.run_analysis(
+        result = self.analysis_result(
             "/analyze/overflight",
             OverflightAnalysisRequest(
                 satellites=self.satellites,
@@ -60,9 +55,7 @@ class OverflightAnalysisTestCase(TatcTestCase):
                 start=self.start,
                 end=self.end,
             ),
-        )
-        result = OverflightAnalysisResult.model_validate(
-            self.get_json(f"/analyze/overflight/{task['task_id']}")
+            OverflightAnalysisResult,
         )
         members = [
             self.satellites[0],
@@ -93,7 +86,7 @@ class OverflightAnalysisTestCase(TatcTestCase):
         self.assertEqual(len(result.timeline.start), len(expected))
         self.assertEqual(len(result.tracks.tracks), 3)
         # czml document with targets and access links
-        czml = self.get_json(f"/analyze/overflight/{task['task_id']}/czml")
+        czml = self.get_json(f"/analyze/overflight/{self.task_id}/czml")
         ids = [packet["id"] for packet in czml]
         self.assertEqual(sum(i.startswith("tgt/") for i in ids), 2)
         self.assertEqual(sum(i.startswith("sat/") for i in ids), 3)
@@ -105,7 +98,7 @@ class OverflightAnalysisTestCase(TatcTestCase):
 
     def test_analyze_overflight_no_observations(self):
         # the ISS (51.6 deg inclination) never observes a polar point
-        task = self.run_analysis(
+        result = self.analysis_result(
             "/analyze/overflight",
             OverflightAnalysisRequest(
                 satellites=self.satellites[:1],
@@ -114,7 +107,6 @@ class OverflightAnalysisTestCase(TatcTestCase):
                 end=self.end,
             ),
         )
-        result = self.get_json(f"/analyze/overflight/{task['task_id']}")
         self.assertEqual(len(result["observations"]["features"]), 0)
         properties = result["points"]["features"][0]["properties"]
         self.assertEqual(properties["samples"], 0)
@@ -122,7 +114,7 @@ class OverflightAnalysisTestCase(TatcTestCase):
         self.assertIsNone(properties["revisit"])
 
     def test_analyze_overflight_solar(self):
-        task = self.run_analysis(
+        result = self.analysis_result(
             "/analyze/overflight",
             OverflightAnalysisRequest(
                 satellites=self.satellites[:1],
@@ -132,5 +124,4 @@ class OverflightAnalysisTestCase(TatcTestCase):
                 omit_solar=False,
             ),
         )
-        result = self.get_json(f"/analyze/overflight/{task['task_id']}")
         self.assertIn("solar_alt", result["observations"]["features"][0]["properties"])

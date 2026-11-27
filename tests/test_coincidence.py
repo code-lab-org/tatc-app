@@ -23,12 +23,8 @@ from tatc_app.coverage.schemas import SufficiencyOptions
 from tatc_app.generation.schemas import CellGenerator, PointGenerator
 from tatc_app.utils.serialization import from_geojson
 
-from .base import TatcTestCase
+from .base import TLE, TatcTestCase
 
-TLE = [
-    "1 25544U 98067A   22171.11255782  .00008307  00000+0  15444-3 0  9992",
-    "2 25544  51.6448 322.0970 0003980 282.3738 231.6559 15.49798078345636",
-]
 START = datetime(2022, 6, 1, tzinfo=timezone.utc)
 END = datetime(2022, 6, 2, tzinfo=timezone.utc)
 HOUR = timedelta(hours=1)
@@ -145,9 +141,8 @@ class CoincidenceTestCase(TatcTestCase):
             colors=["#ff0000", "#00ff00"],
             sufficiency=SufficiencyOptions(decorrelation_time=timedelta(hours=6)),
         )
-        task = self.run_analysis("/analyze/coincidence", request)
-        result = CoincidenceAnalysisResult.model_validate(
-            self.get_json(f"/analyze/coincidence/{task['task_id']}")
+        result = self.analysis_result(
+            "/analyze/coincidence", request, CoincidenceAnalysisResult
         )
         points = generate_points_uniform_spacing(2000e3)
         expected = reduce_observations(
@@ -170,7 +165,7 @@ class CoincidenceTestCase(TatcTestCase):
         self.assertIsNotNone(summary.sufficiency)
         self.assertIn("relative_error", result.points.features[0].properties)
         # the czml document
-        czml = self.get_json(f"/analyze/coincidence/{task['task_id']}/czml")
+        czml = self.get_json(f"/analyze/coincidence/{self.task_id}/czml")
         self.assertEqual(czml[0]["id"], "document")
 
     def test_invalid_requests(self):

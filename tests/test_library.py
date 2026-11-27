@@ -17,12 +17,8 @@ from tatc_app.generation.schemas import CellGenerator, PointGenerator
 from tatc_app.library.database import SCHEMA_VERSION, Library
 from tatc_app.main import app
 
-from .base import TatcTestCase
+from .base import TLE, TatcTestCase
 
-TLE = [
-    "1 25544U 98067A   22171.11255782  .00008307  00000+0  15444-3 0  9992",
-    "2 25544  51.6448 322.0970 0003980 282.3738 231.6559 15.49798078345636",
-]
 START = datetime(2022, 6, 1, tzinfo=timezone.utc)
 DESIGN = {
     "version": 2,

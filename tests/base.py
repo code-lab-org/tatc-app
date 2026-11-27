@@ -7,6 +7,12 @@ from fastapi.testclient import TestClient
 from tatc_app.auth import Authenticator, current_user
 from tatc_app.main import app
 
+# two-line elements of the International Space Station (June 20, 2022)
+TLE = [
+    "1 25544U 98067A   22171.11255782  .00008307  00000+0  15444-3 0  9992",
+    "2 25544  51.6448 322.0970 0003980 282.3738 231.6559 15.49798078345636",
+]
+
 # provider metadata of a (fictitious) OpenID Connect provider
 OIDC_METADATA = {
     "issuer": "https://auth.example.com/dex",
@@ -71,6 +77,23 @@ class TatcTestCase(unittest.TestCase):
             time.sleep(0.1)
         self.assertTrue(status.get("successful"), status)
         return task
+
+    def analysis_result(self, path: str, request, model=None, timeout: float = 600):
+        """
+        Runs an analysis, and gets its result (keeping its task id as
+        `self.task_id`, to get its other outputs).
+
+        Args:
+            path (str): The path of the analysis, such as `/analyze/coverage`.
+            request: The analysis request (a model, or serialized JSON).
+            model: The model to validate the result with, if any.
+
+        Returns:
+            The result: a model instance, or its JSON if no model is given.
+        """
+        self.task_id = self.run_analysis(path, request, timeout)["task_id"]
+        result = self.get_json(f"{path}/{self.task_id}")
+        return model.model_validate(result) if model else result
 
     def get_json(self, path: str) -> dict:
         response = self.client.get(path)

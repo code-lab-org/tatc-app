@@ -28,12 +28,7 @@ from tatc_app.coverage.schemas import (
 from tatc_app.generation.schemas import CellGenerator, PointGenerator
 from tatc_app.utils.serialization import from_geojson
 
-from .base import TatcTestCase
-
-TLE = [
-    "1 25544U 98067A   22171.11255782  .00008307  00000+0  15444-3 0  9992",
-    "2 25544  51.6448 322.0970 0003980 282.3738 231.6559 15.49798078345636",
-]
+from .base import TLE, TatcTestCase
 
 
 class CoverageAnalysisTestCase(TatcTestCase):
@@ -50,7 +45,7 @@ class CoverageAnalysisTestCase(TatcTestCase):
         self.end = datetime(2022, 6, 2, tzinfo=timezone.utc)
 
     def test_analyze_coverage(self):
-        task = self.run_analysis(
+        result = self.analysis_result(
             "/analyze/coverage",
             CoverageAnalysisRequest(
                 satellites=[self.satellite],
@@ -60,9 +55,7 @@ class CoverageAnalysisTestCase(TatcTestCase):
                 points=PointGenerator(method="equally_spaced", distance=5000e3),
                 cells=CellGenerator(method="equally_spaced", distance=5000e3),
             ),
-        )
-        result = CoverageAnalysisResult.model_validate(
-            self.get_json(f"/analyze/coverage/{task['task_id']}")
+            CoverageAnalysisResult,
         )
         points = generate_points_uniform_spacing(5000e3)
         cells = generate_cells_uniform_spacing(5000e3)
@@ -117,7 +110,7 @@ class CoverageAnalysisTestCase(TatcTestCase):
         self.assertEqual(len(result.tracks.tracks), len(members))
         self.assertTrue(all(c == "#ff0000" for c in result.colors.values()))
         # czml document
-        czml = self.get_json(f"/analyze/coverage/{task['task_id']}/czml")
+        czml = self.get_json(f"/analyze/coverage/{self.task_id}/czml")
         self.assertEqual(czml[0]["id"], "document")
         self.assertEqual(
             {p["id"] for p in czml[1:]},
@@ -125,7 +118,7 @@ class CoverageAnalysisTestCase(TatcTestCase):
         )
 
     def test_analyze_coverage_sufficiency(self):
-        task = self.run_analysis(
+        result = self.analysis_result(
             "/analyze/coverage",
             CoverageAnalysisRequest(
                 satellites=[self.satellite],
@@ -140,9 +133,7 @@ class CoverageAnalysisTestCase(TatcTestCase):
                     local_time_bins=6,
                 ),
             ),
-        )
-        result = CoverageAnalysisResult.model_validate(
-            self.get_json(f"/analyze/coverage/{task['task_id']}")
+            CoverageAnalysisResult,
         )
         points = generate_points_uniform_spacing(5000e3)
         observations = aggregate_observations(
@@ -232,7 +223,7 @@ class CoverageAnalysisTestCase(TatcTestCase):
             Point(id=0, latitude=0, longitude=0),
             Point(id=1, latitude=40, longitude=-100),
         ]
-        task = self.run_analysis(
+        result = self.analysis_result(
             "/analyze/coverage",
             CoverageAnalysisRequest(
                 satellites=[self.satellite],
@@ -248,9 +239,7 @@ class CoverageAnalysisTestCase(TatcTestCase):
                     }
                 ],
             ),
-        )
-        result = CoverageAnalysisResult.model_validate(
-            self.get_json(f"/analyze/coverage/{task['task_id']}")
+            CoverageAnalysisResult,
         )
         self.assertEqual(len(result.points.features), 2)
         self.assertEqual(len(result.cells.features), 1)
