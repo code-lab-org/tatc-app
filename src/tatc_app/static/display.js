@@ -3,6 +3,9 @@
 // legends of satellites and instruments (see filter.js) and of analysis
 // results (see analysis.js).
 
+import { getCzmlLayer } from "./layers.js";
+import { viewer } from "./viewer.js";
+
 // Keeps the camera in the inertial (ICRF) frame, after each update of the
 // scene.
 function icrf(scene, time) {
@@ -18,11 +21,11 @@ function icrf(scene, time) {
   }
 }
 
-function isPathShown() {
+export function isPathShown() {
   return $("#display-path").is(":checked");
 }
 
-function isFootprintShown() {
+export function isFootprintShown() {
   return $("#display-footprint").is(":checked");
 }
 
@@ -30,7 +33,7 @@ function isFootprintShown() {
 // of a CZML layer (entities `sat/<satellite>` and `fp/<satellite>/<index>`,
 // whose polygons are child entities). The orbit preview also hides the
 // satellites and instruments unchecked in the filter (see preview.js).
-function applySatelliteDisplayOptions(source) {
+export function applySatelliteDisplayOptions(source) {
   if (!source) {
     return;
   }
@@ -71,7 +74,8 @@ function createDisplayToggle() {
     .appendTo($(viewer.container).find(".cesium-viewer-toolbar"));
 }
 
-$(document).ready(function() {
+// Sets up this module once the page has loaded (see main.js).
+export function setupDisplay() {
   $("#display-observer").change(function() {
     if ($(this).val() == "inertial") {
       viewer.scene.postUpdate.addEventListener(icrf);
@@ -91,4 +95,4 @@ $(document).ready(function() {
   $("#display-collapse").click(function() {
     setDisplayCollapsed(true);
   });
-});
+}

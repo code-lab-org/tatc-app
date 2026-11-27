@@ -3,8 +3,16 @@
 // (`readInputs`), sets those inputs from a request, as of a saved run
 // (`writeInputs`), and shows the data of its results (`showData`).
 
+import { usesRegion } from "./analysis.js";
+import { design } from "./design-state.js";
+import { formatValue, showResultsTable } from "./index.js";
+import { boxPolygon, getCellsSpec, getPointsSpec, getRegionMask } from "./region.js";
+import { renderCoverageSummary, renderLatencySummary, renderRegionSummary } from "./summary.js";
+import { COVERAGE_TERMS } from "./terms.js";
+import { viewer } from "./viewer.js";
+
 // An invalid input of an analysis, shown as the error of the Analysis tab.
-class InputError extends Error {}
+export class InputError extends Error {}
 
 // --- Inputs shared by analyses ---
 
@@ -15,7 +23,7 @@ function optionalNumber(selector) {
 }
 
 // Rounds a number to show in an input.
-function inputNumber(value) {
+export function inputNumber(value) {
   return Number(Number(value).toFixed(6));
 }
 
@@ -235,7 +243,7 @@ function showCoverageData(analysis, onCompare) {
 // inputs to the inputs shared by all analyses (see `getBasePayload`),
 // throwing an `InputError` if invalid, and `showData(analysis, onCompare)`
 // shows its results (see `analysisResult`).
-const ANALYSES = {
+export const ANALYSES = {
   coverage: {
     label: "Coverage and Revisit",
     description: "Observations of a grid of points (and cells) by the checked instruments of the checked satellites. " +

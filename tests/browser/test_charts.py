@@ -13,11 +13,11 @@ CHARTS = """() => {
     const times = _.range(0, 201).map((i) => i * 432);
     const a = {times: times, shares: times.map((t, i) => Math.sqrt(i / 200))};
     const b = {times: times.slice(0, 151), shares: _.range(0, 151).map((i) => i / 160)};
-    box.append(coverageChart(a, COVERAGE_TERMS.coverage));
-    box.append(histogramChart({edges: _.range(0, 21).map((i) => i * 3600),
+    box.append(tatc.coverageChart(a, tatc.COVERAGE_TERMS.coverage));
+    box.append(tatc.histogramChart({edges: _.range(0, 21).map((i) => i * 3600),
         shares: _.range(0, 20).map((i) => (i % 5) / 40)}, "Histogram", "", "Revisit"));
-    box.append(comparisonChart([{name: "A", color: "#3987e5", curve: a},
-        {name: "B", color: "#d95926", curve: b}], COVERAGE_TERMS.coverage));
+    box.append(tatc.comparisonChart([{name: "A", color: "#3987e5", curve: a},
+        {name: "B", color: "#d95926", curve: b}], tatc.COVERAGE_TERMS.coverage));
 }"""
 
 

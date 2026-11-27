@@ -4,6 +4,9 @@
 // histogram of revisit or latency times), each with a table of its data.
 // Charts are plain SVG, styled by the `summary-` classes of styles.css.
 
+import { durationUnit, formatDuration, formatKilometers, formatShare, formatValue } from "./index.js";
+import { COVERAGE_TERMS } from "./terms.js";
+
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 // chart geometry (SVG user units; charts scale to their container's width)
@@ -12,51 +15,6 @@ const CHART = { width: 520, height: 220, top: 14, right: 40, bottom: 36, left: 4
 const PLOT = {
   width: CHART.width - CHART.left - CHART.right,
   height: CHART.height - CHART.top - CHART.bottom
-};
-
-// The terms of the results of coverage-like analyses, by type: of the
-// observations of points (coverage), or of their coincident observations
-// (coincidence), whose results have the same statistics.
-const COVERAGE_TERMS = {
-  coverage: {
-    observed: "Region observed",
-    twice: "observed at least twice",
-    neverTwice: "no point is observed twice",
-    revisit: "Mean revisit time",
-    revisitAxis: "Mean revisit",
-    revisitPoints: "Points observed at least twice",
-    access: "Mean access time",
-    accessDetail: "per observation of observed points",
-    curveTitle: "Share of the region observed so far",
-    curveSubtitle: "Observed at least once",
-    curveColumn: "Observed",
-    samples: "Observations"
-  },
-  // (the area curves of the swath coverage of a region)
-  region: {
-    curveTitle: "Share of the region's area observed so far",
-    curveSubtitle: "Within a swath at least once",
-    curveColumn: "Observed"
-  },
-  regionCommon: {
-    curveTitle: "Share of the region's area observed in common so far",
-    curveSubtitle: "Within coincident swaths of two satellites at least once",
-    curveColumn: "In common"
-  },
-  coincidence: {
-    observed: "Region with coincidences",
-    twice: "with at least two",
-    neverTwice: "no point has two coincidences",
-    revisit: "Mean time between coincidences",
-    revisitAxis: "Mean time between coincidences",
-    revisitPoints: "Points with at least two coincidences",
-    access: "Mean coincidence duration",
-    accessDetail: "per coincidence of points with one",
-    curveTitle: "Share of the region with a coincidence so far",
-    curveSubtitle: "At least one coincidence",
-    curveColumn: "With a coincidence",
-    samples: "Coincidences"
-  }
 };
 
 // --- Axes ---
@@ -194,7 +152,7 @@ function addPlotOverlay(chart, label, step, show, hide) {
 
 // Line (and area) chart of the share of the region observed over time, with
 // a crosshair and tooltip that snap to the nearest sample.
-function coverageChart(curve, terms) {
+export function coverageChart(curve, terms) {
   terms = terms || COVERAGE_TERMS.coverage;
   const duration = _.last(curve.times) || 1;
   const unit = durationUnit(duration);
@@ -255,7 +213,7 @@ function coverageChart(curve, terms) {
 // column with its own hover and focus tooltip. The axis is labeled by `axis`
 // in a unit (`options.unit`: {label, seconds}, the size of one unit in the
 // histogram's values; by default, a unit of durations in seconds).
-function histogramChart(histogram, title, subtitle, axis, options) {
+export function histogramChart(histogram, title, subtitle, axis, options) {
   options = options || {};
   const of = options.of || "points";
   const maxEdge = _.last(histogram.edges);
@@ -333,7 +291,7 @@ function curveShareAt(curve, t) {
 // Line chart comparing the share of the region observed over time of
 // several runs (`series`: {name, color, curve}), with a legend, end labels
 // where they do not collide, and a crosshair whose tooltip lists every run.
-function comparisonChart(series, terms) {
+export function comparisonChart(series, terms) {
   terms = terms || COVERAGE_TERMS.coverage;
   const duration = _.max(_.map(series, function(s) { return _.last(s.curve.times); })) || 1;
   const unit = durationUnit(duration);
@@ -460,7 +418,7 @@ function weightingNote(summary) {
 
 // Renders the summary of coverage (or coincidence, by `terms`, see
 // `COVERAGE_TERMS`) results in a container.
-function renderCoverageSummary(container, summary, terms) {
+export function renderCoverageSummary(container, summary, terms) {
   terms = terms || COVERAGE_TERMS.coverage;
   const root = $("<div>").addClass("summary").appendTo($(container).empty());
   const tiles = $("<div>").addClass("summary-tiles").appendTo(root);
@@ -493,7 +451,7 @@ function renderCoverageSummary(container, summary, terms) {
 }
 
 // Renders the summary of the swath coverage of a region in a container.
-function renderRegionSummary(container, summary) {
+export function renderRegionSummary(container, summary) {
   const root = $("<div>").addClass("summary").appendTo($(container).empty());
   const tiles = $("<div>").addClass("summary-tiles").appendTo(root);
   tiles.append(statTile("Area observed", formatShare(summary.covered),
@@ -627,7 +585,7 @@ function renderSufficiencySummary(container, sufficiency) {
 }
 
 // Renders the summary of latency results in a container.
-function renderLatencySummary(container, summary) {
+export function renderLatencySummary(container, summary) {
   const root = $("<div>").addClass("summary").appendTo($(container).empty());
   const tiles = $("<div>").addClass("summary-tiles").appendTo(root);
   tiles.append(statTile("Region downlinked", formatShare(summary.downlinked),

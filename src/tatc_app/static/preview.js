@@ -4,6 +4,14 @@
 // those checked in the shared filter (see filter.js) with the paths and
 // footprints chosen in the display panel (see display.js).
 
+import { getInstrumentColors, getSatelliteColors, getSatellites, onDesignChange } from "./design-state.js";
+import { isFootprintShown, isPathShown } from "./display.js";
+import { filterKey, isFilterChecked, onLayerFilterChange, setFilterWithoutFootprint } from "./filter.js";
+import { fromDateTimeInput, showResultsTable, toDateTimeInput } from "./index.js";
+import { clearCzmlLayer, getCzmlLayer, loadCzmlLayer, setClock, showCzmlLayer } from "./layers.js";
+import { cancelAnalysis, runAnalysis } from "./tasks.js";
+import { viewer } from "./viewer.js";
+
 let previewResult = null;
 // satellites and constellations of the preview: [{name, members: [{name,
 // instruments}]}]
@@ -152,7 +160,8 @@ function showPreviewData() {
   });
 }
 
-$(document).ready(function() {
+// Sets up this module once the page has loaded (see main.js).
+export function setupPreview() {
   const start = new Date();
   start.setUTCMinutes(0, 0, 0);
   $("#display-start").val(toDateTimeInput(start));
@@ -191,4 +200,4 @@ $(document).ready(function() {
     pausedPreview = source ? { source: source, time: viewer.clock.currentTime.clone() } : null;
     showCzmlLayer("design", false);
   });
-});
+}

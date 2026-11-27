@@ -1,71 +1,7 @@
-// Cesium viewer, sign in, and utilities shared by the tabs: requests, map
-// picking, selectable lists, and tables of results.
+// Sign in, and utilities shared by the tabs: requests, map picking,
+// selectable lists, and tables of results.
 
-// Offline base layer bundled with Cesium (no access token required).
-function createOfflineBaseLayer() {
-  return new Cesium.ImageryLayer(
-    new Cesium.UrlTemplateImageryProvider({
-      url: Cesium.buildModuleUrl("Assets/Textures/NaturalEarthII/") + "{z}/{x}/{reverseY}.jpg",
-      tilingScheme: new Cesium.GeographicTilingScheme(),
-      maximumLevel: 2,
-      credit: "Natural Earth II"
-    })
-  );
-}
-
-// The viewer is created once; imagery and terrain are upgraded to Cesium ion
-// assets once an access token is available (see `initializeCesium`).
-const viewer = new Cesium.Viewer("cesiumContainer", {
-  baseLayer: createOfflineBaseLayer(),
-  baseLayerPicker: false,
-  homeButton: false,
-  infoBox: true,
-  geocoder: false,
-  selectionIndicator: true,
-  navigationHelpButton: false,
-  navigationInstructionsInitiallyVisible: false,
-  sceneModePicker: true,
-  timeline: true,
-  animation: true
-});
-viewer.scene.globe.depthTestAgainstTerrain = false;
-
-// Shows a status over the map while Cesium prepares the graphics of data
-// sources: large footprints, for example, take seconds to tessellate (in web
-// workers). Meanwhile, the viewer pauses the animation (its default
-// `allowDataSourcesToSuspendAnimation`), which `canAnimate` reflects. The
-// status shows after a delay, so it does not flash for brief preparations.
-const MAP_BUSY_DELAY = 300; // milliseconds
-let mapBusySince = null;
-let mapBusyShown = false;
-viewer.scene.postRender.addEventListener(function() {
-  const now = performance.now();
-  mapBusySince = viewer.clockViewModel.canAnimate ? null : (mapBusySince === null ? now : mapBusySince);
-  const shown = mapBusySince !== null && now - mapBusySince >= MAP_BUSY_DELAY;
-  if (shown !== mapBusyShown) {
-    mapBusyShown = shown;
-    $("#map-busy").prop("hidden", !shown);
-  }
-});
-
-let cesiumIonInitialized = false;
-function initializeCesium() {
-  if (cesiumIonInitialized) {
-    return;
-  }
-  $.get("/cesium/token").done(function(token) {
-    if (!token) {
-      return;
-    }
-    cesiumIonInitialized = true;
-    Cesium.Ion.defaultAccessToken = token;
-    viewer.imageryLayers.removeAll();
-    viewer.imageryLayers.add(
-      Cesium.ImageryLayer.fromProviderAsync(Cesium.IonImageryProvider.fromAssetId(3845))
-    );
-    viewer.scene.setTerrain(Cesium.Terrain.fromWorldTerrain());
-  });
-}
+import { initializeCesium, viewer } from "./viewer.js";
 
 // --- Map picking ---
 
@@ -85,7 +21,7 @@ function mapPickListener(e) {
 // Starts picking points on the map with a toggle button: calls
 // `onPick(cartesian)` for each click on the globe, and `onStop()` (if any)
 // once picking stops.
-function startMapPick(button, onPick, onStop) {
+export function startMapPick(button, onPick, onStop) {
   stopMapPick();
   mapPick = { button: button, onPick: onPick, onStop: onStop };
   button.addClass("btn-success").removeClass("btn-secondary");
@@ -94,7 +30,7 @@ function startMapPick(button, onPick, onStop) {
 }
 
 // Stops picking points on the map (only with a button, if given).
-function stopMapPick(button) {
+export function stopMapPick(button) {
   if (!mapPick || (button && !isMapPicking(button))) {
     return;
   }
@@ -108,7 +44,7 @@ function stopMapPick(button) {
   }
 }
 
-function isMapPicking(button) {
+export function isMapPicking(button) {
   return Boolean(mapPick) && mapPick.button[0] === button[0];
 }
 
@@ -118,7 +54,7 @@ function isMapPicking(button) {
 // returns the content of an item, clicking an item calls
 // `options.onSelect(i)`, double clicking it calls `options.onOpen(i)` (if
 // any), and `options.buttons` (a selector) are enabled with a selection.
-function renderSelectableList(container, items, selected, options) {
+export function renderSelectableList(container, items, selected, options) {
   container.empty();
   _.forEach(items, function(item, i) {
     const entry = $("<a href='#'>")
@@ -141,14 +77,14 @@ function renderSelectableList(container, items, selected, options) {
 }
 
 // Removes the selected item of a list, returning the index to select next.
-function removeSelected(items, selected) {
+export function removeSelected(items, selected) {
   items.splice(selected, 1);
   return Math.min(selected, items.length - 1);
 }
 
 // A name not among others: the (trimmed) name or, if blank, the fallback,
 // with a number appended if taken (for example, "Station (2)").
-function uniqueName(name, names, fallback) {
+export function uniqueName(name, names, fallback) {
   name = _.trim(name) || fallback || name;
   if (!_.includes(names, name)) {
     return name;
@@ -164,18 +100,18 @@ function uniqueName(name, names, fallback) {
 // --- Date time utilities (all times are UTC) ---
 
 // Formats a Date for a datetime-local input (interpreted as UTC).
-function toDateTimeInput(date) {
+export function toDateTimeInput(date) {
   return new Date(date).toISOString().substring(0, 19);
 }
 
 // Parses the value of a datetime-local input (interpreted as UTC).
-function fromDateTimeInput(value) {
+export function fromDateTimeInput(value) {
   return new Date(value + (value.length == 16 ? ":00Z" : "Z"));
 }
 
 // --- Download utilities ---
 
-function downloadFile(filename, content, type) {
+export function downloadFile(filename, content, type) {
   const blob = new Blob([content], { type: type || "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -214,7 +150,7 @@ function toCsv(columns, rows) {
 //   onCompare:  optional function() that compares the results (after the
 //               dialog closes)
 let resultsTable = null;
-function showResultsTable(options) {
+export function showResultsTable(options) {
   const columns = options.columns;
   $("#results-compare").toggle(Boolean(options.onCompare)).off("click").on("click", function() {
     $("#results-dialog").one("hidden.bs.modal", options.onCompare).modal("hide");
@@ -286,7 +222,7 @@ function showResultsTable(options) {
 
 // Sends a request with an optional JSON body, expecting a JSON response (or
 // none, for deletions).
-function sendJson(method, url, data) {
+export function sendJson(method, url, data) {
   return $.ajax({
     url: url,
     type: method,
@@ -297,7 +233,7 @@ function sendJson(method, url, data) {
 }
 
 // Posts JSON data, expecting a JSON response.
-function postJson(url, data) {
+export function postJson(url, data) {
   return sendJson("POST", url, data);
 }
 
@@ -305,7 +241,7 @@ function postJson(url, data) {
 // superseded (or that were cancelled) are ignored: `start()` returns a
 // function that tests whether that request is still the latest, and
 // `cancel()` supersedes the request in progress.
-function latestRequests() {
+export function latestRequests() {
   let latest = 0;
   return {
     start: function() {
@@ -319,7 +255,7 @@ function latestRequests() {
 }
 
 // Formats an error response (including FastAPI validation errors).
-function formatError(xhr) {
+export function formatError(xhr) {
   if (xhr && xhr.responseJSON && xhr.responseJSON.detail) {
     const detail = xhr.responseJSON.detail;
     if (_.isArray(detail)) {
@@ -340,12 +276,12 @@ function formatError(xhr) {
 
 // Formats a number with at most a number of decimals (default: 1), with
 // thousands separators.
-function formatNumber(value, digits) {
+export function formatNumber(value, digits) {
   return Number(value).toLocaleString(undefined, { maximumFractionDigits: digits === undefined ? 1 : digits });
 }
 
 // Formats a number with up to 3 significant digits (and thousands separators).
-function formatValue(value) {
+export function formatValue(value) {
   if (value === null || value === undefined || !isFinite(value)) {
     return "–";
   }
@@ -354,7 +290,7 @@ function formatValue(value) {
 }
 
 // Gets the unit to show durations up to a maximum (seconds) in.
-function durationUnit(maxSeconds) {
+export function durationUnit(maxSeconds) {
   if (maxSeconds < 120) { return { label: "s", seconds: 1 }; }
   if (maxSeconds < 2 * 3600) { return { label: "min", seconds: 60 }; }
   if (maxSeconds < 72 * 3600) { return { label: "h", seconds: 3600 }; }
@@ -362,18 +298,18 @@ function durationUnit(maxSeconds) {
 }
 
 // Formats a duration (seconds) in a unit (default: one that suits it).
-function formatDuration(seconds, unit) {
+export function formatDuration(seconds, unit) {
   unit = unit || durationUnit(seconds);
   return formatValue(seconds / unit.seconds) + " " + unit.label;
 }
 
 // Formats a share (from 0 to 1) as a percentage.
-function formatShare(share) {
+export function formatShare(share) {
   return formatValue(100 * share) + "%";
 }
 
 // Formats a length (meters) in kilometers.
-function formatKilometers(meters) {
+export function formatKilometers(meters) {
   return formatValue(meters / 1000) + " km";
 }
 
@@ -393,7 +329,7 @@ function promptSignIn(message) {
 
 // Adds a listener called each time the user information shows the user is
 // signed in (or authentication is disabled).
-function onSignedIn(listener) {
+export function onSignedIn(listener) {
   signedInListeners.push(listener);
 }
 
@@ -480,7 +416,8 @@ function initializeDrawer() {
   });
 }
 
-$(document).ready(function() {
+// Sets up this module once the page has loaded (see main.js).
+export function setupIndex() {
   initializeDrawer();
   $.get("/openapi.json").done(function(api) {
     $("#app-version").text(api.info.version);
@@ -510,4 +447,4 @@ $(document).ready(function() {
   });
   watchSession();
   getUserInformation(true);
-});
+}

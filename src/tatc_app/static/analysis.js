@@ -4,7 +4,21 @@
 // viewer. Each type of analysis (its inputs and data) is in
 // analysis-types.js; this file runs them and shows their results.
 
-let analysisResult = null; // {type, result, taskId, payload, design, duration}
+import { ANALYSES, InputError, inputNumber } from "./analysis-types.js";
+import { design, exportDesign, getSatellites, onDesignChange } from "./design-state.js";
+import { applySatelliteDisplayOptions } from "./display.js";
+import { getFilteredInputs } from "./filter.js";
+import { formatNumber, fromDateTimeInput, stopMapPick, toDateTimeInput } from "./index.js";
+import { clearCzmlLayer, createColorScale, getCzmlLayer, loadCzmlLayer, renderColorbar, setClock, showCzmlLayer } from "./layers.js";
+import { canCompareRuns, openRunsDialog } from "./library.js";
+import { getArcType, showRegion, updateRegionControls } from "./region.js";
+import { renderSiteEntities, siteSource } from "./sites.js";
+import { TargetLayer } from "./target-layer.js";
+import { cancelAnalysis, runAnalysis } from "./tasks.js";
+import { COVERAGE_TERMS } from "./terms.js";
+import { viewer } from "./viewer.js";
+
+export let analysisResult = null; // {type, result, taskId, payload, design, duration}
 let targetLayer = null;
 
 function hasTargetLayer(type) {
@@ -13,16 +27,16 @@ function hasTargetLayer(type) {
 
 // Tests whether an analysis of a type uses the region (swaths, if limited to
 // it).
-function usesRegion(type) {
+export function usesRegion(type) {
   const region = ANALYSES[type].region;
   return region === "optional" ? $("#swaths-region-enabled").is(":checked") : region;
 }
 
-function getAnalysisType() {
+export function getAnalysisType() {
   return $("#analysis-type").val();
 }
 
-function getAnalysisPeriod() {
+export function getAnalysisPeriod() {
   const start = fromDateTimeInput($("#analysis-start").val());
   const end = new Date(start.getTime() + Number($("#analysis-duration").val()) * 86400e3);
   const animateEnd = new Date(Math.min(
@@ -57,14 +71,14 @@ function getBasePayload(inputs) {
 
 // Sets the inputs of the tab from a request of an analysis of a type (as of
 // a saved run).
-function setAnalysisInputs(type, request) {
+export function setAnalysisInputs(type, request) {
   const start = new Date(request.start);
   const end = new Date(request.end);
   $("#analysis-start").val(toDateTimeInput(start));
   $("#analysis-duration").val(inputNumber((end - start) / 86400e3)).trigger("change");
   if (request.display) {
-    const hours = (new Date(request.display.end) - new Date(request.display.start)) / 3600e3;
-    $("#analysis-animate").val(inputNumber(hours)).trigger("change");
+    const animateHours = (new Date(request.display.end) - new Date(request.display.start)) / 3600e3;
+    $("#analysis-animate").val(inputNumber(animateHours)).trigger("change");
   }
   ANALYSES[type].writeInputs(request);
 }
@@ -348,7 +362,7 @@ function enableResultButtons(enable) {
 
 // Runs an analysis of a type with a request (`payload`), keeping the design
 // it analyzes (as exported) with its results, to save the run.
-function startAnalysis(type, payload, designSnapshot) {
+export function startAnalysis(type, payload, designSnapshot) {
   // cells of the results have the edges of the region requested
   const arcType = getArcType();
   const endpoint = ANALYSES[type].endpoint;
@@ -470,7 +484,8 @@ function fillSelect(select, options) {
   }));
 }
 
-$(document).ready(function() {
+// Sets up this module once the page has loaded (see main.js).
+export function setupAnalysis() {
   fillSelect($("#analysis-type"), _.map(ANALYSES, function(analysis, value) {
     return { value: value, label: analysis.label };
   }));
@@ -547,4 +562,4 @@ $(document).ready(function() {
   changeAnalysisType();
   showRegion(false);
   siteSource.show = false;
-});
+}

@@ -2,6 +2,11 @@
 // forms (schemas.js) or JSON, validates it, and searches CelesTrak for
 // orbital elements.
 
+import { chosenInstrumentColors, defaultInstrumentColor, design, notifyDesignChange, renderSatelliteList, selectedSatellite, validateItem, validateSystem } from "./design-state.js";
+import { formatError, formatNumber, latestRequests, uniqueName } from "./index.js";
+import { elementsToOmm } from "./omm.js";
+import { changeInstrumentType, changeType, createDefault, createInstrument, INSTRUMENT_SPECS, instrumentType, ORBIT_SPECS, PLATFORM_SPECS, renderFields, specKeys, specOf } from "./schemas.js";
+
 // The satellite being edited (null when the dialog is closed): {item,
 // system, color, instrumentColors, instrument, revision}, with a copy of the
 // item's system and colors (committed when the dialog closes), the index of
@@ -9,25 +14,25 @@
 let satelliteEditor = null;
 
 // Gets the system being edited, or null if the dialog is closed.
-function getEditedSystem() {
+export function getEditedSystem() {
   return satelliteEditor ? satelliteEditor.system : null;
 }
 
 // Gets a token of the current edit, to check that the response of a request
 // about the edited system still applies (see `isCurrentEdit`).
-function currentEdit() {
+export function currentEdit() {
   return satelliteEditor && { editor: satelliteEditor, revision: satelliteEditor.revision };
 }
 
 // Whether the dialog still edits the same system as when a token was taken:
 // the same satellite, without changes since.
-function isCurrentEdit(edit) {
+export function isCurrentEdit(edit) {
   return Boolean(edit) && edit.editor === satelliteEditor && edit.revision == satelliteEditor.revision;
 }
 
 // Replaces the system being edited (for example, with added catalog
 // instruments), selecting an instrument: the first added one.
-function replaceEditedSystem(system, selectedInstrument) {
+export function replaceEditedSystem(system, selectedInstrument) {
   satelliteEditor.system = system;
   satelliteEditor.instrument = selectedInstrument;
   if (selectedInstrument == 0) {
@@ -38,7 +43,7 @@ function replaceEditedSystem(system, selectedInstrument) {
   formChanged();
 }
 
-function openSatelliteDialog() {
+export function openSatelliteDialog() {
   const item = design.satellites[selectedSatellite];
   if (!item) {
     return;
@@ -340,7 +345,8 @@ function queryCelestrak() {
   });
 }
 
-$(document).ready(function() {
+// Sets up this module once the page has loaded (see main.js).
+export function setupSatelliteDialog() {
   _.forEach(PLATFORM_SPECS, function(spec, type) {
     $("#satellite-type").append($("<option>").val(type).text(spec.label));
   });
@@ -464,4 +470,4 @@ $(document).ready(function() {
       formChanged();
     }
   });
-});
+}

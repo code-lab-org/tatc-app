@@ -4,6 +4,13 @@
 // comparison (with the current results), and running again of analysis runs
 // of the Analysis tab.
 
+import { ANALYSES } from "./analysis-types.js";
+import { analysisResult, getAnalysisType, setAnalysisInputs, startAnalysis } from "./analysis.js";
+import { design, exportDesign, importDesign } from "./design-state.js";
+import { durationUnit, formatDuration, formatError, formatKilometers, formatShare, formatValue, sendJson } from "./index.js";
+import { comparisonChart } from "./summary.js";
+import { COVERAGE_TERMS } from "./terms.js";
+
 // --- Helpers ---
 
 function formatSavedTime(iso) {
@@ -31,7 +38,7 @@ const SAVED_DESIGN_KEY = "tatc-saved-design";
 // design updates (and runs save under); null for a design that is not saved
 let savedDesignRef = null;
 
-function setSavedDesignRef(ref) {
+export function setSavedDesignRef(ref) {
   savedDesignRef = ref;
   renderRunDesign();
   renderDesignUpdate();
@@ -260,7 +267,7 @@ function renderRunDesign() {
 }
 
 // Tests whether the comparison of runs of an analysis is available.
-function canCompareRuns(type) {
+export function canCompareRuns(type) {
   return Boolean(RUN_METRICS[type]);
 }
 
@@ -295,7 +302,7 @@ function comparableRuns() {
   return _.compact([currentRun()]).concat(savedRuns);
 }
 
-function openRunsDialog() {
+export function openRunsDialog() {
   const type = getAnalysisType();
   $("#runs-title").text("Compare Runs: " + ANALYSES[type].label);
   $("#runs-error").hide();
@@ -653,7 +660,8 @@ function saveRun(errorElement) {
   });
 }
 
-$(document).ready(function() {
+// Sets up this module once the page has loaded (see main.js).
+export function setupLibrary() {
   loadSavedDesignRef();
   renderRunDesign();
   $("#designs-open").click(function() {
@@ -671,4 +679,4 @@ $(document).ready(function() {
   $("#design-update").click(function() { saveCurrentDesign(true); });
   $("#run-save").click(function() { saveRun($("#analysis-error")); });
   $("#runs-open").click(openRunsDialog);
-});
+}

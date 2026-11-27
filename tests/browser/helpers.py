@@ -28,11 +28,11 @@ def add_sites_and_satellite(page) -> None:
     analyses), and a second satellite (for coincidences) to the design.
     """
     page.evaluate("""() => {
-        design.stations.push({name: "GS", latitude: 40, longitude: -105,
+        tatc.design.stations.push({name: "GS", latitude: 40, longitude: -105,
                               min_elevation_angle: 5, min_access_time: 0});
-        renderStations();
-        addTarget(10, 20);
-        addSatellites([_.assign(_.cloneDeep(design.satellites[0].system),
+        tatc.renderStations();
+        tatc.addTarget(10, 20);
+        tatc.addSatellites([_.assign(_.cloneDeep(tatc.design.satellites[0].system),
                                 {name: "ISS 2"})]);
     }""")
     # the new satellite is validated by the server
@@ -43,7 +43,9 @@ def open_analysis_tab(page, analysis: str, days: float = 0.25) -> None:
     """
     Opens the Analysis tab, with an analysis type and period (days).
     """
-    page.click("#nav-analysis-tab")
+    # (clicking the active tab collapses the drawer)
+    if "active" not in (page.get_attribute("#nav-analysis-tab", "class") or ""):
+        page.click("#nav-analysis-tab")
     page.select_option("#analysis-type", analysis)
     set_value(page, "#analysis-duration", days)
 
