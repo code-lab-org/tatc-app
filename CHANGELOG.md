@@ -63,6 +63,24 @@ by `__version__` in `src/tatc_app/__init__.py`.
   in parallel (`pytest tests/browser -n 4`): about 120 s rather than 200 s in
   one process, and 55 to 65 s in 4, with CPUs to spare. CI runs them in one
   process, as its few CPUs are busy with one.
+- Workers store analysis results as the endpoints respond with them, so the
+  endpoints return them as stored rather than parse, validate, and serialize
+  them again; and responses are gzipped at level 4 rather than 9 (4 to 5
+  times faster, for responses 4 to 5% larger). A 3.3 MB coverage result is
+  retrieved in about 50 ms rather than 240 ms. Update workers with the
+  server.
+- Workers store results gzipped (about a fifth of their size in Redis), which
+  requires Celery >= 5.7, and each worker process reserves one task at a time
+  rather than four, so tasks (and generation requests) don't wait behind a
+  busy process while others are idle.
+- The tasks that collect member tracks to animate an analysis receive its
+  display period and step rather than every display time (up to 20,000 for
+  each member). Update workers with the server.
+- Gridding statistics of points to cells is vectorized: 0.1 s rather than
+  1.4 s for 100,000 cells (means may differ in their last digit).
+- Swath coverage curves of a region compute the area observed only at the
+  times that observe more of it (for example, 43 ms rather than 376 ms for a
+  region observed at 18 of the curve's 201 times).
 
 ### Fixed
 
@@ -72,6 +90,9 @@ by `__version__` in `src/tatc_app/__init__.py`.
   stay on the globe, and layers hidden while loading stay hidden.
 - Dialogs are labelled by their titles for screen readers, and close with
   Escape as soon as they show.
+- Respond with MessagePack to requests with `Accept: application/x-msgpack`,
+  as documented, rather than JSON (msgpack-asgi 2 changed its default type to
+  `application/vnd.msgpack`).
 
 ## [2.1.0] - 2026-11-25
 
