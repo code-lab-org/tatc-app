@@ -1,8 +1,10 @@
+import json
 import os
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 import numpy as np
+from celery.backends.redis import RedisBackend
 from celery.exceptions import TimeoutError as CeleryTimeoutError
 from fastapi import HTTPException
 from shapely.geometry import box
@@ -289,6 +291,18 @@ class CeleryLimitsTestCase(TatcTestCase):
     def test_celery_configuration(self):
         self.assertEqual(celery_app.conf.result_expires, limits.RESULT_EXPIRES)
         self.assertEqual(celery_app.conf.task_time_limit, limits.TASK_TIME_LIMIT)
+        self.assertEqual(celery_app.conf.worker_prefetch_multiplier, 1)
+
+    def test_result_compression(self):
+        # (the tests' in-memory backend stores results uncompressed)
+        backend = RedisBackend(app=celery_app, url="redis://localhost:6379/0")
+        self.assertEqual(backend.compression, "gzip")
+        result = json.dumps({"points": [[i, i / 3] for i in range(10000)]})
+        payload = backend.encode(result)
+        self.assertLess(len(payload), len(result) / 2)
+        self.assertEqual(backend.decode(payload), result)
+        # results stored uncompressed remain readable
+        self.assertEqual(backend.decode(json.dumps(result)), result)
 
     def test_invalid_environment(self):
         # pylint: disable=protected-access
