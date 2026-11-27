@@ -59,9 +59,10 @@ by `__version__` in `src/tatc_app/__init__.py`.
   progress and failure of tasks.
 - Browser tests wait for the app's requests and dialogs rather than for fixed
   times or for the network to be idle (as the globe loads imagery), and run a
-  server for each test process rather than each module, so that CI runs them
-  in a process per CPU (`pytest tests/browser -n auto`): about 120 s rather
-  than 200 s in one process, and 55 to 65 s in 4.
+  server for each test process rather than each module, so that they may run
+  in parallel (`pytest tests/browser -n 4`): about 120 s rather than 200 s in
+  one process, and 55 to 65 s in 4, with CPUs to spare. CI runs them in one
+  process, as its few CPUs are busy with one.
 
 ### Fixed
 

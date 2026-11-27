@@ -387,7 +387,8 @@ To use an installed browser instead of Playwright's, set
 `TATC_BROWSER_CHANNEL` (for example, `chrome` or `msedge`). Each test process
 (`-n`) runs its own server, without sign in and with tasks run eagerly (see
 `tests/browser/serve.py`), and its own browser: 4 processes take about half
-the time of one.
+the time of one with CPUs to spare, but time out on 4 CPUs or fewer (as in
+CI), where one process is as fast.
 
 The [Tests](https://github.com/code-lab-org/tatc-app/blob/main/.github/workflows/test.yml)
 workflow checks the code style and runs the tests (with their coverage in the
