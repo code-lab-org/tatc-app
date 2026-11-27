@@ -21,7 +21,13 @@ from tatc.schemas import GroundStation, Satellite
 from ..analysis.summary import Weighting, summarize_latency
 from ..analysis.tasks import combine_animation, get_cell_targets, tag, untag
 from ..analysis.timeline import build_timeline
-from ..utils.serialization import concat, empty_frame, from_geojson, to_geojson
+from ..utils.serialization import (
+    concat,
+    empty_frame,
+    from_geojson,
+    to_geojson,
+    to_response_json,
+)
 from ..worker import app
 from .schemas import LatencyAnalysisResult
 
@@ -215,17 +221,19 @@ def combine_latency_task(
         for d in data
         if d["contacts"] is not None
     )
-    return LatencyAnalysisResult(
-        **compute_latency(
-            latencies,
-            contacts,
-            from_geojson(points),
-            from_geojson(cells, columns=["cell_id", "geometry"]),
-            [GroundStation.model_validate_json(station) for station in stations],
-            animation.epoch,
-            animation.members,
-            Weighting(weighting),
-        ),
-        tracks=animation.tracks,
-        colors=animation.colors,
-    ).model_dump_json()
+    return to_response_json(
+        LatencyAnalysisResult(
+            **compute_latency(
+                latencies,
+                contacts,
+                from_geojson(points),
+                from_geojson(cells, columns=["cell_id", "geometry"]),
+                [GroundStation.model_validate_json(station) for station in stations],
+                animation.epoch,
+                animation.members,
+                Weighting(weighting),
+            ),
+            tracks=animation.tracks,
+            colors=animation.colors,
+        )
+    )

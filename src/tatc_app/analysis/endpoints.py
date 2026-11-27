@@ -13,7 +13,7 @@ from uuid import UUID
 import numpy as np
 from celery import chord, group
 from celery.canvas import Signature
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 from pydantic import BaseModel
 from tatc.schemas import Satellite
 
@@ -124,7 +124,8 @@ def get_analysis_result(
     model: Type[ResultT], task_id: UUID, label: str, logger: logging.Logger
 ) -> ResultT:
     """
-    Retrieves the (JSON serialized) result of a completed analysis task.
+    Retrieves the (JSON serialized) result of a completed analysis task, as
+    a model.
 
     Args:
         model (Type[pydantic.BaseModel]): The result schema.
@@ -154,6 +155,10 @@ def add_result_routes(  # pylint: disable=too-many-arguments
     `cesium.czml.animation_packets`), followed by any other packets of the
     result.
 
+    Tasks store results as the endpoint responds with them (see
+    `utils.serialization.to_response_json`), so it returns them as they are:
+    its `response_model` only documents them.
+
     Args:
         router (fastapi.APIRouter): The router of the analysis.
         path (str): The path of the analysis (for example, `coverage`).
@@ -168,10 +173,12 @@ def add_result_routes(  # pylint: disable=too-many-arguments
     key = label.lower().replace(" ", "_")
 
     def retrieve(task_id: UUID):
-        return get_analysis_result(model, task_id, label, logger)
+        return Response(
+            get_task_result(task_id, label, logger), media_type="application/json"
+        )
 
     def retrieve_czml(task_id: UUID):
-        result = retrieve(task_id)
+        result = get_analysis_result(model, task_id, label, logger)
         packets = animation_packets(label, result)
         return packets if czml_packets is None else packets + czml_packets(result)
 

@@ -19,7 +19,7 @@ from tatc.schemas import Satellite
 
 from ..analysis.tasks import combine_animation, tag, untag
 from ..analysis.timeline import build_timeline
-from ..utils.serialization import concat, from_geojson, to_geojson
+from ..utils.serialization import concat, from_geojson, to_geojson, to_response_json
 from ..worker import app
 from .schemas import OverflightAnalysisResult
 
@@ -119,10 +119,12 @@ def combine_overflights_task(
     observations = concat(
         from_geojson(data, datetimes=TIME_COLUMNS) for data in untag(results, "obs")
     )
-    return OverflightAnalysisResult(
-        **compute_overflights(
-            observations, from_geojson(points), animation.epoch, animation.members
-        ),
-        tracks=animation.tracks,
-        colors=animation.colors,
-    ).model_dump_json()
+    return to_response_json(
+        OverflightAnalysisResult(
+            **compute_overflights(
+                observations, from_geojson(points), animation.epoch, animation.members
+            ),
+            tracks=animation.tracks,
+            colors=animation.colors,
+        )
+    )

@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
+import msgpack
 import numpy as np
 import pandas as pd
 from tatc.analysis import (
@@ -116,6 +117,32 @@ class CoverageAnalysisTestCase(TatcTestCase):
             {p["id"] for p in czml[1:]},
             {f"sat/{m.name}" for m in members} | {f"fp/{m.name}/0" for m in members},
         )
+
+    def test_result_as_stored(self):
+        # results are returned as tasks store them: as the endpoint's model
+        # would serialize them (by alias, without `None`), or as MessagePack
+        request = CoverageAnalysisRequest(
+            satellites=[self.satellite],
+            start=self.start,
+            end=self.end,
+            points=PointGenerator(method="equally_spaced", distance=5000e3),
+            cells=CellGenerator(method="equally_spaced", distance=5000e3),
+        )
+        result = self.analysis_result("/analyze/coverage", request)
+        response = self.client.get(f"/analyze/coverage/{self.task_id}")
+        self.assertEqual(response.headers["content-type"], "application/json")
+        self.assertEqual(
+            response.text,
+            CoverageAnalysisResult.model_validate(result).model_dump_json(
+                by_alias=True, exclude_none=True
+            ),
+        )
+        packed = self.client.get(
+            f"/analyze/coverage/{self.task_id}",
+            headers={"Accept": "application/x-msgpack"},
+        )
+        self.assertEqual(packed.headers["content-type"], "application/x-msgpack")
+        self.assertEqual(msgpack.unpackb(packed.content), result)
 
     def test_analyze_coverage_sufficiency(self):
         result = self.analysis_result(

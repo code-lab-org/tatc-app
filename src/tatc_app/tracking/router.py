@@ -4,12 +4,11 @@ Router specifications for tracking analysis endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import json
 import logging
 from uuid import UUID
 
 from celery import chord, group
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from geojson_pydantic import FeatureCollection
 
 from ..analysis.endpoints import chunk, serialize_members
@@ -112,7 +111,10 @@ def retrieve_orbit_track_analysis(task_id: UUID):
     Returns:
         FeatureCollection: Orbit track analysis results.
     """
-    return json.loads(get_task_result(task_id, "Orbit track analysis", logger))
+    return Response(
+        get_task_result(task_id, "Orbit track analysis", logger),
+        media_type="application/json",
+    )
 
 
 @router.post("/ground-track", response_model=CeleryTask)
@@ -148,4 +150,7 @@ def retrieve_ground_track_analysis(task_id: UUID):
     Returns:
         FeatureCollection: Ground track analysis results.
     """
-    return json.loads(get_task_result(task_id, "Ground track analysis", logger))
+    return Response(
+        get_task_result(task_id, "Ground track analysis", logger),
+        media_type="application/json",
+    )
