@@ -12,10 +12,6 @@ rather than imported by name, so tests can change them.
 import os
 from datetime import timedelta
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
 
 def _env_number(name: str, default: float) -> float:
     """
@@ -46,6 +42,10 @@ MAX_CELLS = int(_env_number("TATC_MAX_CELLS", 100_000))
 # spaced grid covers the bounds of the mask), which bounds the memory and
 # time of generation even when few candidates fall within the mask
 MAX_GRID_CANDIDATES = 5_000_000
+
+# maximum number of positions (member satellites times sample times) of a
+# request for orbit or ground tracks
+MAX_TRACK_POSITIONS = int(_env_number("TATC_MAX_TRACK_POSITIONS", 200_000))
 
 # maximum duration of the analysis period
 MAX_ANALYSIS_DURATION = timedelta(days=_env_number("TATC_MAX_ANALYSIS_DAYS", 366))

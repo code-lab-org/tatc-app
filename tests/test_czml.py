@@ -15,14 +15,14 @@ from tatc_app.analysis.tracks import (
     build_footprints,
 )
 from tatc_app.cesium.czml import (
-    display_polygons,
     document_packet,
     link_packets,
-    rgba,
     satellite_packets,
     site_packets,
     swath_packets,
 )
+from tatc_app.cesium.polygons import display_polygons
+from tatc_app.cesium.primitives import rgba
 
 EPOCH = datetime(2022, 1, 1, tzinfo=timezone.utc)
 

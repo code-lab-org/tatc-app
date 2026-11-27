@@ -21,8 +21,8 @@ from tatc.schemas import Satellite
 from ..analysis.sample_sizes import (
     POINT_COLUMNS,
     add_point_sizes,
+    drop_coarse,
     grid_sample_sizes,
-    meets_requirement,
     size_observations,
     summarize_point_sizes,
 )
@@ -56,28 +56,6 @@ OBSERVATION_COLUMNS = [
     "revisit",
     "geometry",
 ]
-
-
-def collect_aggregated_observations(
-    points: gpd.GeoDataFrame,
-    satellites: List[Satellite],
-    start: datetime,
-    end: datetime,
-) -> gpd.GeoDataFrame:
-    """
-    Collects and aggregates observations of points by all instruments of
-    satellites.
-
-    Args:
-        points (geopandas.GeoDataFrame): The points.
-        satellites (List[tatc.schemas.Satellite]): The satellites.
-        start (datetime.datetime): The start of the analysis period.
-        end (datetime.datetime): The end of the analysis period.
-
-    Returns:
-        geopandas.GeoDataFrame: The aggregated observations.
-    """
-    return collect_sized_observations(points, satellites, start, end)[0]
 
 
 def collect_sized_observations(
@@ -114,9 +92,7 @@ def collect_sized_observations(
     if sample_size is not None:
         sized = size_observations(observations, satellites)
         sizes = summarize_point_sizes(sized, sample_size.max_sample_size)
-        observations = sized[
-            meets_requirement(sized, sample_size.max_sample_size)
-        ].drop(columns="sample_size")
+        observations = drop_coarse(sized, sample_size.max_sample_size)
     if observations.empty:
         return empty_frame(OBSERVATION_COLUMNS), sizes
     return aggregate_observations(observations)[OBSERVATION_COLUMNS], sizes
@@ -167,9 +143,9 @@ def compute_coverage(  # pylint: disable=too-many-arguments
     points: gpd.GeoDataFrame,
     cells: gpd.GeoDataFrame,
     epoch: datetime,
+    end: datetime,
     members: List[str],
-    end: Optional[datetime] = None,
-    weighting: Weighting = Weighting.uniform,
+    weighting: Weighting,
     sufficiency: Optional[SufficiencyOptions] = None,
     sample_size: Optional[SampleSizeOptions] = None,
     sizes: Optional[pd.DataFrame] = None,
@@ -184,9 +160,8 @@ def compute_coverage(  # pylint: disable=too-many-arguments
         cells (geopandas.GeoDataFrame): The cells.
         epoch (datetime.datetime): The reference time (the start of the
             analysis period).
+        end (datetime.datetime): The end of the analysis period.
         members (List[str]): The member satellite names.
-        end (Optional[datetime.datetime]): The end of the analysis period
-            (without it, no summary or sufficiency).
         weighting (Weighting): The weighting of points in the summary.
         sufficiency (Optional[SufficiencyOptions]): Options to also assess
             the sampling sufficiency of points and cells, or `None`.
@@ -208,12 +183,8 @@ def compute_coverage(  # pylint: disable=too-many-arguments
         members,
     )
     cell_targets = get_cell_targets(reduced, cells)
-    summary = (
-        None
-        if end is None
-        else summarize_coverage(reduced, observations, weighting, epoch, end)
-    )
-    if sufficiency is not None and end is not None:
+    summary = summarize_coverage(reduced, observations, weighting, epoch, end)
+    if sufficiency is not None:
         assessed = compute_sufficiency(
             observations,
             reduced,
@@ -239,10 +210,9 @@ def compute_coverage(  # pylint: disable=too-many-arguments
             sizes if sizes is not None else pd.DataFrame(columns=POINT_COLUMNS),
         )
         gridded = grid_sample_sizes(reduced, gridded, cell_targets)
-        if summary is not None:
-            summary.sample_size = summarize_sample_sizes(
-                reduced, weighting, sample_size.max_sample_size
-            )
+        summary.sample_size = summarize_sample_sizes(
+            reduced, weighting, sample_size.max_sample_size
+        )
     return {
         "points": json.loads(to_geojson(reduced)),
         "cells": json.loads(to_geojson(gridded)),
@@ -258,9 +228,9 @@ def combine_coverage_task(
     points: str,
     cells: str,
     start: str,
+    end: str,
     colors: dict,
-    end: Optional[str] = None,
-    weighting: str = Weighting.uniform.value,
+    weighting: str,
     sufficiency: Optional[dict] = None,
     sample_size: Optional[dict] = None,
 ) -> str:
@@ -273,9 +243,8 @@ def combine_coverage_task(
         points (str): GeoJSON serialized points.
         cells (str): GeoJSON serialized cells.
         start (str): ISO 8601 serialized start time (reference time).
+        end (str): ISO 8601 serialized end time.
         colors (dict): Display colors by member satellite name.
-        end (Optional[str]): ISO 8601 serialized end time (without it, no
-            summary).
         weighting (str): The weighting of points in the summary (see
             `Weighting`).
         sufficiency (Optional[dict]): JSON serialized `SufficiencyOptions`,
@@ -307,8 +276,8 @@ def combine_coverage_task(
             from_geojson(points),
             from_geojson(cells, columns=["cell_id", "geometry"]),
             animation.epoch,
+            datetime.fromisoformat(end),
             animation.members,
-            None if end is None else datetime.fromisoformat(end),
             Weighting(weighting),
             (
                 None

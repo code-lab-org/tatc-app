@@ -6,7 +6,7 @@ Task specifications for latency analysis endpoints.
 
 import json
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 import geopandas as gpd
 from tatc.analysis import (
@@ -127,7 +127,7 @@ def compute_latency(
     stations: List[GroundStation],
     epoch: datetime,
     members: List[str],
-    weighting: Optional[Weighting] = None,
+    weighting: Weighting,
 ) -> dict:
     """
     Reduces latencies of observations to statistics of points and cells,
@@ -141,8 +141,7 @@ def compute_latency(
         stations (List[tatc.schemas.GroundStation]): The ground stations.
         epoch (datetime.datetime): The reference time.
         members (List[str]): The member satellite names.
-        weighting (Optional[Weighting]): The weighting of points in the
-            summary (without it, no summary).
+        weighting (Weighting): The weighting of points in the summary.
 
     Returns:
         dict: The `points`, `cells`, `timeline`, `contacts`, `stations`,
@@ -170,11 +169,7 @@ def compute_latency(
         ),
         "stations": stations,
         "cell_targets": get_cell_targets(reduced, cells),
-        "summary": (
-            None
-            if weighting is None
-            else summarize_latency(reduced, contacts, weighting)
-        ),
+        "summary": summarize_latency(reduced, contacts, weighting),
     }
 
 
@@ -186,7 +181,7 @@ def combine_latency_task(
     stations: list,
     start: str,
     colors: dict,
-    weighting: Optional[str] = None,
+    weighting: str,
 ) -> str:
     """
     Task to combine latencies of observations into latency statistics.
@@ -198,8 +193,8 @@ def combine_latency_task(
         stations (list): List of JSON serialized :class:`tatc.schemas.GroundStation` objects.
         start (str): ISO 8601 serialized start time (reference time).
         colors (dict): Display colors by member satellite name.
-        weighting (Optional[str]): The weighting of points in the summary
-            (see `Weighting`; without it, no summary).
+        weighting (str): The weighting of points in the summary (see
+            `Weighting`).
 
     Returns:
         str: JSON serialized `LatencyAnalysisResult`.
@@ -229,7 +224,7 @@ def combine_latency_task(
             [GroundStation.model_validate_json(station) for station in stations],
             animation.epoch,
             animation.members,
-            None if weighting is None else Weighting(weighting),
+            Weighting(weighting),
         ),
         tracks=animation.tracks,
         colors=animation.colors,

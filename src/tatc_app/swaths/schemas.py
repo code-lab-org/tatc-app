@@ -14,12 +14,12 @@ from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_valid
 from shapely.geometry import MultiPolygon, Polygon, box
 
 from ..analysis.schemas import MAX_DISPLAY_STEPS, AnalysisRequest, AnimatedResult
-from ..analysis.summary import RegionSummary
 from ..coincidence.schemas import CoincidencePlatforms
 from ..generation.masks import resolve_mask
 from ..generation.schemas import Mask, TimeGenerator, mask_spec
 from ..satellites import validate_instrument_index
 from ..utils.schemas import CamelModel
+from .summary import RegionSummary
 
 # the region of the known shape `global`
 GLOBE = box(-180, -90, 180, 90)

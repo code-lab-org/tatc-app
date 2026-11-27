@@ -4,30 +4,23 @@ Router specifications for cesium endpoints.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
+import os
+
 from fastapi import APIRouter
 from fastapi.responses import PlainTextResponse
 
+# the Cesium ion access token of clients
+CESIUM_TOKEN = os.getenv("TATC_CESIUM_TOKEN", "")
 
-def get_cesium_router(token: str) -> APIRouter:
+router = APIRouter()
+
+
+@router.get("/token", response_class=PlainTextResponse)
+async def get_cesium_token():
     """
-    Router that provides a single endpoint to retrieve the Cesium access token.
-
-    Args:
-        token (str): the Cesium access token
+    Endpoint to retrieve the Cesium access token.
 
     Returns:
-        APIRouter: the FastAPI router
+        PlainTextResponse: the response containing the access token
     """
-    router = APIRouter()
-
-    @router.get("/token", response_class=PlainTextResponse)
-    async def get_cesium_token():
-        """
-        Endpoint to retrieve the Cesium access token.
-
-        Returns:
-            PlainTextResponse: the response containing the access token
-        """
-        return token
-
-    return router
+    return CESIUM_TOKEN

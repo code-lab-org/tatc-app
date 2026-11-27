@@ -7,21 +7,25 @@ Shared utilities of analysis endpoints.
 import logging
 import math
 import os
-from typing import List, Optional, Type, TypeVar
+from typing import Callable, List, Optional, Type, TypeVar
 from uuid import UUID
 
 import numpy as np
 from celery import chord, group
 from celery.canvas import Signature
+from fastapi import APIRouter
 from pydantic import BaseModel
 from tatc.schemas import Satellite
 
 from ..celery.quota import TaskSlot
 from ..celery.utils import enqueue, get_task_result
-from .schemas import AnalysisRequest
+from ..cesium.czml import animation_packets
+from ..utils.serialization import MSGPACK_RESPONSES
+from .schemas import AnalysisRequest, AnimatedResult
 from .tasks import collect_member_track_task
 
 ResultT = TypeVar("ResultT", bound=BaseModel)
+AnimatedT = TypeVar("AnimatedT", bound=AnimatedResult)
 ItemsT = TypeVar("ItemsT")
 
 # number of points analyzed by each parallel task
@@ -132,3 +136,61 @@ def get_analysis_result(
         pydantic.BaseModel: The result.
     """
     return model.model_validate_json(get_task_result(task_id, label, logger))
+
+
+def add_result_routes(  # pylint: disable=too-many-arguments
+    router: APIRouter,
+    path: str,
+    model: Type[AnimatedT],
+    label: str,
+    logger: logging.Logger,
+    czml_description: str,
+    czml_packets: Optional[Callable[[AnimatedT], List[dict]]] = None,
+) -> None:
+    """
+    Adds the endpoints that retrieve the results of a completed analysis
+    task, `GET /{path}/{task_id}`, and its animation as a CZML document,
+    `GET /{path}/{task_id}/czml`: its member satellites (see
+    `cesium.czml.animation_packets`), followed by any other packets of the
+    result.
+
+    Args:
+        router (fastapi.APIRouter): The router of the analysis.
+        path (str): The path of the analysis (for example, `coverage`).
+        model (Type[AnimatedResult]): The result schema.
+        label (str): Human-readable analysis label (for example, "Coverage
+            analysis"), which also names the endpoints and CZML document.
+        logger (logging.Logger): Logger to write failures to.
+        czml_description (str): What the CZML document animates.
+        czml_packets (Optional[Callable]): Builds the other CZML packets of a
+            result, if any.
+    """
+    key = label.lower().replace(" ", "_")
+
+    def retrieve(task_id: UUID):
+        return get_analysis_result(model, task_id, label, logger)
+
+    def retrieve_czml(task_id: UUID):
+        result = retrieve(task_id)
+        packets = animation_packets(label, result)
+        return packets if czml_packets is None else packets + czml_packets(result)
+
+    router.add_api_route(
+        f"/{path}/{{task_id}}",
+        retrieve,
+        methods=["GET"],
+        name=f"retrieve_{key}",
+        description=f"Retrieves the results of a completed {label.lower()} task.",
+        response_model=model,
+        response_model_exclude_none=True,
+        responses=MSGPACK_RESPONSES,
+    )
+    router.add_api_route(
+        f"/{path}/{{task_id}}/czml",
+        retrieve_czml,
+        methods=["GET"],
+        name=f"retrieve_{key}_czml",
+        description=f"Retrieves a completed {label.lower()} task as a CZML "
+        f"document, animating {czml_description}.",
+        response_model=List[dict],
+    )

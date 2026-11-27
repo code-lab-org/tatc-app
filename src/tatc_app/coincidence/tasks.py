@@ -21,7 +21,7 @@ from tatc.analysis import (
 )
 from tatc.schemas import Satellite
 
-from ..analysis.sample_sizes import meets_requirement, size_observations
+from ..analysis.sample_sizes import drop_coarse, size_observations
 from ..analysis.tasks import deserialize_members, tag
 from ..coverage.tasks import OBSERVATION_COLUMNS
 from ..utils.serialization import empty_frame, from_geojson, to_geojson
@@ -87,7 +87,7 @@ def collect_coincident_observations(  # pylint: disable=too-many-arguments
     """
     Collects the coincident observations of points by all instruments of
     satellites, aggregated as observations (see
-    `coverage.tasks.collect_aggregated_observations`).
+    `coverage.tasks.collect_sized_observations`).
 
     Args:
         points (geopandas.GeoDataFrame): The points.
@@ -115,9 +115,8 @@ def collect_coincident_observations(  # pylint: disable=too-many-arguments
         points, satellites, start, end, instrument_index=None
     )
     if max_sample_size is not None:
-        sized = size_observations(observations, satellites)
-        observations = sized[meets_requirement(sized, max_sample_size)].drop(
-            columns="sample_size"
+        observations = drop_coarse(
+            size_observations(observations, satellites), max_sample_size
         )
     if observations.empty:
         return empty_frame(OBSERVATION_COLUMNS)

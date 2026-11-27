@@ -16,10 +16,6 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
 # the version of the database schema (`PRAGMA user_version`): 2 saves runs
 # under designs
 SCHEMA_VERSION = 2

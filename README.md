@@ -193,7 +193,11 @@ deployment stays responsive. Set these limits for the server:
    the bounds of its mask).
  * `TATC_MAX_ANALYSIS_DAYS`: maximum duration of an analysis period, in days
    (default: `366`)
- * `TATC_MAX_ACTIVE_ANALYSES`: maximum number of analyses each user may have
+ * `TATC_MAX_TRACK_POSITIONS`: maximum number of positions of an orbit or
+   ground track request: its member satellites times its sample times
+   (default: `200000`)
+ * `TATC_MAX_ACTIVE_ANALYSES`: maximum number of analyses (including orbit
+   and ground tracks) each user may have
    running at once (default: `3`; `0` for no limit). Further analyses are
    refused (HTTP 429) until one finishes or is canceled. The server tracks
    running analyses in memory, so the limit applies per server process.

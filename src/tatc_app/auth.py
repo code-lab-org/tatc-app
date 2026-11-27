@@ -22,16 +22,12 @@ from urllib.parse import urlparse
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from authlib.jose import JsonWebKey, JsonWebToken
 from authlib.jose.errors import JoseError
-from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
-
-# Load environment variables from the .env file
-load_dotenv()
 
 
 class User(BaseModel):

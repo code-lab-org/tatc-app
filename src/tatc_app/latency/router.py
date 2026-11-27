@@ -6,22 +6,21 @@ Router specifications for latency analysis endpoints.
 
 import logging
 from typing import List
-from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
 from ..analysis.endpoints import (
+    add_result_routes,
     chunk,
     enqueue_analysis,
-    get_analysis_result,
     serialize_members,
 )
 from ..analysis.summary import get_weighting
 from ..celery.quota import TaskSlot, analysis_slot
 from ..celery.schemas import CeleryTask
-from ..cesium.czml import animation_packets, link_packets, site_packets
+from ..cesium.czml import link_packets, site_packets
 from ..generation.utils import resolve_cells, resolve_points
-from ..utils.serialization import MSGPACK_RESPONSES, to_geojson
+from ..utils.serialization import to_geojson
 from .schemas import LatencyAnalysisRequest, LatencyAnalysisResult
 from .tasks import collect_latencies_task, combine_latency_task
 
@@ -78,53 +77,27 @@ def enqueue_latency_analysis(
     )
 
 
-def _get_latency_result(task_id: UUID) -> LatencyAnalysisResult:
-    return get_analysis_result(
-        LatencyAnalysisResult, task_id, "Latency analysis", logger
-    )
+def _latency_packets(result: LatencyAnalysisResult) -> List[dict]:
+    """
+    Builds the CZML packets of the ground stations of a latency analysis and
+    of their contacts.
+    """
+    return site_packets(
+        "gs",
+        [(s.name, s.name, s.longitude, s.latitude) for s in result.stations],
+        color="#ffd166",
+        pixel_size=9,
+        label=True,
+    ) + link_packets(result.contacts, "gs", result.colors)
 
 
-@router.get(
-    "/latency/{task_id}",
-    response_model=LatencyAnalysisResult,
-    response_model_exclude_none=True,
-    responses=MSGPACK_RESPONSES,
+add_result_routes(
+    router,
+    "latency",
+    LatencyAnalysisResult,
+    "Latency analysis",
+    logger,
+    czml_description="its member satellites, ground stations, and contacts "
+    "(clients animate its points and cells from the observation timeline)",
+    czml_packets=_latency_packets,
 )
-def retrieve_latency_analysis(task_id: UUID):
-    """
-    Endpoint to retrieve results of a completed latency analysis task.
-
-    Args:
-        task_id (UUID): Task unique identifier.
-
-    Returns:
-        LatencyAnalysisResult: Latency analysis results.
-    """
-    return _get_latency_result(task_id)
-
-
-@router.get("/latency/{task_id}/czml", response_model=List[dict])
-def retrieve_latency_analysis_czml(task_id: UUID):
-    """
-    Endpoint to retrieve the satellites, ground stations, and contacts of a
-    completed latency analysis task as a CZML document (points and cells are
-    animated by clients from the observation timeline).
-
-    Args:
-        task_id (UUID): Task unique identifier.
-
-    Returns:
-        List[dict]: CZML packets.
-    """
-    result = _get_latency_result(task_id)
-    return (
-        animation_packets("Latency analysis", result)
-        + site_packets(
-            "gs",
-            [(s.name, s.name, s.longitude, s.latitude) for s in result.stations],
-            color="#ffd166",
-            pixel_size=9,
-            label=True,
-        )
-        + link_packets(result.contacts, "gs", result.colors)
-    )

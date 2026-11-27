@@ -12,70 +12,51 @@ from tatc.analysis import collect_ground_track, collect_orbit_track
 from tatc.schemas import Satellite
 
 from ..analysis.tasks import parse_times
-from ..utils.serialization import to_geojson
+from ..utils.serialization import concat, to_geojson
 from ..worker import app
 
-
-@app.task
-def collect_orbit_track_task(
-    satellite: str,
-    instrument_index: Optional[int],
-    times: list,
-    elevation: float,
-    mask: Optional[dict],
-) -> str:
-    """
-    Task to collect orbit track.
-
-    Args:
-        satellite (str): JSON serialized :class:`tatc.schemas.Satellite` object.
-        instrument_index (Optional[int]): Instrument index, or `None` for all.
-        times (list): List of ISO 8601 serialized times.
-        elevation (float): Elevation (meters) above datum in the WGS 84 coordinate system.
-        mask (Optional[dict]): Optional GeoJSON mask to constrain points.
-
-    Returns:
-        str: GeoJSON serialized orbit track.
-    """
-    results = collect_orbit_track(
-        Satellite.model_validate_json(satellite),
-        parse_times(times),
-        instrument_index,
-        elevation,
-        shape(mask) if mask is not None else None,
-    )
-    return to_geojson(results)
+# functions that collect the tracks of a satellite, by kind of track
+TRACKS = {"orbit": collect_orbit_track, "ground": collect_ground_track}
 
 
 @app.task
-def collect_ground_track_task(
-    satellite: str,
+def collect_track_task(  # pylint: disable=too-many-arguments
+    kind: str,
+    satellites: List[str],
     instrument_index: Optional[int],
     times: list,
     elevation: Optional[float],
     mask: Optional[dict],
 ) -> str:
     """
-    Task to collect ground track.
+    Task to collect the orbit or ground tracks of satellites.
 
     Args:
-        satellite (str): JSON serialized :class:`tatc.schemas.Satellite` object.
+        kind (str): The kind of track (`orbit` or `ground`, see `TRACKS`).
+        satellites (List[str]): JSON serialized :class:`tatc.schemas.Satellite` objects.
         instrument_index (Optional[int]): Instrument index, or `None` for all.
         times (list): List of ISO 8601 serialized times.
         elevation (Optional[float]): Elevation (meters) above datum in the WGS 84 coordinate system.
         mask (Optional[dict]): Optional GeoJSON mask to constrain points.
 
     Returns:
-        str: GeoJSON serialized ground track.
+        str: GeoJSON serialized tracks.
     """
-    results = collect_ground_track(
-        Satellite.model_validate_json(satellite),
-        parse_times(times),
-        instrument_index,
-        elevation,
-        shape(mask) if mask is not None else None,
+    collect = TRACKS[kind]
+    sample_times = parse_times(times)
+    geometry = shape(mask) if mask is not None else None
+    return to_geojson(
+        concat(
+            collect(
+                Satellite.model_validate_json(satellite),
+                sample_times,
+                instrument_index,
+                elevation,
+                geometry,
+            )
+            for satellite in satellites
+        )
     )
-    return to_geojson(results)
 
 
 @app.task

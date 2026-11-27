@@ -14,6 +14,9 @@ by `__version__` in `src/tatc_app/__init__.py`.
 - `TATC_GENERATION_TIMEOUT`: time that a request waits for a worker to
   generate its points or cells before failing (HTTP 503), 300 seconds by
   default.
+- `TATC_MAX_TRACK_POSITIONS`: maximum number of positions (member satellites
+  times sample times) of an orbit or ground track request, 200,000 by
+  default (HTTP 422 beyond it).
 
 ### Changed
 
@@ -24,6 +27,18 @@ by `__version__` in `src/tatc_app/__init__.py`.
 - The frontend is part of the package (`src/tatc_app/static`), so the server
   no longer depends on starting from the project root.
 - Listing saved designs and runs no longer reads their data and inputs.
+- Simplify the backend: analyses share their result endpoints, the CZML
+  builders are split into modules, swath summaries are in the swaths
+  package, and the `.env` file is loaded once. The API and the results of
+  analyses are unchanged.
+- Orbit and ground track requests count toward `TATC_MAX_ACTIVE_ANALYSES`
+  (HTTP 429 beyond it), and are analyzed in tasks of about 1,000 positions
+  (several member satellites each, if they have few times) rather than one
+  task for every 100 times of each member.
+- The tasks that combine coverage and latency analyses and that collect
+  tracks take new arguments: update workers with the server.
+- Declare the libraries the app imports (geopandas, numpy, pandas, pyproj,
+  and shapely), require authlib < 2, and drop unused aiofiles and tzlocal.
 
 ### Fixed
 
