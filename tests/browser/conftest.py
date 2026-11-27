@@ -26,6 +26,19 @@ from .helpers import track_requests, wait_for_requests
 ENABLED = os.getenv("TATC_BROWSER_TESTS", "0") == "1"
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Animation frames come every 500 ms rather than with the display (60 times a
+# second). Cesium draws the globe in every frame, which without a GPU (as in
+# CI) the browser does in software, at a cost of seconds of CPU per frame:
+# drawing as many frames as it can keeps every CPU busy, so the app and the
+# server (which runs the analyses) wait their turn. Nothing else in the app
+# animates with frames but jQuery's fades, which last as long at any rate.
+SLOW_ANIMATION_FRAMES = """(() => {
+    const interval = 500;
+    window.requestAnimationFrame = (callback) =>
+        window.setTimeout(() => callback(performance.now()), interval);
+    window.cancelAnimationFrame = (id) => window.clearTimeout(id);
+})();"""
+
 
 def pytest_collection_modifyitems(config, items):  # pylint: disable=unused-argument
     """
@@ -94,10 +107,11 @@ def browser():
 @pytest.fixture
 def page(browser, app_url):  # pylint: disable=redefined-outer-name
     """
-    Opens the app in a new browser context, and checks that it logs no
-    script errors.
+    Opens the app in a new browser context, with slow animation frames (see
+    `SLOW_ANIMATION_FRAMES`), and checks that it logs no script errors.
     """
     context = browser.new_context(viewport={"width": 1400, "height": 900})
+    context.add_init_script(SLOW_ANIMATION_FRAMES)
     opened = context.new_page()
     errors = []
     opened.on(

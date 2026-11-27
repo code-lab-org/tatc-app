@@ -62,7 +62,12 @@ by `__version__` in `src/tatc_app/__init__.py`.
   server for each test process rather than each module, so that they may run
   in parallel (`pytest tests/browser -n 4`): about 120 s rather than 200 s in
   one process, and 55 to 65 s in 4, with CPUs to spare. CI runs them in one
-  process, as its few CPUs are busy with one.
+  process, as its few CPUs are busy with one, and logs the time of each test
+  (`--durations=0`).
+- Browser tests have animation frames every 500 ms rather than 60 times a
+  second, as without a GPU (as in CI) Cesium draws each frame of the globe in
+  software, at seconds of CPU per frame: with software rendering, the tests
+  take about 140 s rather than 570 s.
 - Workers store analysis results as the endpoints respond with them, so the
   endpoints return them as stored rather than parse, validate, and serialize
   them again; and responses are gzipped at level 4 rather than 9 (4 to 5
