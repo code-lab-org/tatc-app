@@ -9,6 +9,12 @@ by `__version__` in `src/tatc_app/__init__.py`.
 
 ## [Unreleased]
 
+### Fixed
+
+- The animation of satellites and their footprints shows after running an
+  analysis: it loaded hidden, as the analysis layer stayed hidden from
+  before there were results to show.
+
 ## [2.2.0] - 2026-11-27
 
 ### Added

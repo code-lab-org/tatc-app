@@ -403,6 +403,11 @@ export function startAnalysis(type, payload, designSnapshot) {
         updateDisplayModes(type, result);
         applyDisplayMode();
       }
+      // the layer is hidden while there are no results of this type (see
+      // `changeAnalysisType`), and a loaded layer keeps whether it is shown:
+      // show the results' animation, unless another tab is open (opening
+      // this tab shows it)
+      showCzmlLayer("analysis", $("#nav-analysis-tab").hasClass("active"));
       loadCzmlLayer("analysis", endpoint + "/" + taskId + "/czml", { clock: false }).then(function(source) {
         if (!source) {
           return;
