@@ -81,6 +81,9 @@ by `__version__` in `src/tatc_app/__init__.py`.
 - Swath coverage curves of a region compute the area observed only at the
   times that observe more of it (for example, 43 ms rather than 376 ms for a
   region observed at 18 of the curve's 201 times).
+- Deploy only after the images of a push to `main` are built (once its tests
+  pass), rather than also as soon as it is pushed: a push that fails its tests
+  no longer deploys its compose and config files with the previous images.
 
 ### Fixed
 

@@ -1,9 +1,10 @@
 name: Deploy to EC2
 
+# Deploys only after the images of a push to main are built, which happens
+# only once its tests pass (see ghcr-push-image.yml): every push builds the
+# images, so compose and config changes deploy then too, and a push that
+# fails its tests deploys nothing. Run by hand to redeploy without a push.
 on:
-  push:
-    branches:
-      - main
   workflow_run:
     workflows: ["Build and push GHCR images"]
     types:
@@ -13,10 +14,9 @@ on:
   workflow_dispatch:
 
 # Serialize deploys so two SSH sessions never race `docker compose up -d`
-# against each other. A push to main fires both triggers above (once
-# immediately, once again after the image finishes building) - queueing
-# rather than cancelling means the second run still lands on the
-# freshly-pushed image even if the first one raced ahead of it.
+# against each other (for example, a manual run during a build's deploy, or
+# two pushes in quick succession) - queueing rather than cancelling means the
+# last run still lands on the latest images.
 concurrency:
   group: deploy-ec2
   cancel-in-progress: false

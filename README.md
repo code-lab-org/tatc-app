@@ -569,13 +569,14 @@ mv redis.acl.local redis.acl
 
 ### Auto-deploy
 
-`.github/workflows/deploy.yml` redeploys the server host over SSH:
-- on every push to `main` (picks up compose/config changes), and
-- after `ghcr-push-image.yml` finishes pushing new images (picks up
-  server/worker code changes, after the images are actually available in
-  GHCR rather than racing them).
+`.github/workflows/deploy.yml` redeploys the server host over SSH after
+`ghcr-push-image.yml` finishes pushing the images of a push to `main`. Every
+push to `main` builds the images, once its tests pass, so compose and config
+changes deploy then too; a push that fails its tests deploys nothing, rather
+than its compose and config with the previous images. Run the workflow by
+hand (`workflow_dispatch`) to redeploy without a push.
 
-Both triggers run the same thing: `config/deploy/deploy.sh` on the instance,
+Either way, it runs `config/deploy/deploy.sh` on the instance,
 which fast-forwards the checkout to `main` (`git merge --ff-only`), pulls the
 images and restarts the containers (`docker compose -f compose.server.yml
 pull` and `up -d`), and prunes unused images. It fails loudly rather than
