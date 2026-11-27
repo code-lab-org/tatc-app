@@ -62,7 +62,8 @@ def collect_track_task(  # pylint: disable=too-many-arguments
 @app.task
 def merge_feature_collections_task(collections: List[str]) -> str:
     """
-    Task to merge feature collections into one feature collection.
+    Task to merge feature collections into one (compact) feature collection,
+    which the track endpoints return as it is.
 
     Args:
         collections (List[str]): GeoJSON serialized feature collections.
@@ -78,5 +79,6 @@ def merge_feature_collections_task(collections: List[str]) -> str:
                 for collection in collections
                 for feature in json.loads(collection)["features"]
             ],
-        }
+        },
+        separators=(",", ":"),
     )

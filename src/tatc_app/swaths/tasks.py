@@ -36,7 +36,13 @@ from ..analysis.tasks import (
     tag,
     untag,
 )
-from ..utils.serialization import concat, empty_frame, from_geojson, to_geojson
+from ..utils.serialization import (
+    concat,
+    empty_frame,
+    from_geojson,
+    to_geojson,
+    to_response_json,
+)
 from ..worker import app
 from .schemas import RegionObservation, SwathAnalysisResult
 from .summary import curve_seconds, seconds_since, summarize_region
@@ -442,7 +448,7 @@ def combine_swaths_task(  # pylint: disable=too-many-arguments,too-many-locals
         result |= _region_results(
             results, shape(json.loads(region)), start_time, end_time, coincidence
         )
-    return SwathAnalysisResult(**result).model_dump_json()
+    return to_response_json(SwathAnalysisResult(**result))
 
 
 def _region_results(

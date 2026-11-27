@@ -19,8 +19,10 @@ import pandas as pd
 from tatc.analysis import collect_ground_track, collect_orbit_track
 from tatc.schemas import Instrument, Satellite
 
+from ..generation.schemas import TimeGenerator
 from ..worker import app
 from .colors import assign_colors
+from .schemas import get_display_times
 from .tracks import MemberTrack, OrbitTracks, build_member_track
 
 # maximum swath width (meters) of a footprint drawn as a circle: Cesium
@@ -120,14 +122,15 @@ def compute_member_track(
 
 @app.task
 def collect_member_track_task(
-    satellite: str, times: list, epoch: str, colors: Optional[list] = None
+    satellite: str, display: dict, epoch: str, colors: Optional[list] = None
 ) -> dict:
     """
     Task to collect the orbit track of a member satellite to animate results.
 
     Args:
         satellite (str): JSON serialized :class:`tatc.schemas.Satellite` object.
-        times (list): List of ISO 8601 serialized times.
+        display (dict): JSON serialized `TimeGenerator` of the display times
+            (rather than the times, up to `MAX_DISPLAY_STEPS` for each member).
         epoch (str): ISO 8601 serialized reference time.
         colors (Optional[list]): Display colors of the instruments (in
             order, `None` to derive one from the satellite color).
@@ -137,7 +140,7 @@ def collect_member_track_task(
     """
     track = compute_member_track(
         Satellite.model_validate_json(satellite),
-        parse_times(times),
+        get_display_times(TimeGenerator.model_validate(display)),
         datetime.fromisoformat(epoch),
     )
     for instrument, color in zip(track.instruments, colors or []):

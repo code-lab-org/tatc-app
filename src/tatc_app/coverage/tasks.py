@@ -41,7 +41,13 @@ from ..analysis.tasks import (
     untag,
 )
 from ..analysis.timeline import build_timeline
-from ..utils.serialization import concat, empty_frame, from_geojson, to_geojson
+from ..utils.serialization import (
+    concat,
+    empty_frame,
+    from_geojson,
+    to_geojson,
+    to_response_json,
+)
 from ..worker import app
 from .schemas import CoverageAnalysisResult, SampleSizeOptions, SufficiencyOptions
 
@@ -270,27 +276,29 @@ def combine_coverage_task(
         )
         for data in untag(results, "obs")
     )
-    return CoverageAnalysisResult(
-        **compute_coverage(
-            observations,
-            from_geojson(points),
-            from_geojson(cells, columns=["cell_id", "geometry"]),
-            animation.epoch,
-            datetime.fromisoformat(end),
-            animation.members,
-            Weighting(weighting),
-            (
-                None
-                if sufficiency is None
-                else SufficiencyOptions.model_validate(sufficiency)
+    return to_response_json(
+        CoverageAnalysisResult(
+            **compute_coverage(
+                observations,
+                from_geojson(points),
+                from_geojson(cells, columns=["cell_id", "geometry"]),
+                animation.epoch,
+                datetime.fromisoformat(end),
+                animation.members,
+                Weighting(weighting),
+                (
+                    None
+                    if sufficiency is None
+                    else SufficiencyOptions.model_validate(sufficiency)
+                ),
+                (
+                    None
+                    if sample_size is None
+                    else SampleSizeOptions.model_validate(sample_size)
+                ),
+                sizes,
             ),
-            (
-                None
-                if sample_size is None
-                else SampleSizeOptions.model_validate(sample_size)
-            ),
-            sizes,
-        ),
-        tracks=animation.tracks,
-        colors=animation.colors,
-    ).model_dump_json()
+            tracks=animation.tracks,
+            colors=animation.colors,
+        )
+    )

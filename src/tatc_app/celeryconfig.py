@@ -25,6 +25,17 @@ task_routes = {
 }
 task_compression = "gzip"
 
+# Results (several megabytes of JSON for large analyses) are stored gzipped,
+# about a fifth of their size. Celery (>= 5.7) marks compressed results, so
+# results stored before remain readable.
+result_compression = "gzip"
+
+# Each worker process reserves only the task it runs (and one more), rather
+# than four: analysis tasks run for seconds, so reserving more would hold
+# tasks (including generation tasks, which requests wait for) behind them
+# while other processes are idle.
+worker_prefetch_multiplier = 1
+
 # keep results for a known time (Celery's default is one day) so clients
 # and the per-user limit of running analyses can rely on it
 result_expires = limits.RESULT_EXPIRES

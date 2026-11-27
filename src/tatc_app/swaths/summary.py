@@ -146,15 +146,18 @@ def _cumulative_curve(
     by_bin = {}
     for row in pieces.itertuples():
         by_bin.setdefault(int(row.bin), []).append(row.geometry)
-    observed = None
+    observed, share = None, 0.0
     for k in range(len(times)):
+        # (the share changes only at times that observe more of the area)
         if k in by_bin:
             piece = shapely.union_all(by_bin[k])
             observed = piece if observed is None else shapely.union(observed, piece)
-        if observed is not None and region_area > 0:
-            shares[k] = min(
-                1.0, area_km2(shapely.intersection(observed, region)) / region_area
-            )
+            if region_area > 0:
+                share = min(
+                    1.0,
+                    area_km2(shapely.intersection(observed, region)) / region_area,
+                )
+        shares[k] = share
     return sampled_curve(times, shares), float(shares[-1])
 
 

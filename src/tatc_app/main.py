@@ -44,10 +44,14 @@ app = FastAPI(
     description="Modeling tool for pre-Phase A architecture analysis for Earth science space missions.",
     version=__version__,
 )
-# Add MessagePack middleware to allow application/msgpack responses
-app.add_middleware(MessagePackMiddleware)
-# Add GZip middleware to allow compressed responses
-app.add_middleware(GZipMiddleware)
+# Add MessagePack middleware to respond with MessagePack to requests that
+# accept it (`Accept: application/x-msgpack`, the type documented by the API;
+# msgpack-asgi otherwise expects `application/vnd.msgpack`)
+app.add_middleware(MessagePackMiddleware, content_type="application/x-msgpack")
+# Add GZip middleware to allow compressed responses: at level 4 rather than
+# 9 (the default), which takes 4 to 5 times as long to compress results of
+# several megabytes, for responses only 4 to 5% smaller
+app.add_middleware(GZipMiddleware, compresslevel=4)
 # Add signed session cookies for users signed in with the OIDC provider
 app.add_middleware(
     SessionMiddleware,

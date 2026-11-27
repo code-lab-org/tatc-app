@@ -13,6 +13,7 @@ from typing import Iterable, Optional
 
 import geopandas as gpd
 import pandas as pd
+from pydantic import BaseModel
 
 # OpenAPI metadata of endpoints that also respond with MessagePack (for
 # requests with `Accept: application/x-msgpack`, see
@@ -20,6 +21,21 @@ import pandas as pd
 MSGPACK_RESPONSES = {
     "200": {"content": {"application/json": {}, "application/x-msgpack": {}}}
 }
+
+
+def to_response_json(result: BaseModel) -> str:
+    """
+    Serializes the result of an analysis as its endpoint responds with it (by
+    alias, without `None` values), so the endpoint returns the stored result
+    as it is, without parsing and validating it again.
+
+    Args:
+        result (pydantic.BaseModel): The result.
+
+    Returns:
+        str: The JSON serialized result.
+    """
+    return result.model_dump_json(by_alias=True, exclude_none=True)
 
 
 def empty_frame(columns: Iterable[str] = ()) -> gpd.GeoDataFrame:

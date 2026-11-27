@@ -23,7 +23,7 @@ dependencies = [
     "aiohttp",
     # authlib.jose (used to validate ID tokens) is removed in authlib 2
     "authlib >= 1.3, < 2",
-    "celery[redis]",
+    "celery[redis] >= 5.7",
     "fastapi >= 0.110.0",
     "geojson-pydantic",
     # also installed by tatc, but imported directly
@@ -32,7 +32,7 @@ dependencies = [
     "httpx",
     # used, but not required, by Starlette's SessionMiddleware
     "itsdangerous",
-    "msgpack-asgi",
+    "msgpack-asgi >= 2",
     # also installed by tatc, but imported directly
     "numpy",
     "pandas",
