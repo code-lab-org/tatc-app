@@ -136,6 +136,35 @@ def analysis_error(page) -> str:
     )
 
 
+def wait_for_animation(page) -> dict:
+    """
+    Waits until the animation of the analysis results (its CZML layer) has
+    loaded.
+
+    Returns:
+        dict: Whether the layer is `shown`, and the identifiers of its
+            satellite `entities` (`sat/<name>`).
+    """
+    # the module as the page imported it (same URL, same module), imported
+    # once: polling stops at the first truthy value, and the promise of an
+    # async predicate is truthy, so the predicate is synchronous
+    layers = page.evaluate_handle(
+        '() => import(new URL("layers.js", document.baseURI).href)'
+    )
+    return page.wait_for_function(
+        """(layers) => {
+            const source = layers.getCzmlLayer("analysis");
+            return source && {
+                shown: source.show,
+                entities: source.entities.values
+                    .map((entity) => entity.id)
+                    .filter((id) => id.startsWith("sat/")),
+            };
+        }""",
+        arg=layers,
+    ).json_value()
+
+
 def show_results(page) -> dict:
     """
     Opens the results dialog of the analysis results.

@@ -10,6 +10,7 @@ from .helpers import (
     run_analysis,
     set_checked,
     show_results,
+    wait_for_animation,
 )
 
 # analysis types, and whether their results have a summary
@@ -27,6 +28,10 @@ def test_run_analysis(page, analysis, summary):
     add_sites_and_satellite(page)
     open_analysis_tab(page, analysis)
     assert run_analysis(page) == ""
+    # the satellites (and their footprints) are animated
+    animation = wait_for_animation(page)
+    assert animation["shown"]
+    assert animation["entities"]
     shown = show_results(page)
     assert shown["rows"] > 0
     assert bool(shown["summary"]) == summary
