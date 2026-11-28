@@ -9,6 +9,8 @@ by `__version__` in `src/tatc_app/__init__.py`.
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-11-27
+
 ### Fixed
 
 - The animation of satellites and their footprints shows after running an
@@ -194,7 +196,8 @@ by `__version__` in `src/tatc_app/__init__.py`.
 
 - Web application extracted from TAT-C into its own package.
 
-[Unreleased]: https://github.com/code-lab-org/tatc-app/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/code-lab-org/tatc-app/compare/v2.2.1...HEAD
+[2.2.1]: https://github.com/code-lab-org/tatc-app/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/code-lab-org/tatc-app/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/code-lab-org/tatc-app/compare/ae1ad0e...v2.1.0
 [2.0.0]: https://github.com/code-lab-org/tatc-app/commit/ae1ad0e
